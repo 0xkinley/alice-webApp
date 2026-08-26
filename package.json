@@ -1,0 +1,22 @@
+{
+  "name": "alice-mcp-compatibility-spike",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Milestone 01 remote MCP compatibility spike for alice.",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "check": "node --check src/server.js && node --test"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/express": "2.0.0",
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "express": "5.1.0",
+    "zod": "4.4.3"
+  }
+}

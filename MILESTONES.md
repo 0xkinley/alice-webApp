@@ -39,7 +39,7 @@ Prove that eligible ChatGPT and Claude accounts can complete the full authentica
 Tasks:
 
 - [x] Define the canonical four-decision round-trip fixture and baseline copy/paste comparison.
-- [ ] Create the minimum publicly reachable authenticated MCP endpoint.
+- [x] Create the minimum publicly reachable authenticated MCP endpoint.
 - [ ] Add an authenticated project-context read tool.
 - [ ] Add an append-only candidate-update write tool.
 - [ ] Store the exact submitted payload as immutable evidence before creating candidate claims.

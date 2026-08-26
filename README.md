@@ -15,4 +15,23 @@ The first product test is a complete ChatGPT → alice. → Claude → alice. �
 - [Initial threat model](docs/threat-model.md)
 - [Repository instructions](AGENTS.md)
 
-Implementation has not started. Every milestone begins in a new Codex chat and a dedicated milestone branch, as defined in `AGENTS.md`.
+## Milestone 01 spike
+
+The spike server is a deliberately small Node.js implementation of a remote Streamable HTTP MCP endpoint with OAuth authorization-code + PKCE, dynamic client registration, refresh tokens, and token revocation.
+
+```bash
+npm install
+cp .env.example .env
+# Export the values from .env, then:
+npm start
+```
+
+`ALICE_PUBLIC_URL` must be the externally reachable HTTPS origin used by the MCP clients. Runtime data and credentials live under `.data/` by default and are ignored by Git.
+
+Run the protocol and security checks with:
+
+```bash
+npm test
+```
+
+Every milestone begins in a new Codex chat and a dedicated milestone branch, as defined in `AGENTS.md`.
