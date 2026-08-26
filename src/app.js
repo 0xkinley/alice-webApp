@@ -8,6 +8,7 @@ import {
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { saveCandidateUpdate } from "./candidate-updates.js";
 import { openDatabase } from "./database.js";
 import { createOAuth } from "./oauth.js";
 import { getProjectContext, listProjects } from "./project-context.js";
@@ -16,7 +17,7 @@ function authenticatedUserId(context) {
   return context.http?.authInfo?.extra?.userId;
 }
 
-function createProtocolServer(database) {
+function createProtocolServer(database, publicUrl) {
   const server = new McpServer({ name: "alice-mcp-compatibility-spike", version: "0.1.0" });
 
   server.registerTool(
@@ -70,6 +71,68 @@ function createProtocolServer(database) {
     },
   );
 
+  server.registerTool(
+    "save_project_update",
+    {
+      title: "Save a candidate project update to alice.",
+      description:
+        "Use only after the user explicitly asks to save or record an update in alice. Stores immutable submitted evidence and pending candidate claims for human review. Never changes trusted project state.",
+      inputSchema: z.object({
+        project_id: z.string().min(1).max(200).describe("Project identifier returned by list_projects"),
+        summary: z.string().min(1).max(1_000),
+        candidate_claims: z
+          .array(
+            z.object({
+              state_key: z
+                .string()
+                .min(1)
+                .max(200)
+                .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/),
+              value: z.json(),
+              summary: z.string().min(1).max(500),
+            }),
+          )
+          .min(1)
+          .max(20),
+        source_note: z.string().max(4_000).optional(),
+        idempotency_key: z.string().min(8).max(200),
+      }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (payload, context) => {
+      const authInfo = context.http?.authInfo;
+      if (!authInfo?.scopes.includes("mcp:write")) {
+        return {
+          content: [{ type: "text", text: "The connection does not grant mcp:write." }],
+          isError: true,
+        };
+      }
+      const result = saveCandidateUpdate(database, {
+        clientId: authInfo.clientId,
+        publicUrl,
+        userId: authenticatedUserId(context),
+        payload,
+      });
+      if (result.error) {
+        return { content: [{ type: "text", text: result.error }], isError: true };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: `${result.candidate_ids.length} candidate claim(s) saved for human review. Trusted state was not changed. ${JSON.stringify(result)}`,
+          },
+        ],
+        structuredContent: result,
+      };
+    },
+  );
+
   return server;
 }
 
@@ -109,7 +172,7 @@ export function createApp({ databaseFilename, passphrase, publicUrl }) {
   });
 
   app.all("/mcp", authenticate, async (request, response) => {
-    const protocolServer = createProtocolServer(database);
+    const protocolServer = createProtocolServer(database, publicUrl);
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.on("close", () => {
       void transport.close();

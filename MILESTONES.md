@@ -41,7 +41,7 @@ Tasks:
 - [x] Define the canonical four-decision round-trip fixture and baseline copy/paste comparison.
 - [x] Create the minimum publicly reachable authenticated MCP endpoint.
 - [x] Add an authenticated project-context read tool.
-- [ ] Add an append-only candidate-update write tool.
+- [x] Add an append-only candidate-update write tool.
 - [ ] Store the exact submitted payload as immutable evidence before creating candidate claims.
 - [ ] Add the minimum review action required to accept candidates into trusted state.
 - [ ] Verify authenticated read and write calls from the target ChatGPT account.
