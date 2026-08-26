@@ -14,14 +14,24 @@ function clientClassification(database, clientId) {
   return "unknown_mcp_client";
 }
 
-function existingSubmission(database, clientId, projectId, idempotencyKey, reviewUrl) {
+function existingSubmission(
+  database,
+  clientId,
+  projectId,
+  idempotencyKey,
+  payloadHash,
+  reviewUrl,
+) {
   const evidence = database
     .prepare(
-      `SELECT id FROM evidence_events
+      `SELECT id, payload_hash FROM evidence_events
        WHERE client_id = ? AND project_id = ? AND idempotency_key = ?`,
     )
     .get(clientId, projectId, idempotencyKey);
   if (!evidence) return undefined;
+  if (evidence.payload_hash !== payloadHash) {
+    return { error: "The idempotency key was already used with a different payload." };
+  }
   const candidates = database
     .prepare("SELECT id FROM candidate_claims WHERE evidence_id = ? ORDER BY created_at, id")
     .all(evidence.id);
@@ -46,17 +56,18 @@ export function saveCandidateUpdate(
   if (!project) return { error: "Project not found in the authenticated workspace." };
 
   const reviewUrl = new URL(`/review?project_id=${encodeURIComponent(project.id)}`, publicUrl).href;
+  const exactPayloadJson = JSON.stringify(payload);
+  const payloadHash = createHash("sha256").update(exactPayloadJson).digest("hex");
   const duplicate = existingSubmission(
     database,
     clientId,
     project.id,
     payload.idempotency_key,
+    payloadHash,
     reviewUrl,
   );
   if (duplicate) return duplicate;
 
-  const exactPayloadJson = JSON.stringify(payload);
-  const payloadHash = createHash("sha256").update(exactPayloadJson).digest("hex");
   const evidenceId = `evidence_${randomUUID()}`;
   const candidateIds = payload.candidate_claims.map(() => `candidate_${randomUUID()}`);
   const correlationId = `capture_${randomUUID()}`;
@@ -129,6 +140,7 @@ export function saveCandidateUpdate(
       clientId,
       project.id,
       payload.idempotency_key,
+      payloadHash,
       reviewUrl,
     );
     if (racedDuplicate) return racedDuplicate;

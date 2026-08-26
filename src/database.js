@@ -109,6 +109,30 @@ export function openDatabase(filename) {
       safe_metadata_json TEXT NOT NULL,
       created_at TEXT NOT NULL
     ) STRICT;
+
+    CREATE TRIGGER IF NOT EXISTS evidence_events_no_update
+    BEFORE UPDATE ON evidence_events
+    BEGIN
+      SELECT RAISE(ABORT, 'evidence events are immutable');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS evidence_events_no_delete
+    BEFORE DELETE ON evidence_events
+    BEGIN
+      SELECT RAISE(ABORT, 'evidence events are immutable');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS audit_events_no_update
+    BEFORE UPDATE ON audit_events
+    BEGIN
+      SELECT RAISE(ABORT, 'audit events are append-only');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS audit_events_no_delete
+    BEFORE DELETE ON audit_events
+    BEGIN
+      SELECT RAISE(ABORT, 'audit events are append-only');
+    END;
   `);
 
   database

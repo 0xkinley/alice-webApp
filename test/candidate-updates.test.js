@@ -63,6 +63,15 @@ test("explicit save creates pending candidates without changing trusted state", 
     created.database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
     0,
   );
+
+  const evidence = created.database
+    .prepare("SELECT exact_payload_json, payload_hash FROM evidence_events WHERE id = ?")
+    .get(result.evidence_id);
+  assert.equal(evidence.exact_payload_json, JSON.stringify(update));
+  assert.equal(
+    evidence.payload_hash,
+    createHash("sha256").update(evidence.exact_payload_json).digest("hex"),
+  );
 });
 
 test("an idempotent retry returns the original evidence and candidates", async () => {
@@ -82,6 +91,28 @@ test("an idempotent retry returns the original evidence and candidates", async (
   assert.equal(second.payload.result.structuredContent.deduplicated, true);
   assert.equal(created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count, 1);
   assert.equal(created.database.prepare("SELECT COUNT(*) AS count FROM candidate_claims").get().count, 3);
+});
+
+test("idempotency-key reuse with different evidence is rejected", async () => {
+  const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "save_project_update",
+    arguments: { ...update, summary: "Different submitted evidence" },
+  });
+  assert.equal(payload.result.isError, true);
+  assert.match(payload.result.content[0].text, /different payload/i);
+  assert.equal(created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count, 1);
+});
+
+test("database guards prevent evidence update and deletion", () => {
+  assert.throws(
+    () => created.database.prepare("UPDATE evidence_events SET exact_payload_json = '{}' ").run(),
+    /evidence events are immutable/,
+  );
+  assert.throws(
+    () => created.database.prepare("DELETE FROM evidence_events").run(),
+    /evidence events are immutable/,
+  );
+  assert.equal(created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count, 1);
 });
 
 test("a read-only token cannot call the write tool", async () => {
