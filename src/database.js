@@ -48,7 +48,81 @@ export function openDatabase(filename) {
       expires_at INTEGER NOT NULL,
       revoked_at TEXT
     ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      brief TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (workspace_id, name)
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS evidence_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      exact_payload_json TEXT NOT NULL,
+      actor_type TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      client_classification TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (client_id, project_id, idempotency_key)
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS candidate_claims (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      evidence_id TEXT NOT NULL REFERENCES evidence_events(id),
+      state_key TEXT NOT NULL,
+      value_json TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'rejected')),
+      created_at TEXT NOT NULL
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS accepted_project_state (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      candidate_id TEXT NOT NULL UNIQUE REFERENCES candidate_claims(id),
+      evidence_id TEXT NOT NULL REFERENCES evidence_events(id),
+      state_key TEXT NOT NULL,
+      value_json TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      accepted_at TEXT NOT NULL,
+      UNIQUE (project_id, state_key, version)
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      action TEXT NOT NULL,
+      actor_type TEXT NOT NULL,
+      actor_id TEXT NOT NULL,
+      correlation_id TEXT NOT NULL,
+      safe_metadata_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ) STRICT;
   `);
+
+  database
+    .prepare(
+      `INSERT OR IGNORE INTO projects (id, workspace_id, name, brief, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(
+      "project_switchboard_launch",
+      "workspace_spike-user",
+      "Switchboard Launch",
+      "Define the launch position and first onboarding experiment for alice., the independent project intelligence layer for people who use more than one AI on the same project.",
+      new Date().toISOString(),
+    );
 
   return database;
 }

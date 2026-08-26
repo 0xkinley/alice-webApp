@@ -7,11 +7,70 @@ import {
 } from "@modelcontextprotocol/express";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
 import { openDatabase } from "./database.js";
 import { createOAuth } from "./oauth.js";
+import { getProjectContext, listProjects } from "./project-context.js";
 
-function createProtocolServer() {
-  return new McpServer({ name: "alice-mcp-compatibility-spike", version: "0.1.0" });
+function authenticatedUserId(context) {
+  return context.http?.authInfo?.extra?.userId;
+}
+
+function createProtocolServer(database) {
+  const server = new McpServer({ name: "alice-mcp-compatibility-spike", version: "0.1.0" });
+
+  server.registerTool(
+    "list_projects",
+    {
+      title: "List alice. projects",
+      description: "List projects in the authenticated user's private alice. workspace.",
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async (_input, context) => {
+      const projects = listProjects(database, authenticatedUserId(context));
+      const output = { projects };
+      return {
+        content: [{ type: "text", text: JSON.stringify(output) }],
+        structuredContent: output,
+      };
+    },
+  );
+
+  server.registerTool(
+    "get_project_context",
+    {
+      title: "Get trusted alice. project context",
+      description:
+        "Retrieve bounded project context from human-accepted alice. state. Pending candidate claims are excluded. Use this before continuing work on a saved project.",
+      inputSchema: z.object({
+        project_id: z.string().min(1).max(200).describe("Project identifier returned by list_projects"),
+        task: z.string().min(1).max(2_000).describe("The current task, used to describe the context package"),
+        context_budget: z.number().int().min(256).max(8_000).optional().default(2_000),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async ({ project_id: projectId, task, context_budget: contextBudget }, context) => {
+      const projectContext = getProjectContext(database, {
+        userId: authenticatedUserId(context),
+        projectId,
+        task,
+        contextBudget,
+      });
+      if (!projectContext) {
+        return {
+          content: [{ type: "text", text: "Project not found in the authenticated workspace." }],
+          isError: true,
+        };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(projectContext) }],
+        structuredContent: projectContext,
+      };
+    },
+  );
+
+  return server;
 }
 
 export function createApp({ databaseFilename, passphrase, publicUrl }) {
@@ -50,7 +109,7 @@ export function createApp({ databaseFilename, passphrase, publicUrl }) {
   });
 
   app.all("/mcp", authenticate, async (request, response) => {
-    const protocolServer = createProtocolServer();
+    const protocolServer = createProtocolServer(database);
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.on("close", () => {
       void transport.close();

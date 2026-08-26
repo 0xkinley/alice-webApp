@@ -6,8 +6,8 @@
   "description": "Milestone 01 remote MCP compatibility spike for alice.",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test",
-    "check": "node --check src/server.js && node --test"
+    "test": "node --test test/*.test.js",
+    "check": "node --check src/server.js && node --test test/*.test.js"
   },
   "engines": {
     "node": ">=24"
