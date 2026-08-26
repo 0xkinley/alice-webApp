@@ -28,7 +28,7 @@ Frozen non-goals for the spike:
 
 ## Milestone 01 — Round-Trip MCP Compatibility Spike
 
-Status: Not Started
+Status: In Progress
 
 Branch: `milestone-01-mcp-compatibility-spike`
 
@@ -38,7 +38,7 @@ Prove that eligible ChatGPT and Claude accounts can complete the full authentica
 
 Tasks:
 
-- [ ] Define the canonical four-decision round-trip fixture and baseline copy/paste comparison.
+- [x] Define the canonical four-decision round-trip fixture and baseline copy/paste comparison.
 - [ ] Create the minimum publicly reachable authenticated MCP endpoint.
 - [ ] Add an authenticated project-context read tool.
 - [ ] Add an append-only candidate-update write tool.
@@ -301,4 +301,3 @@ Success criteria:
 Notes:
 
 - Read-only providers may consume context without supporting capture; capability differences must be explicit.
-
