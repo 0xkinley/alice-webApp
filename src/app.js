@@ -12,6 +12,7 @@ import { saveCandidateUpdate } from "./candidate-updates.js";
 import { openDatabase } from "./database.js";
 import { createOAuth } from "./oauth.js";
 import { getProjectContext, listProjects } from "./project-context.js";
+import { createReviewRouter } from "./review.js";
 
 function authenticatedUserId(context) {
   return context.http?.authInfo?.extra?.userId;
@@ -164,6 +165,7 @@ export function createApp({ databaseFilename, passphrase, publicUrl }) {
   app.post("/authorize", (request, response) => oauth.authorize(request, response));
   app.post("/token", (request, response) => oauth.token(request, response));
   app.post("/revoke", (request, response) => oauth.revoke(request, response));
+  app.use("/review", createReviewRouter({ database, passphrase, publicUrl }));
 
   const authenticate = requireBearerAuth({
     verifier: oauth.verifier,

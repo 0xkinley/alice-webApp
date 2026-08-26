@@ -110,6 +110,13 @@ export function openDatabase(filename) {
       created_at TEXT NOT NULL
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS review_sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    ) STRICT;
+
     CREATE TRIGGER IF NOT EXISTS evidence_events_no_update
     BEFORE UPDATE ON evidence_events
     BEGIN

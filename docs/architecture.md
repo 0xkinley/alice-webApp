@@ -69,6 +69,8 @@ Projects
 
 The web app is the human control plane for project creation, review, accepted state, and connection management. The remote MCP server is the authenticated consumption and capture interface used by AI hosts.
 
+For the Milestone 01 spike, the minimum control plane is a passphrase-authenticated review page with an explicit accept button per candidate. Acceptance is transactional: it versions accepted state, links the accepted row to its candidate and evidence, marks the candidate accepted, and appends a human-review audit event. The MCP tool list intentionally contains no accept, reject, or trusted-state mutation action.
+
 ## Round-trip success test
 
 The first spike must prove:
@@ -88,4 +90,3 @@ ChatGPT retrieves and uses A-D
 ```
 
 MCP connectivity alone is insufficient. The recurring workflow must feel easier than manually copying context.
-
