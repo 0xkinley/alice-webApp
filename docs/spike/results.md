@@ -31,6 +31,22 @@ Result: 3 tests passed, 0 failed.
 
 No host run recorded yet.
 
+## ChatGPT Plus eligibility investigation
+
+Recorded at 2026-08-26 Asia/Dubai:
+
+- The signed-in target is a personal ChatGPT Plus account.
+- The account can open the Plugins Directory and use installed plugins with external actions.
+- `Settings > Security and login` exposes a `Developer mode` switch with an elevated-risk warning for unverified connectors.
+- Developer mode was off. In that state, the Plugins Directory did not expose the plus control documented for adding an MCP server.
+- No setting was changed and no MCP connection was created during this read-only investigation.
+
+Root-cause finding: the failed setup attempt does not establish a Business-plan requirement. The target Plus account exposes the documented prerequisite, but it must be deliberately enabled before the native ChatGPT MCP read/write test can continue.
+
+The supported transport comparison and fallback decision are recorded in `docs/provider-adapters.md`. Milestone 01 remains the native MCP round-trip because the actual target Plus account has the required Developer mode gate. Explicit handoff remains the baseline and fallback; a browser companion remains out of scope unless native availability or measured friction fails.
+
+Repository verification after recording this decision: `npm run check` — 14 tests passed, 0 failed.
+
 ## Manual copy/paste baseline
 
 Not run yet.

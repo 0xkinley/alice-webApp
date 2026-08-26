@@ -19,7 +19,9 @@ Trusted State
      ↓
 Context Intelligence
      ↓
-MCP
+Provider Adapter
+  ├── Native MCP (preferred)
+  └── Explicit context handoff (fallback)
      ↓
 Current AI
 ```
@@ -33,7 +35,9 @@ Current AI
      ↓
 Explicit "Save to alice."
      ↓
-MCP
+Provider Adapter
+  ├── Native MCP (preferred)
+  └── Explicit candidate handoff (fallback)
      ↓
 Immutable Evidence
      ↓
@@ -68,6 +72,8 @@ Projects
 ```
 
 The web app is the human control plane for project creation, review, accepted state, and connection management. The remote MCP server is the authenticated consumption and capture interface used by AI hosts.
+
+Provider adapters translate host capabilities into the same consumption and capture contracts. They do not own project semantics or alter the trust boundary. Native MCP is preferred because it removes recurring manual transfer while preserving explicit tool use. A bounded, user-controlled copy/paste handoff is the supported fallback. A browser companion is deferred and may be tested only under the constraints in `docs/provider-adapters.md` if native availability or measured friction justifies it.
 
 For the Milestone 01 spike, the minimum control plane is a passphrase-authenticated review page with an explicit accept button per candidate. Acceptance is transactional: it versions accepted state, links the accepted row to its candidate and evidence, marks the candidate accepted, and appends a human-review audit event. The MCP tool list intentionally contains no accept, reject, or trusted-state mutation action.
 

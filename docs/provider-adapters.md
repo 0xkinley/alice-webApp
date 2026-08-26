@@ -1,0 +1,77 @@
+# alice. Provider Adapter Strategy
+
+Status: Accepted for Milestone 01
+
+Decision date: 2026-08-26
+
+## Decision
+
+alice. is a provider-independent project intelligence layer. MCP is the preferred native adapter for hosts that support the required authenticated read and explicit candidate-capture tools; it is not the product boundary.
+
+The target personal ChatGPT Plus account was inspected on 2026-08-26. It exposes:
+
+- the Plugins Directory;
+- write-capable installed plugins;
+- `Settings > Security and login > Developer mode`; and
+- an explicit warning that Developer mode permits unverified connectors that may modify or erase external data.
+
+Developer mode was off during the failed connection attempt. The official development flow requires enabling it before the Plugins Directory exposes the control for adding a public HTTPS or Secure MCP Tunnel endpoint. Therefore the evidence does not support a Business-only product restriction. Plan, region, surface, and account or workspace policy can still affect availability and must be checked during onboarding.
+
+Milestone 01 remains the native MCP round-trip spike. It will not add a browser extension or replace the host workflow before the target Plus account has been tested with Developer mode enabled.
+
+## Adapter comparison
+
+| Path | First-time friction | Recurring friction | Reliability | Security posture | Platform risk | Preserves ChatGPT Plus | Decision |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Native custom MCP in Developer mode | Medium: enable mode and add authenticated endpoint | Low: select alice. and ask naturally | High when the host supports the advertised tools | Good with OAuth, bounded tools, host confirmations, and human review; the connection is unverified during development | Low to medium; availability can depend on account and policy | Yes for the inspected target account | Preferred Milestone 01 path |
+| Published MCP-backed ChatGPT plugin | Medium for alice. because public review, identity, policy, and stable deployment are required; low for users after publication | Low | Expected high after review | Strongest supported distribution posture; app action permissions and confirmations still apply | Medium; publication and invocation remain platform-controlled | Potentially, but each listing's capabilities and plan availability must be verified | Product distribution target after the spike, not an immediate test dependency |
+| Explicit web handoff | None | Medium: deliberately copy an alice. context package into the host and paste a structured candidate package back into alice. | High because it uses stable clipboard and web UI primitives | Strong if packages are bounded, previewed, and submitted only by an explicit user action | Low | Yes | Supported fallback and manual baseline |
+| Custom GPT Action | High and host-specific | Low once configured | Medium | Supported OAuth/API action model | High for this use: personal Plus accounts cannot create or publish new GPTs | No for a new alice. GPT on the current personal account | Rejected as the Plus path |
+| Minimal browser companion | Medium: install a narrowly permissioned extension | Low: user-triggered capture or insertion | Medium; selected-text capture is robust, composer insertion depends on host DOM | Acceptable only with `activeTab`, explicit gestures, no cookies or history, no background capture, and a preview before transmission | Medium to high because host DOM changes can break insertion | Yes | Deferred fallback experiment only if native MCP availability or measured friction fails |
+| Standalone OpenAI API client | High; separate product surface and API billing | Medium | High at the API boundary | Server-controlled, but alice. becomes the chat product | Low technically, high product divergence | No; it does not use the user's ChatGPT subscription experience | Rejected for the MVP promise |
+| Hidden session automation or reverse-engineered endpoints | Superficially low | Unreliable | Low | Unacceptable credential, privacy, and consent risk | Critical | Superficially | Prohibited |
+
+## Supported fallback contract
+
+The explicit handoff fallback preserves the same domain semantics as MCP:
+
+### Consumption handoff
+
+1. alice. renders a bounded, versioned context package from accepted state.
+2. The user previews and copies it.
+3. The user pastes it into the destination AI.
+
+### Capture handoff
+
+1. The AI produces a structured candidate package at the user's request.
+2. The user copies it into the alice. review control plane.
+3. alice. validates and stores the exact submitted package as immutable evidence.
+4. Candidate claims remain pending until human review.
+
+The fallback must not imply that manually transferred content is verified merely because it came from a supported host.
+
+## Browser companion constraints
+
+If a later evidence-gated experiment builds a browser companion, it must:
+
+- run only after a toolbar action, context-menu action, or keyboard shortcut;
+- request temporary `activeTab` access instead of persistent access to all sites;
+- capture only the user's current selection or insert only a user-approved context package;
+- never read cookies, authentication state, browsing history, unrelated tabs, or full conversation history;
+- never call undocumented ChatGPT or Claude endpoints;
+- show the exact payload and destination before sending data to alice.;
+- keep alice. authentication separate from host authentication; and
+- fail closed when a host composer cannot be identified reliably.
+
+These constraints follow Chrome's documented guidance that `activeTab` grants temporary page access only after an explicit user gesture and that extensions should request the minimum permissions necessary.
+
+## Current official references
+
+- OpenAI, [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt): Developer mode, public HTTPS/Secure MCP Tunnel connection, tool evaluation, and write-action testing.
+- OpenAI, [Plugin architecture](https://developers.openai.com/plugins/concepts/plugins): plugins may package skills, MCP servers, and optional UI across ChatGPT and Codex.
+- OpenAI, [Plugins in ChatGPT and Codex](https://help.openai.com/en/articles/20001256-plugins-in-chatgpt-and-codex): the directory is visible across plans, while installation and invocation can depend on plan, role, region, surface, and included capabilities.
+- OpenAI, [Apps in ChatGPT](https://help.openai.com/en/articles/11487775-connectors-in): personal-account app permissions, write-action confirmations, custom MCP apps, and public plugin discovery.
+- OpenAI, [Creating and editing GPTs](https://help.openai.com/en/articles/8554397): personal Free, Go, Plus, and Pro accounts cannot create or publish new GPTs.
+- Chrome, [The activeTab permission](https://developer.chrome.com/docs/extensions/develop/concepts/activeTab) and [Protect user privacy](https://developer.chrome.com/docs/extensions/develop/security-privacy/user-privacy): temporary user-gesture access and least-privilege guidance.
+
+Because provider capabilities change, repository claims about current plan behavior must include a verification date and should be rechecked before release or cohort expansion.

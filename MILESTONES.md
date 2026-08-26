@@ -8,7 +8,7 @@ The first product test is the complete ChatGPT to alice. to Claude to alice. to 
 
 Approved defaults:
 
-- The first cohort contains only users whose ChatGPT and Claude accounts support the required authenticated remote MCP read/write flow.
+- The first cohort contains only users whose ChatGPT and Claude accounts support the required authenticated remote MCP read/write flow. Plan name alone is not the eligibility test; the actual account, region, surface, and applicable policy must expose the required capabilities.
 - Each user receives one private workspace containing projects. Teams, roles, sharing, and organizations are deferred.
 - Host-generated tool arguments are stored as evidence and candidate claims. They never directly mutate trusted state.
 - Success requires meaningful continuation across two AI switches without manually restating saved project context.
@@ -44,6 +44,7 @@ Tasks:
 - [x] Add an append-only candidate-update write tool.
 - [x] Store the exact submitted payload as immutable evidence before creating candidate claims.
 - [x] Add the minimum review action required to accept candidates into trusted state.
+- [x] Verify that the target personal ChatGPT Plus account exposes Developer mode and record the provider-adapter fallback decision.
 - [ ] Verify authenticated read and write calls from the target ChatGPT account.
 - [ ] Save and approve decisions A-C: ICP, product form, and monthly price.
 - [ ] Verify Claude retrieves and correctly uses A-C without them being restated.
@@ -66,6 +67,9 @@ Success criteria:
 Notes:
 
 - MCP connectivity alone is not success.
+- The inspected target ChatGPT Plus account exposes `Settings > Security and login > Developer mode`. It was off during the failed setup attempt; Business is not a documented prerequisite for this target account.
+- Native MCP remains the preferred spike path. Explicit handoff is the supported fallback and copy/paste baseline. A browser companion remains a frozen non-goal unless a later evidence-gated milestone explicitly admits it.
+- Current provider findings and dated official references are in `docs/provider-adapters.md`; revalidate them because provider capabilities can change.
 - If an account cannot complete the required official integration flow, it is ineligible for the first cohort; the spike is testing continuity, not general provider compatibility.
 
 ## Milestone 02 — Repository and CI Scaffold
