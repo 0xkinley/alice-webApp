@@ -22,6 +22,8 @@ Projects belong to a private workspace. Every tenant-owned record carries the wo
 
 Immutable records of explicitly submitted material. Store the exact validated MCP payload, provenance, idempotency key, content hash, and timestamps.
 
+For the Milestone 01 spike, the validated payload is serialized once, hashed with SHA-256, and inserted in the same database transaction before any candidate claim. Candidate foreign keys require the evidence row to exist first. Database triggers reject evidence updates and deletes; an idempotent retry may only reuse an existing event when its payload hash matches.
+
 ### Candidate claims
 
 Untrusted proposed decisions, facts, requirements, constraints, preferences, or open questions. Each candidate references its source evidence.
@@ -57,4 +59,3 @@ Append-only records of security- and state-relevant actions. Store identifiers, 
 - Trusted state always references the accepted candidate and source evidence.
 - Supersession preserves the prior state record.
 - Cross-workspace references are prevented by database constraints and tested authorization policies.
-

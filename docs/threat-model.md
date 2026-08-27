@@ -91,6 +91,20 @@ Minimum controls:
 - store only the submitted evidence
 - documented retention and deletion behavior before private alpha
 
+### Adapter overreach
+
+A fallback adapter reads more host data than the user deliberately chose to transfer, relies on host session credentials, or silently inserts or submits content.
+
+Minimum controls:
+
+- prefer official native integrations
+- keep explicit handoffs previewable and user-initiated
+- never read host cookies, tokens, browsing history, or unrelated tabs
+- never use undocumented or reverse-engineered host endpoints
+- if a browser companion is later justified, use temporary `activeTab` access and an explicit gesture
+- capture only selected text and insert only a user-approved package
+- fail closed when the intended host surface cannot be identified
+
 ### Context poisoning
 
 Unreviewed or malicious content is presented as project truth.
@@ -109,4 +123,3 @@ Minimum controls:
 - Cross-workspace access tests fail safely.
 - Logs contain neither bearer tokens nor unsaved conversation history.
 - Revoked connections cannot continue using alice. tools.
-

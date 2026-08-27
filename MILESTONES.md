@@ -8,7 +8,7 @@ The first product test is the complete ChatGPT to alice. to Claude to alice. to 
 
 Approved defaults:
 
-- The first cohort contains only users whose ChatGPT and Claude accounts support the required authenticated remote MCP read/write flow.
+- The first cohort contains only users whose ChatGPT and Claude accounts support the required authenticated remote MCP read/write flow. Plan name alone is not the eligibility test; the actual account, region, surface, and applicable policy must expose the required capabilities.
 - Each user receives one private workspace containing projects. Teams, roles, sharing, and organizations are deferred.
 - Host-generated tool arguments are stored as evidence and candidate claims. They never directly mutate trusted state.
 - Success requires meaningful continuation across two AI switches without manually restating saved project context.
@@ -28,7 +28,7 @@ Frozen non-goals for the spike:
 
 ## Milestone 01 — Round-Trip MCP Compatibility Spike
 
-Status: Not Started
+Status: Complete
 
 Branch: `milestone-01-mcp-compatibility-spike`
 
@@ -38,19 +38,20 @@ Prove that eligible ChatGPT and Claude accounts can complete the full authentica
 
 Tasks:
 
-- [ ] Define the canonical four-decision round-trip fixture and baseline copy/paste comparison.
-- [ ] Create the minimum publicly reachable authenticated MCP endpoint.
-- [ ] Add an authenticated project-context read tool.
-- [ ] Add an append-only candidate-update write tool.
-- [ ] Store the exact submitted payload as immutable evidence before creating candidate claims.
-- [ ] Add the minimum review action required to accept candidates into trusted state.
-- [ ] Verify authenticated read and write calls from the target ChatGPT account.
-- [ ] Save and approve decisions A-C: ICP, product form, and monthly price.
-- [ ] Verify Claude retrieves and correctly uses A-C without them being restated.
-- [ ] Save and approve decision D from Claude.
-- [ ] Verify ChatGPT retrieves and correctly uses A-D after the second switch.
-- [ ] Compare the recurring Alice workflow with manual copy/paste and record the result.
-- [ ] Document protocol behavior, host differences, limitations, and go/no-go recommendation.
+- [x] Define the canonical four-decision round-trip fixture and baseline copy/paste comparison.
+- [x] Create the minimum publicly reachable authenticated MCP endpoint.
+- [x] Add an authenticated project-context read tool.
+- [x] Add an append-only candidate-update write tool.
+- [x] Store the exact submitted payload as immutable evidence before creating candidate claims.
+- [x] Add the minimum review action required to accept candidates into trusted state.
+- [x] Verify that the target personal ChatGPT Plus account exposes Developer mode and record the provider-adapter fallback decision.
+- [x] Verify authenticated read and write calls from the target ChatGPT account.
+- [x] Save and approve decisions A-C: ICP, product form, and monthly price.
+- [x] Verify Claude retrieves and correctly uses A-C without them being restated.
+- [x] Save and approve decision D from Claude.
+- [x] Verify ChatGPT retrieves and correctly uses A-D after the second switch.
+- [x] Compare the recurring Alice workflow with manual copy/paste and record the result.
+- [x] Document protocol behavior, host differences, limitations, and go/no-go recommendation.
 
 Success criteria:
 
@@ -66,7 +67,13 @@ Success criteria:
 Notes:
 
 - MCP connectivity alone is not success.
+- The initial hidden successful-retrieval and 10-minute D details were not inferable from A-C or the unchanged Claude prompt. The dated fixture correction now scores the disclosed decision shape plus explicit human acceptance; the original failed-run evidence remains recorded.
+- The inspected target ChatGPT Plus account exposes `Settings > Security and login > Developer mode`. It was off during the failed setup attempt; Business is not a documented prerequisite for this target account.
+- Native MCP remains the preferred spike path. Explicit handoff is the supported fallback and copy/paste baseline. A browser companion remains a frozen non-goal unless a later evidence-gated milestone explicitly admits it.
+- Current provider findings and dated official references are in `docs/provider-adapters.md`; revalidate them because provider capabilities can change.
 - If an account cannot complete the required official integration flow, it is ineligible for the first cohort; the spike is testing continuity, not general provider compatibility.
+- Completed on 2026-08-27. The full ChatGPT → alice. → Claude → alice. → ChatGPT round trip passed the corrected disclosed rubric with human-governed trusted state and end-to-end provenance. Milestone 02 was not started.
+- Two earlier Claude D candidates remain pending as preserved failed-run evidence and are excluded from trusted context.
 
 ## Milestone 02 — Repository and CI Scaffold
 
@@ -301,4 +308,3 @@ Success criteria:
 Notes:
 
 - Read-only providers may consume context without supporting capture; capability differences must be explicit.
-
