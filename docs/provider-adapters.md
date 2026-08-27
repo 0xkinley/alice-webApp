@@ -30,6 +30,16 @@ Verified on 2026-08-27 with ChatGPT Developer mode and `@modelcontextprotocol/se
 
 This is an observed adapter requirement for the recorded versions, not a permanent product assumption. Revalidate it when either host or SDK changes.
 
+## Claude OAuth compatibility
+
+Verified on 2026-08-27 with a personal Claude Pro account and a custom remote MCP connector:
+
+- Claude used dynamic client registration and requested `mcp:read offline_access` during initial authorization when alice.'s registration response did not include registered `scope` metadata.
+- Claude exposed all three tools and allowed an explicit write confirmation, but the server correctly rejected the write because the bearer token lacked `mcp:write`.
+- RFC 7591 permits an authorization server to register omitted client scope metadata with defaults and requires registered metadata to be returned in the client information response. The spike must return its bounded default client scopes so Claude can request them during authorization.
+
+The failed read-only write attempt created no evidence or candidate and is retained as a fail-closed compatibility result.
+
 ## Adapter comparison
 
 | Path | First-time friction | Recurring friction | Reliability | Security posture | Platform risk | Preserves ChatGPT Plus | Decision |

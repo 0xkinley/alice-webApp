@@ -46,6 +46,19 @@ Recorded at 2026-08-27 Asia/Dubai from the target personal ChatGPT Plus account:
 
 This verifies authenticated ChatGPT reads, explicit candidate capture, fail-closed trusted state, and human-governed acceptance of A-C. It does not by itself satisfy the complete round-trip success criteria.
 
+### Claude continuation run 1
+
+Recorded at 2026-08-27 Asia/Dubai from the target personal Claude Pro account:
+
+- Claude added the public alice. endpoint as a custom remote MCP connector. Its initial OAuth request asked for `mcp:read offline_access`; the issued access token contained only `mcp:read`.
+- In a new conversation, the tester supplied only the fixture's continuation prompt. A-C were not restated, and other data connectors were disabled.
+- Claude listed alice. projects and retrieved the accepted Switchboard Launch context after separate explicit confirmations for both read actions.
+- Claude correctly used all three accepted decisions: the dual-ChatGPT/Claude consultant ICP, the web control-plane plus MCP product form with no chatbot or routing role, and the exact USD 24 monthly price.
+- Claude proposed a measurable two-account activation decision, but it used a seven-day cross-host write/read criterion. This is not semantically equivalent to the precommitted requirement that both hosts retrieve accepted context within 10 minutes, so rubric item D failed.
+- After an explicit confirmation, Claude attempted `save_project_update`. alice. rejected it because the token lacked `mcp:write`. Claude reported the scope failure, and database verification found no new evidence or candidate.
+
+Run 1 therefore proves Claude's authenticated read and correct use of A-C without restatement, but fails the complete Claude leg. A retry must be recorded as a new run.
+
 ## ChatGPT Plus eligibility investigation
 
 Recorded at 2026-08-26 Asia/Dubai:
