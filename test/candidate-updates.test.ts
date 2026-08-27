@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
-import { createApp } from "../src/app.js";
-import { authorize, callMcp } from "./helpers.js";
+import { createApp } from "../apps/mcp/src/app.ts";
+import { authorize, callMcp } from "./helpers.ts";
 
 let accessToken;
 let baseUrl;
@@ -34,7 +34,9 @@ before(async () => {
   server = created.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
-  ({ tokens: { access_token: accessToken } } = await authorize(baseUrl));
+  ({
+    tokens: { access_token: accessToken },
+  } = await authorize(baseUrl));
 });
 
 after(async () => {
@@ -58,7 +60,10 @@ test("explicit save creates pending candidates without changing trusted state", 
   const candidates = created.database
     .prepare("SELECT status FROM candidate_claims WHERE evidence_id = ?")
     .all(result.evidence_id);
-  assert.deepEqual(candidates.map(({ status }) => status), ["pending", "pending", "pending"]);
+  assert.deepEqual(
+    candidates.map(({ status }) => status),
+    ["pending", "pending", "pending"],
+  );
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
     0,
@@ -83,14 +88,23 @@ test("an idempotent retry returns the original evidence and candidates", async (
     name: "save_project_update",
     arguments: update,
   });
-  assert.equal(first.payload.result.structuredContent.evidence_id, second.payload.result.structuredContent.evidence_id);
+  assert.equal(
+    first.payload.result.structuredContent.evidence_id,
+    second.payload.result.structuredContent.evidence_id,
+  );
   assert.deepEqual(
     first.payload.result.structuredContent.candidate_ids,
     second.payload.result.structuredContent.candidate_ids,
   );
   assert.equal(second.payload.result.structuredContent.deduplicated, true);
-  assert.equal(created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count, 1);
-  assert.equal(created.database.prepare("SELECT COUNT(*) AS count FROM candidate_claims").get().count, 3);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count,
+    1,
+  );
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM candidate_claims").get().count,
+    3,
+  );
 });
 
 test("idempotency-key reuse with different evidence is rejected", async () => {
@@ -100,7 +114,10 @@ test("idempotency-key reuse with different evidence is rejected", async () => {
   });
   assert.equal(payload.result.isError, true);
   assert.match(payload.result.content[0].text, /different payload/i);
-  assert.equal(created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count, 1);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count,
+    1,
+  );
 });
 
 test("database guards prevent evidence update and deletion", () => {
@@ -112,7 +129,10 @@ test("database guards prevent evidence update and deletion", () => {
     () => created.database.prepare("DELETE FROM evidence_events").run(),
     /evidence events are immutable/,
   );
-  assert.equal(created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count, 1);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count,
+    1,
+  );
 });
 
 test("a read-only token cannot call the write tool", async () => {
@@ -125,5 +145,8 @@ test("a read-only token cannot call the write tool", async () => {
   });
   assert.equal(payload.result.isError, true);
   assert.match(payload.result.content[0].text, /does not grant mcp:write/);
-  assert.equal(created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count, 1);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count,
+    1,
+  );
 });

@@ -1,0 +1,17 @@
+{
+  "name": "@alice/domain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@alice/database": "0.1.0",
+    "@alice/schemas": "0.1.0"
+  }
+}

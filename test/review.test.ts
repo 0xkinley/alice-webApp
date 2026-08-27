@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { createApp } from "../src/app.js";
-import { authorize, callMcp } from "./helpers.js";
+import { createApp } from "../apps/mcp/src/app.ts";
+import { createApp as createWebApp } from "../apps/web/src/app.ts";
+import { authorize, callMcp } from "./helpers.ts";
 
 let accessToken;
 let baseUrl;
 let candidateId;
 let created;
 let server;
+let webServer;
+let webUrl;
 
 before(async () => {
   created = createApp({
@@ -18,15 +21,23 @@ before(async () => {
   server = created.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
-  ({ tokens: { access_token: accessToken } } = await authorize(baseUrl));
+  const web = createWebApp({
+    database: created.database,
+    passphrase: "correct horse battery staple",
+    publicUrl: "http://127.0.0.1",
+  });
+  webServer = web.app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => webServer.once("listening", resolve));
+  webUrl = `http://127.0.0.1:${webServer.address().port}`;
+  ({
+    tokens: { access_token: accessToken },
+  } = await authorize(baseUrl));
   const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "save_project_update",
     arguments: {
       project_id: "project_switchboard_launch",
       summary: "Candidate for review",
-      candidate_claims: [
-        { state_key: "launch.monthly_price_usd", value: 24, summary: "Price" },
-      ],
+      candidate_claims: [{ state_key: "launch.monthly_price_usd", value: 24, summary: "Price" }],
       idempotency_key: "review-fixture-price",
     },
   });
@@ -35,12 +46,15 @@ before(async () => {
 
 after(async () => {
   await new Promise((resolve, reject) =>
+    webServer.close((error) => (error ? reject(error) : resolve())),
+  );
+  await new Promise((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
   );
 });
 
 test("review candidates are hidden until the human signs in", async () => {
-  const response = await fetch(`${baseUrl}/review?project_id=project_switchboard_launch`, {
+  const response = await fetch(`${webUrl}/review?project_id=project_switchboard_launch`, {
     redirect: "manual",
   });
   assert.equal(response.status, 303);
@@ -48,7 +62,7 @@ test("review candidates are hidden until the human signs in", async () => {
 });
 
 test("an explicit authenticated review accepts a candidate into versioned trusted state", async () => {
-  const loginResponse = await fetch(`${baseUrl}/review/login`, {
+  const loginResponse = await fetch(`${webUrl}/review/login`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -60,13 +74,13 @@ test("an explicit authenticated review accepts a candidate into versioned truste
   assert.equal(loginResponse.status, 303);
   const cookie = loginResponse.headers.get("set-cookie").split(";")[0];
 
-  const reviewResponse = await fetch(`${baseUrl}/review?project_id=project_switchboard_launch`, {
+  const reviewResponse = await fetch(`${webUrl}/review?project_id=project_switchboard_launch`, {
     headers: { cookie },
   });
   assert.equal(reviewResponse.status, 200);
   assert.match(await reviewResponse.text(), new RegExp(candidateId));
 
-  const acceptResponse = await fetch(`${baseUrl}/review/candidates/${candidateId}/accept`, {
+  const acceptResponse = await fetch(`${webUrl}/review/candidates/${candidateId}/accept`, {
     method: "POST",
     headers: { cookie },
     redirect: "manual",
@@ -78,7 +92,8 @@ test("an explicit authenticated review accepts a candidate into versioned truste
   assert.equal(accepted.version, 1);
   assert.equal(accepted.evidence_id.startsWith("evidence_"), true);
   assert.equal(
-    created.database.prepare("SELECT status FROM candidate_claims WHERE id = ?").get(candidateId).status,
+    created.database.prepare("SELECT status FROM candidate_claims WHERE id = ?").get(candidateId)
+      .status,
     "accepted",
   );
   const audit = created.database

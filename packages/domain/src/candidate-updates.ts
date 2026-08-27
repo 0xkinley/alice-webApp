@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
+// Host submissions remain candidate-only domain operations.
+
 function workspaceIdForUser(userId) {
   return `workspace_${userId}`;
 }
@@ -14,14 +16,7 @@ function clientClassification(database, clientId) {
   return "unknown_mcp_client";
 }
 
-function existingSubmission(
-  database,
-  clientId,
-  projectId,
-  idempotencyKey,
-  payloadHash,
-  reviewUrl,
-) {
+function existingSubmission(database, clientId, projectId, idempotencyKey, payloadHash, reviewUrl) {
   const evidence = database
     .prepare(
       `SELECT id, payload_hash FROM evidence_events
@@ -45,10 +40,7 @@ function existingSubmission(
   };
 }
 
-export function saveCandidateUpdate(
-  database,
-  { clientId, publicUrl, userId, payload },
-) {
+export function saveCandidateUpdate(database, { clientId, publicUrl, userId, payload }) {
   const workspaceId = workspaceIdForUser(userId);
   const project = database
     .prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ?")

@@ -57,4 +57,3 @@ Commit messages must describe the completed task. Do not commit partially comple
 ## Core convention
 
 > Chat is temporary. Git and repository documentation are persistent.
-

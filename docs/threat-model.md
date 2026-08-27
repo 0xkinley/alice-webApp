@@ -79,6 +79,8 @@ Minimum controls:
 - short-lived access tokens and revocable connections
 - no bearer tokens in application tables or analytics
 
+Milestone 02 adds repository and startup gates around this boundary. Runtime secrets come from server environment variables or a server-readable file, with exactly one passphrase source allowed. Remote web and MCP origins require HTTPS. The repository secret check rejects tracked `.env` files, high-confidence credential formats, and secret-like names under common browser-public environment prefixes. This scanner is a fast preventive check, not a substitute for provider-side secret scanning or credential rotation.
+
 ### Sensitive overcollection
 
 Alice stores conversation content the user did not intend to save.

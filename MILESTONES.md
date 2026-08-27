@@ -77,7 +77,7 @@ Notes:
 
 ## Milestone 02 — Repository and CI Scaffold
 
-Status: Not Started
+Status: Complete
 
 Branch: `milestone-02-repository-scaffold`
 
@@ -87,11 +87,11 @@ Turn the successful spike into a small, maintainable TypeScript repository with 
 
 Tasks:
 
-- [ ] Establish the workspace layout for web, MCP, shared schemas, domain logic, and database access.
-- [ ] Add formatting, linting, typechecking, unit tests, and production builds.
-- [ ] Add environment validation and secret-leak checks.
-- [ ] Add CI that runs all required checks from a clean checkout.
-- [ ] Document local setup and deployment boundaries.
+- [x] Establish the workspace layout for web, MCP, shared schemas, domain logic, and database access.
+- [x] Add formatting, linting, typechecking, unit tests, and production builds.
+- [x] Add environment validation and secret-leak checks.
+- [x] Add CI that runs all required checks from a clean checkout.
+- [x] Document local setup and deployment boundaries.
 
 Success criteria:
 
@@ -102,6 +102,12 @@ Success criteria:
 Notes:
 
 - Avoid orchestration or infrastructure that two small deployables do not yet require.
+- The npm workspace now separates `apps/web`, `apps/mcp`, `packages/config`, `packages/schemas`, `packages/domain`, and `packages/database`. The Milestone 01 review authority remains server-side in the web deployable; MCP capture remains candidate-only.
+- The root scripts are the single verification interface: Prettier formatting, ESLint, TypeScript project-reference typechecking, the 15-test Milestone 01 regression suite plus configuration-policy tests, and production compilation for both deployables.
+- Server configuration now fails closed on missing or ambiguous secrets, weak passphrases, invalid ports, and non-HTTPS public origins. Repository checks reject tracked environment files, high-confidence credential patterns, and secret-like browser-public environment names.
+- GitHub Actions runs on Node.js 24 with read-only repository permissions, installs only from `package-lock.json`, and executes formatting, linting, typechecking, secret scanning, tests, and both production builds as separate gates.
+- Local setup, server-only configuration ownership, two-process startup, build artifacts, and the transitional same-host SQLite constraint are documented in `docs/repository-and-deployment.md`.
+- Completed on 2026-08-27. A fresh local clone installed with `npm ci`, passed `npm run check` with 18 tests, and emitted both `apps/web/dist/server.js` and `apps/mcp/dist/server.js`. Candidate-only MCP writes, immutable evidence, human-governed trusted state, authenticated context retrieval, and provenance remain covered by the preserved regression suite. Milestone 03 was not started.
 
 ## Milestone 03 — Authentication and Data Foundation
 
