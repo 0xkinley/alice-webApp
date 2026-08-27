@@ -50,7 +50,7 @@ Tasks:
 - [x] Verify Claude retrieves and correctly uses A-C without them being restated.
 - [x] Save and approve decision D from Claude.
 - [x] Verify ChatGPT retrieves and correctly uses A-D after the second switch.
-- [ ] Compare the recurring Alice workflow with manual copy/paste and record the result.
+- [x] Compare the recurring Alice workflow with manual copy/paste and record the result.
 - [ ] Document protocol behavior, host differences, limitations, and go/no-go recommendation.
 
 Success criteria:

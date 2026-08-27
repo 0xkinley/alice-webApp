@@ -129,7 +129,16 @@ Repository verification after recording this decision: `npm run check` — 15 te
 
 ## Manual copy/paste baseline
 
-Not run yet.
+Recorded at 2026-08-27 Asia/Dubai with all Claude and ChatGPT connectors/plugins disabled for the baseline conversations.
+
+| Switch | Recurring alice. workflow | Manual baseline | Content result | Provenance at destination |
+| --- | --- | --- | --- | --- |
+| ChatGPT → Claude | Enable alice. and send the continuation prompt; 0 saved decisions restated. The recorded successful run took approximately 50 seconds including tool calls and generation. | Assemble and paste A-C, then send the continuation task; 3 saved decisions restated. Response completed in 19.4 seconds. | Both correctly used A-C and proposed a measurable two-account activation criterion. | alice. returned accepted-state/candidate/evidence links; manual packet had none. |
+| Claude → ChatGPT | Enable alice. and send the return prompt; 0 saved decisions restated. Response completed in approximately 22 seconds including project discovery, context retrieval, and generation. | Assemble and paste A-D, then send the return task; 4 saved decisions restated. Response completed in 14.8 seconds. | Both correctly produced A-D and the requested explanation. | alice. returned resolvable provenance for all four decisions; manual packet had none. |
+
+The manual baseline passes the five content/trust-presentation items it can exercise but fails governed capture and resolvable provenance, for 5/7 rubric items. The alice. round trip passes 7/7 under the corrected, disclosed rubric.
+
+This one-run timing sample favors manual paste by roughly 30.6 seconds on the Claude switch and 7.2 seconds on the ChatGPT switch. It is not a latency benchmark: model generation varied and connector setup was excluded. The recurring operator preference is nevertheless alice. because it removes seven manual decision restatements across the two switches, avoids packet-assembly and stale-copy risk, and preserves trusted-state provenance. The preference is based on workflow effort and trust, not richer prose. The ease criterion therefore passes, while host/tool latency remains a limitation to measure with repeated production-URL runs.
 
 ## Go/no-go recommendation
 
