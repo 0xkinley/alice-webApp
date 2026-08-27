@@ -10,13 +10,28 @@
   ],
   "scripts": {
     "start": "npm run start:mcp",
-    "start:mcp": "node apps/mcp/src/server.ts",
-    "start:web": "node apps/web/src/server.ts",
-    "test": "node --test test/*.test.ts",
-    "check": "npm test"
+    "start:mcp": "node apps/mcp/dist/server.js",
+    "start:web": "node apps/web/dist/server.js",
+    "dev:mcp": "node --conditions=development apps/mcp/src/server.ts",
+    "dev:web": "node --conditions=development apps/web/src/server.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc -b --pretty false",
+    "test": "node --conditions=development --test test/*.test.ts",
+    "build": "tsc -b --clean && tsc -b --pretty false",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build"
   },
   "engines": {
     "node": ">=24"
   },
-  "dependencies": {}
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.4.0",
+    "eslint": "^10.9.1",
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.68.0"
+  }
 }

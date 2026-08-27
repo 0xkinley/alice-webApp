@@ -144,8 +144,8 @@ function createProtocolServer(database, publicUrl) {
 }
 
 export function createApp({
-  database: suppliedDatabase,
-  databaseFilename,
+  database: suppliedDatabase = undefined,
+  databaseFilename = ":memory:",
   passphrase,
   publicUrl,
   reviewUrl = publicUrl,

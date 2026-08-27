@@ -33,4 +33,3 @@ export const getProjectContextSchema = z.object({
     .describe("The current task, used to describe the context package"),
   context_budget: z.number().int().min(256).max(8_000).optional().default(2_000),
 });
-

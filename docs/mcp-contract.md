@@ -69,4 +69,3 @@ The MVP does not expose MCP tools for:
 - deleting project data
 - creating teams or invitations
 - routing work between AI providers
-

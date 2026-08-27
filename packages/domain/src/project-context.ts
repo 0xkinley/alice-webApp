@@ -71,7 +71,7 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
     },
   }));
 
-  const acceptedDecisions = [];
+  const acceptedDecisions: typeof decisions = [];
   let usedTokens = approximateTokens({ project, task });
   for (const decision of decisions) {
     const decisionTokens = approximateTokens(decision);

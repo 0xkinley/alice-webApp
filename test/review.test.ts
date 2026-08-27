@@ -29,15 +29,15 @@ before(async () => {
   webServer = web.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => webServer.once("listening", resolve));
   webUrl = `http://127.0.0.1:${webServer.address().port}`;
-  ({ tokens: { access_token: accessToken } } = await authorize(baseUrl));
+  ({
+    tokens: { access_token: accessToken },
+  } = await authorize(baseUrl));
   const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "save_project_update",
     arguments: {
       project_id: "project_switchboard_launch",
       summary: "Candidate for review",
-      candidate_claims: [
-        { state_key: "launch.monthly_price_usd", value: 24, summary: "Price" },
-      ],
+      candidate_claims: [{ state_key: "launch.monthly_price_usd", value: 24, summary: "Price" }],
       idempotency_key: "review-fixture-price",
     },
   });
@@ -92,7 +92,8 @@ test("an explicit authenticated review accepts a candidate into versioned truste
   assert.equal(accepted.version, 1);
   assert.equal(accepted.evidence_id.startsWith("evidence_"), true);
   assert.equal(
-    created.database.prepare("SELECT status FROM candidate_claims WHERE id = ?").get(candidateId).status,
+    created.database.prepare("SELECT status FROM candidate_claims WHERE id = ?").get(candidateId)
+      .status,
     "accepted",
   );
   const audit = created.database

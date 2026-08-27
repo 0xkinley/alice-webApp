@@ -24,10 +24,7 @@ function nowSeconds() {
 function constantTimeEqual(left, right) {
   const leftBuffer = Buffer.from(left);
   const rightBuffer = Buffer.from(right);
-  return (
-    leftBuffer.length === rightBuffer.length &&
-    timingSafeEqual(leftBuffer, rightBuffer)
-  );
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
 function oauthError(response, status, error, description) {
@@ -42,7 +39,7 @@ function parseScope(value) {
 }
 
 function describeScopes(scopes) {
-  const labels = [];
+  const labels: string[] = [];
   if (scopes.includes("mcp:read")) labels.push("read");
   if (scopes.includes("mcp:write")) labels.push("candidate-write");
   if (scopes.includes("offline_access")) labels.push("persistent refresh");
@@ -74,9 +71,7 @@ function authenticateClient(database, request) {
     clientSecret = decodeURIComponent(decoded.slice(separator + 1));
   }
 
-  const client = database
-    .prepare("SELECT * FROM oauth_clients WHERE client_id = ?")
-    .get(clientId);
+  const client = database.prepare("SELECT * FROM oauth_clients WHERE client_id = ?").get(clientId);
   if (!client) return undefined;
   if (client.token_endpoint_auth_method === "none") return client;
   if (!clientSecret || !constantTimeEqual(sha256(clientSecret), client.client_secret_hash)) {
@@ -100,13 +95,7 @@ function issueTokens(database, { clientId, scopes, resource }) {
     .prepare(
       "INSERT INTO oauth_refresh_tokens (token_hash, client_id, scope, resource, expires_at) VALUES (?, ?, ?, ?, ?)",
     )
-    .run(
-      sha256(refreshToken),
-      clientId,
-      scope,
-      resource,
-      now + REFRESH_TOKEN_TTL_SECONDS,
-    );
+    .run(sha256(refreshToken), clientId, scope, resource, now + REFRESH_TOKEN_TTL_SECONDS);
 
   return {
     access_token: accessToken,
@@ -138,11 +127,7 @@ export function createOAuth({ database, publicUrl, passphrase }) {
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
-    token_endpoint_auth_methods_supported: [
-      "none",
-      "client_secret_post",
-      "client_secret_basic",
-    ],
+    token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
     scopes_supported: [...SUPPORTED_SCOPES],
   };
 
@@ -152,10 +137,16 @@ export function createOAuth({ database, publicUrl, passphrase }) {
         .prepare("SELECT * FROM oauth_access_tokens WHERE token_hash = ?")
         .get(sha256(token));
       if (!row || row.revoked_at || row.expires_at <= nowSeconds()) {
-        throw new OAuthError(OAuthErrorCode.InvalidToken, "The access token is invalid or expired.");
+        throw new OAuthError(
+          OAuthErrorCode.InvalidToken,
+          "The access token is invalid or expired.",
+        );
       }
       if (row.resource !== resource) {
-        throw new OAuthError(OAuthErrorCode.InvalidTarget, "The access token is for another resource.");
+        throw new OAuthError(
+          OAuthErrorCode.InvalidTarget,
+          "The access token is for another resource.",
+        );
       }
       return {
         token,
@@ -180,7 +171,12 @@ export function createOAuth({ database, publicUrl, passphrase }) {
       return oauthError(response, 400, "invalid_redirect_uri", "A valid redirect URI is required.");
     }
     if (!metadata.token_endpoint_auth_methods_supported.includes(authMethod)) {
-      return oauthError(response, 400, "invalid_client_metadata", "Unsupported token endpoint authentication method.");
+      return oauthError(
+        response,
+        400,
+        "invalid_client_metadata",
+        "Unsupported token endpoint authentication method.",
+      );
     }
 
     const clientId = secret("alice_client");
@@ -222,7 +218,12 @@ export function createOAuth({ database, publicUrl, passphrase }) {
       return oauthError(response, 400, "invalid_request", "Unknown client or redirect URI.");
     }
     if (request.query.response_type !== "code" || request.query.code_challenge_method !== "S256") {
-      return oauthError(response, 400, "invalid_request", "Authorization code with S256 PKCE is required.");
+      return oauthError(
+        response,
+        400,
+        "invalid_request",
+        "Authorization code with S256 PKCE is required.",
+      );
     }
     if (!request.query.code_challenge) {
       return oauthError(response, 400, "invalid_request", "A PKCE code challenge is required.");
@@ -267,7 +268,10 @@ export function createOAuth({ database, publicUrl, passphrase }) {
       return oauthError(response, 400, "invalid_request", "Unknown client or redirect URI.");
     }
     if (!constantTimeEqual(String(request.body.passphrase || ""), passphrase)) {
-      return response.status(403).type("html").send("Authorization denied: invalid spike passphrase.");
+      return response
+        .status(403)
+        .type("html")
+        .send("Authorization denied: invalid spike passphrase.");
     }
     if (request.body.code_challenge_method !== "S256" || !request.body.code_challenge) {
       return oauthError(response, 400, "invalid_request", "S256 PKCE is required.");
@@ -367,14 +371,19 @@ export function createOAuth({ database, publicUrl, passphrase }) {
 
   function revoke(request, response) {
     const client = authenticateClient(database, request);
-    if (!client) return oauthError(response, 401, "invalid_client", "Client authentication failed.");
+    if (!client)
+      return oauthError(response, 401, "invalid_client", "Client authentication failed.");
     const tokenHash = sha256(String(request.body.token || ""));
     const revokedAt = new Date().toISOString();
     database
-      .prepare("UPDATE oauth_access_tokens SET revoked_at = ? WHERE token_hash = ? AND client_id = ?")
+      .prepare(
+        "UPDATE oauth_access_tokens SET revoked_at = ? WHERE token_hash = ? AND client_id = ?",
+      )
       .run(revokedAt, tokenHash, client.client_id);
     database
-      .prepare("UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE token_hash = ? AND client_id = ?")
+      .prepare(
+        "UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE token_hash = ? AND client_id = ?",
+      )
       .run(revokedAt, tokenHash, client.client_id);
     response.status(200).end();
   }

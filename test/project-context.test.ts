@@ -17,7 +17,9 @@ before(async () => {
   server = created.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
-  ({ tokens: { access_token: accessToken } } = await authorize(baseUrl));
+  ({
+    tokens: { access_token: accessToken },
+  } = await authorize(baseUrl));
 
   const now = new Date().toISOString();
   created.database
@@ -101,7 +103,9 @@ after(async () => {
 
 test("lists only projects in the authenticated workspace", async () => {
   created.database
-    .prepare("INSERT INTO projects (id, workspace_id, name, brief, created_at) VALUES (?, ?, ?, ?, ?)")
+    .prepare(
+      "INSERT INTO projects (id, workspace_id, name, brief, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
     .run("project_other", "workspace_other", "Other tenant", "Private", new Date().toISOString());
 
   const { response, payload } = await callMcp(baseUrl, accessToken, "tools/call", {
@@ -109,9 +113,10 @@ test("lists only projects in the authenticated workspace", async () => {
     arguments: {},
   });
   assert.equal(response.status, 200);
-  assert.deepEqual(payload.result.structuredContent.projects.map((project) => project.id), [
-    "project_switchboard_launch",
-  ]);
+  assert.deepEqual(
+    payload.result.structuredContent.projects.map((project) => project.id),
+    ["project_switchboard_launch"],
+  );
 });
 
 test("advertises least-privilege OAuth scopes in ChatGPT-compatible tool metadata", async () => {

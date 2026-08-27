@@ -95,6 +95,12 @@ The web and MCP processes are server-only applications. The MCP deployable can a
 
 This split changes endpoint topology, not trust behavior. `ALICE_WEB_URL` supplies the review origin returned by MCP capture results, while `ALICE_PUBLIC_URL` remains the OAuth issuer and MCP resource origin.
 
+### Build strategy
+
+The repository targets Node.js 24 and compiles with TypeScript project references. Shared packages emit declarations and JavaScript before the two application projects. Production commands execute only emitted `dist/` JavaScript; source-mode test commands opt into the workspace packages' `development` export condition. Generated output and TypeScript build metadata are ignored rather than committed.
+
+The root package scripts are the canonical developer and CI interface. They deliberately avoid a task runner or deployment orchestrator while the product has only two small server deployables.
+
 ## Round-trip success test
 
 The first spike must prove:

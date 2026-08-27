@@ -5,6 +5,14 @@ const REVIEW_SESSION_TTL_SECONDS = 60 * 60;
 
 // Trusted-state acceptance stays behind the human web control plane.
 
+declare global {
+  namespace Express {
+    interface Request {
+      reviewer?: { user_id: string };
+    }
+  }
+}
+
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -12,10 +20,7 @@ function sha256(value) {
 function constantTimeEqual(left, right) {
   const leftBuffer = Buffer.from(String(left));
   const rightBuffer = Buffer.from(String(right));
-  return (
-    leftBuffer.length === rightBuffer.length &&
-    timingSafeEqual(leftBuffer, rightBuffer)
-  );
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
 function escapeHtml(value) {
@@ -142,17 +147,22 @@ export function createReviewRouter({ database, passphrase, publicUrl }) {
 
   router.get("/login", (request, response) => {
     const next = String(request.query.next || "/review");
-    response.type("html").send(
-      renderPage(
-        "alice. review sign in",
-        `<h1>alice. spike review</h1><p>Sign in to review pending host-submitted candidates.</p><form method="post" action="/review/login"><input type="hidden" name="next" value="${escapeHtml(next)}"><label>Spike passphrase <input name="passphrase" type="password" required></label> <button type="submit">Sign in</button></form>`,
-      ),
-    );
+    response
+      .type("html")
+      .send(
+        renderPage(
+          "alice. review sign in",
+          `<h1>alice. spike review</h1><p>Sign in to review pending host-submitted candidates.</p><form method="post" action="/review/login"><input type="hidden" name="next" value="${escapeHtml(next)}"><label>Spike passphrase <input name="passphrase" type="password" required></label> <button type="submit">Sign in</button></form>`,
+        ),
+      );
   });
 
   router.post("/login", (request, response) => {
     if (!constantTimeEqual(request.body.passphrase || "", passphrase)) {
-      return response.status(403).type("html").send(renderPage("Denied", "<h1>Authorization denied</h1>"));
+      return response
+        .status(403)
+        .type("html")
+        .send(renderPage("Denied", "<h1>Authorization denied</h1>"));
     }
     setSession(database, response, publicUrl);
     const next = String(request.body.next || "/review");
@@ -162,19 +172,26 @@ export function createReviewRouter({ database, passphrase, publicUrl }) {
   router.use((request, response, next) => {
     const reviewer = authenticatedReviewer(database, request);
     if (!reviewer) {
-      return response.redirect(303, `/review/login?next=${encodeURIComponent(request.originalUrl)}`);
+      return response.redirect(
+        303,
+        `/review/login?next=${encodeURIComponent(request.originalUrl)}`,
+      );
     }
     request.reviewer = reviewer;
     next();
   });
 
   router.get("/", (request, response) => {
-    const workspaceId = `workspace_${request.reviewer.user_id}`;
+    const workspaceId = `workspace_${request.reviewer!.user_id}`;
     const requestedProjectId = String(request.query.project_id || "project_switchboard_launch");
     const project = database
       .prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?")
       .get(requestedProjectId, workspaceId);
-    if (!project) return response.status(404).type("html").send(renderPage("Not found", "<h1>Project not found</h1>"));
+    if (!project)
+      return response
+        .status(404)
+        .type("html")
+        .send(renderPage("Not found", "<h1>Project not found</h1>"));
     const candidates = database
       .prepare(
         `SELECT candidate.*, evidence.client_classification, evidence.created_at AS evidence_created_at
@@ -186,24 +203,31 @@ export function createReviewRouter({ database, passphrase, publicUrl }) {
       .all(project.id, workspaceId);
     const cards = candidates
       .map(
-        (candidate) => `<article class="${candidate.status === "accepted" ? "accepted" : ""}"><h2>${escapeHtml(candidate.state_key)}</h2><p><code>${escapeHtml(candidate.value_json)}</code></p><p>${escapeHtml(candidate.summary)}</p><p class="muted">Status: ${escapeHtml(candidate.status)} · Source: ${escapeHtml(candidate.client_classification)} · Evidence: ${escapeHtml(candidate.evidence_id)}</p>${
-          candidate.status === "pending"
-            ? `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/accept"><button type="submit">Accept into trusted state</button></form>`
-            : ""
-        }</article>`,
+        (candidate) =>
+          `<article class="${candidate.status === "accepted" ? "accepted" : ""}"><h2>${escapeHtml(candidate.state_key)}</h2><p><code>${escapeHtml(candidate.value_json)}</code></p><p>${escapeHtml(candidate.summary)}</p><p class="muted">Status: ${escapeHtml(candidate.status)} · Source: ${escapeHtml(candidate.client_classification)} · Evidence: ${escapeHtml(candidate.evidence_id)}</p>${
+            candidate.status === "pending"
+              ? `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/accept"><button type="submit">Accept into trusted state</button></form>`
+              : ""
+          }</article>`,
       )
       .join("");
-    response.type("html").send(
-      renderPage(
-        `${project.name} review`,
-        `<h1>${escapeHtml(project.name)} review</h1><p>Only this explicit human action can change trusted state.</p>${cards || "<p>No candidates yet.</p>"}`,
-      ),
-    );
+    response
+      .type("html")
+      .send(
+        renderPage(
+          `${project.name} review`,
+          `<h1>${escapeHtml(project.name)} review</h1><p>Only this explicit human action can change trusted state.</p>${cards || "<p>No candidates yet.</p>"}`,
+        ),
+      );
   });
 
   router.post("/candidates/:candidateId/accept", (request, response) => {
-    const result = acceptCandidate(database, request.params.candidateId, request.reviewer.user_id);
-    if (!result) return response.status(409).type("html").send(renderPage("Not accepted", "<h1>Candidate is not pending or accessible.</h1>"));
+    const result = acceptCandidate(database, request.params.candidateId, request.reviewer!.user_id);
+    if (!result)
+      return response
+        .status(409)
+        .type("html")
+        .send(renderPage("Not accepted", "<h1>Candidate is not pending or accessible.</h1>"));
     response.redirect(303, `/review?project_id=${encodeURIComponent(result.projectId)}`);
   });
 

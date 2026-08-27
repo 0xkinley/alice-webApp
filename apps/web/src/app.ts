@@ -2,7 +2,12 @@ import express from "express";
 import { openDatabase } from "@alice/database";
 import { createReviewRouter } from "./review.ts";
 
-export function createApp({ database: suppliedDatabase, databaseFilename, passphrase, publicUrl }) {
+export function createApp({
+  database: suppliedDatabase = undefined,
+  databaseFilename = ":memory:",
+  passphrase,
+  publicUrl,
+}) {
   const database = suppliedDatabase || openDatabase(databaseFilename);
   const app = express();
 
@@ -15,4 +20,3 @@ export function createApp({ database: suppliedDatabase, databaseFilename, passph
 
   return { app, database };
 }
-
