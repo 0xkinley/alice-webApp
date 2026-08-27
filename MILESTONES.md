@@ -49,7 +49,7 @@ Tasks:
 - [x] Save and approve decisions A-C: ICP, product form, and monthly price.
 - [x] Verify Claude retrieves and correctly uses A-C without them being restated.
 - [x] Save and approve decision D from Claude.
-- [ ] Verify ChatGPT retrieves and correctly uses A-D after the second switch.
+- [x] Verify ChatGPT retrieves and correctly uses A-D after the second switch.
 - [ ] Compare the recurring Alice workflow with manual copy/paste and record the result.
 - [ ] Document protocol behavior, host differences, limitations, and go/no-go recommendation.
 

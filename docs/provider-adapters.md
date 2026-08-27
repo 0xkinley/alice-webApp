@@ -27,6 +27,7 @@ Verified on 2026-08-27 with ChatGPT Developer mode and `@modelcontextprotocol/se
 - ChatGPT classifies and authorizes actions from per-tool OAuth scope metadata. The spike therefore mirrors each tool's least-privilege OAuth scheme in `_meta.securitySchemes`: `mcp:read` for context tools and `mcp:write` for candidate capture.
 - The SDK version used by the spike did not emit a top-level `securitySchemes` field from the registered tool descriptor. The `_meta` compatibility mirror is covered by integration tests, while alice. continues to enforce the bearer-token scope server-side rather than trusting host classification.
 - ChatGPT showed an explicit confirmation before the write action. Candidates still remained pending until alice.'s independent human review.
+- An installed development connector could not be reauthorized after its temporary tunnel hostname expired. Creating a fresh connector for the current hostname restored OAuth and tool use. Stable production URLs are therefore required to keep first-time connection work out of the recurring workflow.
 
 This is an observed adapter requirement for the recorded versions, not a permanent product assumption. Revalidate it when either host or SDK changes.
 

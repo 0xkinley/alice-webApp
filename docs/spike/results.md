@@ -98,6 +98,19 @@ Recorded at 2026-08-27 Asia/Dubai:
 
 This completes the governed Claude capture task under the corrected rubric. The correction and its timing are preserved in the fixture; the earlier run records are not rewritten.
 
+### ChatGPT return leg
+
+Recorded at 2026-08-27 Asia/Dubai from the target personal ChatGPT Plus account:
+
+- The original development connector's OAuth connection had expired after the temporary tunnel hostname changed. ChatGPT could not reconnect that installed connector, so the tester created a fresh development connector for the current public hostname and completed OAuth again with `mcp:read mcp:write`.
+- In a new conversation, the tester enabled only the fresh alice. connector and supplied the fixture's exact return prompt without restating A-D.
+- ChatGPT called `list_projects` and `get_project_context`. The returned context package contained exactly four accepted decisions, no open questions, no artifacts, and zero omissions.
+- ChatGPT produced a compact launch card with the exact accepted ICP, the web control-plane plus authenticated remote MCP product form and explicit non-chatbot/non-router boundary, USD 24 per month, and the accepted seven-day two-account activation criterion.
+- ChatGPT explained that the activation criterion fits because alice.'s value requires project continuity across multiple AI environments rather than activity from one.
+- The tool output exposed accepted-state identifiers for A-D. D resolved to accepted state `accepted_0d911feb-9e2c-4d85-b2fa-95a7e5cc6a9f`, candidate `candidate_246a292a-acce-4a58-a508-0ef21726c0ce`, and immutable evidence `evidence_0534d3ff-8236-40a0-9b59-d045cac20186`.
+
+The returning ChatGPT leg passes the corrected rubric. ChatGPT retrieved and correctly used A-D without manual restatement, presented only accepted state, and retained resolvable provenance through the complete two-switch round trip.
+
 ## ChatGPT Plus eligibility investigation
 
 Recorded at 2026-08-26 Asia/Dubai:
