@@ -83,6 +83,8 @@ Security- and state-relevant operations append audit events in the same transact
 
 Human acceptance is a domain operation imported only by the web review control plane. It adds a new immutable version for a state key and never overwrites the prior accepted row. Candidate/evidence provenance is enforced as an exact composite database reference. The MCP deployable still has no trusted-state tool or acceptance import.
 
+Milestone 04 makes review a workspace dashboard plus tenant-scoped project queues. The default project queue contains pending candidates only; accepted and rejected filters expose terminal history without treating it as current truth. Each candidate shows the proposed value, capture summary, deliberately saved source note/context, evidence hash and identifier, client classification, tool, and capture time. Counts and bounded pagination are computed inside the authenticated workspace scope. No workspace identifier is accepted from the browser.
+
 Tenant authorization is centralized in the domain package. Web project operations require a server-derived user/workspace scope. MCP capture requires an active user/workspace/client connection scope derived from the verified bearer token. Every policy fails closed before project lookup, and workspace-aware database constraints provide defense in depth.
 
 ## Repository and deployable boundaries

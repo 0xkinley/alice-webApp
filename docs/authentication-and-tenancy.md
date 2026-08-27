@@ -32,6 +32,8 @@ MCP writes require the stronger connection scope: the connection must be active 
 
 The web review queue, project detail, project list, project creation, accepted-context read, candidate capture, and human acceptance all use these shared policies. Database composite foreign keys are the second layer: tenant-owned evidence, candidates, accepted state, audit rows, and connections cannot reference an object in another workspace even if application code is faulty.
 
+The Milestone 04 review dashboard derives its complete project list from the authenticated human's private workspace. Project queues repeat the workspace predicate across candidates, evidence, and accepted-state joins; status filters and pagination never replace tenant authorization. A foreign project identifier and a random well-formed identifier still produce the same non-disclosing response, while the workspace dashboard omits the other tenant's project and candidate counts entirely.
+
 `docs/tenant-isolation.md` is the durable path inventory and negative-test matrix. Any future project endpoint or domain operation must be added to that matrix before its milestone can be complete.
 
 ## MCP identity binding

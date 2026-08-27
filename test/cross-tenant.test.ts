@@ -139,6 +139,19 @@ test("web project list, detail, creation, and review queue stay tenant-scoped", 
     assert.doesNotMatch(homeHtml, new RegExp(target.projectName));
     assert.doesNotMatch(homeHtml, new RegExp(target.projectId));
 
+    const reviewIndex = await fetch(`${webBaseUrl}/review`, {
+      headers: { cookie: actor.cookie },
+    });
+    const reviewIndexHtml = await reviewIndex.text();
+    assert.equal(reviewIndex.status, 200);
+    assert.match(reviewIndexHtml, new RegExp(actor.projectName));
+    assert.doesNotMatch(
+      reviewIndexHtml,
+      new RegExp(
+        `${target.projectName}|${target.acceptedValue}|${target.pendingValue}|${target.evidenceId}`,
+      ),
+    );
+
     const foreignDetail = await fetch(`${webBaseUrl}/projects/${target.projectId}`, {
       headers: { cookie: actor.cookie },
     });

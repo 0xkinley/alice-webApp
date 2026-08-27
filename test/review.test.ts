@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
+import { getReviewQueue, listReviewProjects } from "@alice/domain";
 import { authorize, callMcp, createTestIdentity, TEST_EMAIL, TEST_PASSWORD } from "./helpers.ts";
 
 let accessToken;
@@ -38,6 +39,8 @@ before(async () => {
       project_id: "project_switchboard_launch",
       summary: "Candidate for review",
       candidate_claims: [{ state_key: "launch.monthly_price_usd", value: 24, summary: "Price" }],
+      source_note: "The user explicitly chose the launch price.",
+      source_context: "Launch plan excerpt: charge USD 24 per month.",
       idempotency_key: "review-fixture-price",
     },
   });
@@ -59,6 +62,9 @@ test("review candidates are hidden until the human signs in", async () => {
   });
   assert.equal(response.status, 303);
   assert.match(response.headers.get("location"), /^\/auth\/login/);
+  const indexResponse = await fetch(`${webUrl}/review`, { redirect: "manual" });
+  assert.equal(indexResponse.status, 303);
+  assert.match(indexResponse.headers.get("location"), /^\/auth\/login/);
 });
 
 test("an explicit authenticated review accepts a candidate into versioned trusted state", async () => {
@@ -75,11 +81,42 @@ test("an explicit authenticated review accepts a candidate into versioned truste
   assert.equal(loginResponse.status, 303);
   reviewCookie = loginResponse.headers.get("set-cookie").split(";")[0];
 
+  const queueIndexResponse = await fetch(`${webUrl}/review`, {
+    headers: { cookie: reviewCookie },
+  });
+  assert.equal(queueIndexResponse.status, 200);
+  const queueIndexHtml = await queueIndexResponse.text();
+  assert.match(queueIndexHtml, /Candidate review queue/);
+  assert.match(queueIndexHtml, /Switchboard Launch/);
+  assert.match(queueIndexHtml, /1 pending/);
+
   const reviewResponse = await fetch(`${webUrl}/review?project_id=project_switchboard_launch`, {
     headers: { cookie: reviewCookie },
   });
   assert.equal(reviewResponse.status, 200);
-  assert.match(await reviewResponse.text(), new RegExp(candidateId));
+  const reviewHtml = await reviewResponse.text();
+  assert.match(reviewHtml, new RegExp(candidateId));
+  assert.match(reviewHtml, /Pending \(1\)/);
+  assert.match(reviewHtml, /Candidate for review/);
+  assert.match(reviewHtml, /The user explicitly chose the launch price/);
+  assert.match(reviewHtml, /Launch plan excerpt: charge USD 24 per month/);
+  assert.match(reviewHtml, /Payload hash/);
+  assert.match(reviewHtml, /unknown_mcp_client/);
+
+  const userId = created.database
+    .prepare("SELECT id FROM users WHERE email = ?")
+    .get(TEST_EMAIL).id;
+  assert.equal(listReviewProjects(created.database, userId)[0].pending_count, 1);
+  const boundedQueue = getReviewQueue(created.database, {
+    userId,
+    projectId: "project_switchboard_launch",
+    status: "pending",
+    page: 999,
+    pageSize: 999,
+  });
+  assert.equal(boundedQueue.pagination.page_size, 50);
+  assert.equal(boundedQueue.pagination.page, 1);
+  assert.equal(boundedQueue.pagination.selected_total, 1);
 
   const acceptResponse = await fetch(`${webUrl}/review/candidates/${candidateId}/accept`, {
     method: "POST",
@@ -101,6 +138,21 @@ test("an explicit authenticated review accepts a candidate into versioned truste
     .prepare("SELECT * FROM audit_events WHERE action = 'candidate_accepted'")
     .get();
   assert.equal(audit.actor_type, "human_reviewer");
+
+  const pendingResponse = await fetch(`${webUrl}/review?project_id=project_switchboard_launch`, {
+    headers: { cookie: reviewCookie },
+  });
+  const pendingHtml = await pendingResponse.text();
+  assert.match(pendingHtml, /No pending candidates/);
+  assert.doesNotMatch(pendingHtml, new RegExp(candidateId));
+  const acceptedResponse = await fetch(
+    `${webUrl}/review?project_id=project_switchboard_launch&status=accepted`,
+    { headers: { cookie: reviewCookie } },
+  );
+  const acceptedHtml = await acceptedResponse.text();
+  assert.match(acceptedHtml, new RegExp(candidateId));
+  assert.match(acceptedHtml, new RegExp(accepted.id));
+  assert.match(acceptedHtml, /Version 1/);
 
   const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "get_project_context",
