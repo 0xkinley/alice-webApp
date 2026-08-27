@@ -21,7 +21,7 @@ The integration fixture creates two authenticated users, separate private worksp
 | Web | Project creation | Submitted foreign `workspace_id` is ignored | New project belongs to the authenticated workspace |
 | Web | Workspace review dashboard | Other project names, candidate counts, values, and evidence identifiers are absent | None |
 | Web | Project review queue and status filters | Foreign and random project IDs return identical 404 pages with no candidate, evidence, value, accepted-state, or provenance disclosure | None |
-| Web | Candidate acceptance | Foreign and random candidate IDs return identical 409 pages | Candidate stays pending; accepted-state and audit counts do not change |
+| Web | Candidate acceptance and rejection | Foreign and random candidate IDs return identical 409 pages for each decision | Candidate stays pending; accepted-state and audit counts do not change |
 | MCP | `list_projects` | Other project ID, name, and brief are absent | None |
 | MCP | `get_project_context` | Foreign and random project IDs return the same not-found tool error | No accepted value, pending value, candidate, or evidence leaks |
 | MCP | `save_project_update` | Foreign and random project IDs return the same not-found tool error | Evidence, candidate, accepted-state, and audit counts do not change |
@@ -37,4 +37,4 @@ Milestone 04 adds only the authenticated workspace review dashboard and bounded 
 
 ## Trusted-state controls retained
 
-The same matrix confirms that MCP capture remains candidate-only, pending candidates remain absent from trusted context, and only the authenticated web acceptance path creates versioned accepted state. Accepted output retains the exact candidate and evidence provenance identifiers.
+The same matrix confirms that MCP capture remains candidate-only, pending and rejected candidates remain absent from trusted context, and only the authenticated web acceptance path creates versioned accepted state. Authenticated rejection creates no trusted row, and accepted output retains the exact candidate and evidence provenance identifiers.

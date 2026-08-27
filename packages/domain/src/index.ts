@@ -12,4 +12,4 @@ export {
 export { getProjectContext, listProjects } from "./project-context.ts";
 export { createProject, getProject } from "./projects.ts";
 export { getReviewQueue, listReviewProjects } from "./review-queue.ts";
-export { acceptCandidate } from "./trusted-state.ts";
+export { acceptCandidate, rejectCandidate } from "./trusted-state.ts";

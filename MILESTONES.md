@@ -168,7 +168,7 @@ Tasks:
 - [x] Finalize the `save_project_update` contract and validation limits.
 - [x] Make evidence, candidates, provenance, and audit creation transactional and idempotent.
 - [x] Build the candidate review queue.
-- [ ] Implement accept and reject actions.
+- [x] Implement accept and reject actions.
 - [ ] Implement explicit supersession without overwriting history.
 - [ ] Add capture evaluations for correct and incorrect tool selection.
 
@@ -186,6 +186,7 @@ Notes:
 - `save_project_update` now exposes a strict, explicit-save-only contract: 1-20 unique state keys, bounded summaries and deliberately supplied source material, safe 8-128 character retry keys, 8 KiB/depth-8/256-node candidate values, and a 32 KiB validated payload ceiling. Unknown fields and attempts to imply acceptance, rejection, or supersession are outside the tool contract; the exact normalized validated payload remains the immutable evidence body.
 - Capture idempotency is now resolved inside the same immediate transaction as evidence, candidates, provenance, and one correlated audit event. Commit requires a complete receipt; forced candidate or audit failures roll every capture row back. Identical retries return the original evidence, audit, correlation, provenance, and payload-ordered candidate identifiers without another write, while different-payload key reuse and incomplete receipts fail closed.
 - The authenticated web control plane now provides a private-workspace review dashboard and per-project queues with pending-only defaults, terminal-history filters, counts, bounded pagination, proposed values, deliberately saved source material, accepted-version references, and evidence/client/tool/hash/timestamp provenance. Workspace and project queries remain server-scoped, and both-direction tests keep foreign projects and queue counts undisclosed.
+- Pending candidates now expose separate accept and reject forms only behind an authenticated alice. web session. Acceptance creates versioned trusted state; rejection creates none. Each terminal transition shares a transaction with an immutable human-review audit event, failed audit insertion restores `pending`, repeat or conflicting decisions fail without mutation, retries only report terminal status, and both review operations remain absent from MCP.
 
 ## Milestone 05 — Consumption Loop
 

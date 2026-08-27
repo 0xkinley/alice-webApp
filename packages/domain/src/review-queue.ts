@@ -88,7 +88,31 @@ export function getReviewQueue(
               evidence.client_classification, evidence.tool_name,
               evidence.payload_hash, evidence.created_at AS evidence_created_at,
               accepted.id AS accepted_state_id, accepted.version AS accepted_version,
-              accepted.accepted_at
+              accepted.accepted_at,
+              (SELECT audit.id FROM audit_events audit
+               WHERE audit.workspace_id = candidate.workspace_id
+                 AND audit.project_id = candidate.project_id
+                 AND audit.action IN ('candidate_accepted', 'candidate_rejected')
+                 AND json_extract(audit.safe_metadata_json, '$.candidate_id') = candidate.id
+               ORDER BY audit.created_at, audit.id LIMIT 1) AS review_audit_id,
+              (SELECT audit.actor_id FROM audit_events audit
+               WHERE audit.workspace_id = candidate.workspace_id
+                 AND audit.project_id = candidate.project_id
+                 AND audit.action IN ('candidate_accepted', 'candidate_rejected')
+                 AND json_extract(audit.safe_metadata_json, '$.candidate_id') = candidate.id
+               ORDER BY audit.created_at, audit.id LIMIT 1) AS reviewer_user_id,
+              (SELECT audit.correlation_id FROM audit_events audit
+               WHERE audit.workspace_id = candidate.workspace_id
+                 AND audit.project_id = candidate.project_id
+                 AND audit.action IN ('candidate_accepted', 'candidate_rejected')
+                 AND json_extract(audit.safe_metadata_json, '$.candidate_id') = candidate.id
+               ORDER BY audit.created_at, audit.id LIMIT 1) AS review_correlation_id,
+              (SELECT audit.created_at FROM audit_events audit
+               WHERE audit.workspace_id = candidate.workspace_id
+                 AND audit.project_id = candidate.project_id
+                 AND audit.action IN ('candidate_accepted', 'candidate_rejected')
+                 AND json_extract(audit.safe_metadata_json, '$.candidate_id') = candidate.id
+               ORDER BY audit.created_at, audit.id LIMIT 1) AS reviewed_at
        FROM candidate_claims candidate
        JOIN evidence_events evidence
          ON evidence.id = candidate.evidence_id

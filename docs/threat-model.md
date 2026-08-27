@@ -63,6 +63,8 @@ Minimum controls:
 
 Milestone 03 additionally makes accepted-state rows database-immutable, permits only a single pending-to-terminal candidate status transition, and enforces the accepted candidate/evidence pair with a composite foreign key. A later acceptance of the same key creates the next version; current context selects the highest version without deleting history.
 
+Milestone 04 adds explicit accept and reject forms only to the authenticated first-party web control plane. Acceptance versions trusted state; rejection creates no trusted row. Both decisions share a transaction with their immutable human-review audit event, and any audit failure restores the pending candidate. Terminal candidates cannot be accepted, rejected, or switched again. The MCP server imports no review operation and its advertised tool list contains no review action.
+
 ### Evidence or audit rewriting
 
 A compromised application path attempts to update or delete the source material or security history after the fact.

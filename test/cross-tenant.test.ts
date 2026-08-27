@@ -204,7 +204,7 @@ test("web project list, detail, creation, and review queue stay tenant-scoped", 
   );
 });
 
-test("foreign and guessed candidate acceptance cannot mutate trusted state", async () => {
+test("foreign and guessed candidate review actions cannot mutate trusted state", async () => {
   for (const [actorKey, targetKey] of [
     ["alpha", "beta"],
     ["beta", "alpha"],
@@ -216,16 +216,18 @@ test("foreign and guessed candidate acceptance cannot mutate trusted state", asy
       .get().count;
     const auditBefore = database.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count;
 
-    const foreign = await fetch(
-      `${webBaseUrl}/review/candidates/${target.pendingCandidateId}/accept`,
-      { method: "POST", headers: { cookie: actor.cookie }, redirect: "manual" },
-    );
-    const guessed = await fetch(
-      `${webBaseUrl}/review/candidates/candidate_${crypto.randomUUID()}/accept`,
-      { method: "POST", headers: { cookie: actor.cookie }, redirect: "manual" },
-    );
-    assert.equal(foreign.status, 409);
-    assert.equal(await foreign.text(), await guessed.text());
+    for (const decision of ["accept", "reject"]) {
+      const foreign = await fetch(
+        `${webBaseUrl}/review/candidates/${target.pendingCandidateId}/${decision}`,
+        { method: "POST", headers: { cookie: actor.cookie }, redirect: "manual" },
+      );
+      const guessed = await fetch(
+        `${webBaseUrl}/review/candidates/candidate_${crypto.randomUUID()}/${decision}`,
+        { method: "POST", headers: { cookie: actor.cookie }, redirect: "manual" },
+      );
+      assert.equal(foreign.status, 409);
+      assert.equal(await foreign.text(), await guessed.text());
+    }
     assert.equal(
       database
         .prepare("SELECT status FROM candidate_claims WHERE id = ?")

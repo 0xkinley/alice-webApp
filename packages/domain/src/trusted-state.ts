@@ -50,7 +50,7 @@ export function acceptCandidate(database, { candidateId, userId }) {
       )
       .run(candidate.id, tenant.workspaceId);
     if (changed.changes !== 1) throw new Error("Candidate acceptance lost a concurrent race.");
-    appendAuditEvent(database, {
+    const audit = appendAuditEvent(database, {
       workspaceId: tenant.workspaceId,
       projectId: candidate.project_id,
       action: "candidate_accepted",
@@ -68,10 +68,62 @@ export function acceptCandidate(database, { candidateId, userId }) {
     database.exec("COMMIT");
     return {
       acceptedStateId,
+      auditEventId: audit.id,
+      correlationId,
       projectId: candidate.project_id,
       candidateId: candidate.id,
       evidenceId: candidate.evidence_id,
       version,
+      reviewedAt: audit.created_at,
+    };
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function rejectCandidate(database, { candidateId, userId }) {
+  const tenant = tenantScopeForUser(database, userId);
+  if (!tenant) return undefined;
+  const candidate = database
+    .prepare(
+      `SELECT * FROM candidate_claims
+       WHERE id = ? AND workspace_id = ? AND status = 'pending'`,
+    )
+    .get(candidateId, tenant.workspaceId);
+  if (!candidate) return undefined;
+
+  const correlationId = `review_${randomUUID()}`;
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const changed = database
+      .prepare(
+        `UPDATE candidate_claims SET status = 'rejected'
+         WHERE id = ? AND workspace_id = ? AND status = 'pending'`,
+      )
+      .run(candidate.id, tenant.workspaceId);
+    if (changed.changes !== 1) throw new Error("Candidate rejection lost a concurrent race.");
+    const audit = appendAuditEvent(database, {
+      workspaceId: tenant.workspaceId,
+      projectId: candidate.project_id,
+      action: "candidate_rejected",
+      actorType: "human_reviewer",
+      actorId: userId,
+      correlationId,
+      metadata: {
+        candidate_id: candidate.id,
+        evidence_id: candidate.evidence_id,
+        state_key: candidate.state_key,
+      },
+    });
+    database.exec("COMMIT");
+    return {
+      auditEventId: audit.id,
+      correlationId,
+      projectId: candidate.project_id,
+      candidateId: candidate.id,
+      evidenceId: candidate.evidence_id,
+      reviewedAt: audit.created_at,
     };
   } catch (error) {
     database.exec("ROLLBACK");

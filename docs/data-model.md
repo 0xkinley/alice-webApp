@@ -44,6 +44,8 @@ Submitted candidate content is immutable. Its only permitted update is one trans
 
 The capture receipt returns each candidate identifier with its current review status. A retry after human review reports the terminal status but never changes it, creates a new audit event, or rewrites the original evidence.
 
+Accept and reject are explicit authenticated-human transactions. Acceptance inserts the next immutable accepted-state version, changes the candidate to `accepted`, and appends `candidate_accepted`; rejection changes the candidate to `rejected` and appends `candidate_rejected` without inserting trusted state. The audit event carries the reviewer identifier plus candidate/evidence/state identifiers and a correlation ID. An audit failure rolls the whole review decision back, and a terminal candidate cannot be reviewed again.
+
 ### Accepted project state
 
 Versioned trusted state accepted by a human. Acceptance creates a traceable state record; it never overwrites or detaches prior history.
@@ -70,7 +72,7 @@ Each authorization grant creates a connection bound by foreign keys to the user,
 
 Append-only records of security- and state-relevant actions. Store identifiers, safe metadata, and correlation IDs rather than unsaved conversation content.
 
-The current action set covers registration, session creation and revocation, project creation, integration authorization and revocation, candidate submission, and human acceptance. Audit insertion participates in the transaction for the associated state change. Database triggers reject every audit update and delete. Metadata excludes passwords, session values, bearer tokens, email addresses, and submitted evidence content.
+The current action set covers registration, session creation and revocation, project creation, integration authorization and revocation, candidate submission, and human acceptance and rejection. Audit insertion participates in the transaction for the associated state change. Database triggers reject every audit update and delete. Metadata excludes passwords, session values, bearer tokens, email addresses, and submitted evidence content.
 
 ## Required invariants
 

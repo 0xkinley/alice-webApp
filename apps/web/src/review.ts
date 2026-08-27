@@ -1,4 +1,9 @@
-import { acceptCandidate, getReviewQueue, listReviewProjects } from "@alice/domain";
+import {
+  acceptCandidate,
+  getReviewQueue,
+  listReviewProjects,
+  rejectCandidate,
+} from "@alice/domain";
 import express from "express";
 import { renderPage, requireAuthenticatedUser } from "./auth.ts";
 
@@ -49,11 +54,14 @@ function candidateCard(candidate) {
   const accepted = candidate.accepted_state_id
     ? `<p class="muted">Accepted state: <code>${escapeHtml(candidate.accepted_state_id)}</code> · Version ${candidate.accepted_version}</p>`
     : "";
+  const reviewAudit = candidate.review_audit_id
+    ? `<p class="muted">Human decision audit: <code>${escapeHtml(candidate.review_audit_id)}</code> · ${escapeHtml(candidate.reviewed_at)}</p>`
+    : "";
   const actions =
     candidate.status === "pending"
-      ? `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/accept"><button type="submit">Accept into trusted state</button></form>`
+      ? `<div class="actions"><form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/accept"><button type="submit">Accept into trusted state</button></form><form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/reject"><button type="submit">Reject candidate</button></form></div>`
       : "";
-  return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p><p class="muted">Status: ${escapeHtml(candidate.status)} · Candidate: <code>${escapeHtml(candidate.id)}</code></p>${accepted}${evidenceDetails(candidate)}${actions}</article>`;
+  return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p><p class="muted">Status: ${escapeHtml(candidate.status)} · Candidate: <code>${escapeHtml(candidate.id)}</code></p>${accepted}${reviewAudit}${evidenceDetails(candidate)}${actions}</article>`;
 }
 
 function paginationLinks(queue) {
@@ -131,6 +139,19 @@ export function createReviewRouter({ database }) {
         .status(409)
         .type("html")
         .send(renderPage("Not accepted", "<h1>Candidate is not pending or accessible.</h1>"));
+    response.redirect(303, `/review?project_id=${encodeURIComponent(result.projectId)}`);
+  });
+
+  router.post("/candidates/:candidateId/reject", (request, response) => {
+    const result = rejectCandidate(database, {
+      candidateId: request.params.candidateId,
+      userId: request.aliceUser!.id,
+    });
+    if (!result)
+      return response
+        .status(409)
+        .type("html")
+        .send(renderPage("Not rejected", "<h1>Candidate is not pending or accessible.</h1>"));
     response.redirect(303, `/review?project_id=${encodeURIComponent(result.projectId)}`);
   });
 

@@ -37,7 +37,7 @@ Responsibilities:
 - register and authenticate users with one private workspace each;
 - create and revisit tenant-scoped projects;
 - render the candidate review interface;
-- execute explicit human candidate acceptance; and
+- execute explicit human candidate acceptance and rejection; and
 - expose `/health` for process checks.
 
 The web process is server-rendered. It creates no browser JavaScript bundle and exposes no configuration or secret through a client-public environment prefix.

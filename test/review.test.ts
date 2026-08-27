@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
-import { getReviewQueue, listReviewProjects } from "@alice/domain";
+import { getReviewQueue, listReviewProjects, rejectCandidate } from "@alice/domain";
 import { authorize, callMcp, createTestIdentity, TEST_EMAIL, TEST_PASSWORD } from "./helpers.ts";
 
 let accessToken;
@@ -159,6 +159,158 @@ test("an explicit authenticated review accepts a candidate into versioned truste
     arguments: { project_id: "project_switchboard_launch", task: "Read accepted price" },
   });
   assert.equal(payload.result.structuredContent.accepted_decisions[0].value, 24);
+});
+
+test("an explicit authenticated human rejection is terminal and preserves provenance", async () => {
+  const rejectionPayload = {
+    project_id: "project_switchboard_launch",
+    summary: "Option for explicit rejection",
+    candidate_claims: [
+      {
+        state_key: "launch.rejected_option",
+        value: "Do not trust this option",
+        summary: "Rejected launch option",
+      },
+    ],
+    source_note: "Review fixture source",
+    idempotency_key: "review-fixture-rejection",
+  };
+  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "save_project_update",
+    arguments: rejectionPayload,
+  });
+  const rejectedCandidateId = capture.result.structuredContent.candidate_ids[0];
+  const evidenceId = capture.result.structuredContent.evidence_id;
+  const acceptedBefore = created.database
+    .prepare("SELECT COUNT(*) AS count FROM accepted_project_state")
+    .get().count;
+
+  const unauthenticated = await fetch(`${webUrl}/review/candidates/${rejectedCandidateId}/reject`, {
+    method: "POST",
+    redirect: "manual",
+  });
+  assert.equal(unauthenticated.status, 303);
+  assert.match(unauthenticated.headers.get("location"), /^\/auth\/login/);
+  assert.equal(
+    created.database
+      .prepare("SELECT status FROM candidate_claims WHERE id = ?")
+      .get(rejectedCandidateId).status,
+    "pending",
+  );
+
+  const reject = await fetch(`${webUrl}/review/candidates/${rejectedCandidateId}/reject`, {
+    method: "POST",
+    headers: { cookie: reviewCookie },
+    redirect: "manual",
+  });
+  assert.equal(reject.status, 303);
+  assert.equal(
+    created.database
+      .prepare("SELECT status FROM candidate_claims WHERE id = ?")
+      .get(rejectedCandidateId).status,
+    "rejected",
+  );
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
+    acceptedBefore,
+  );
+  const audit = created.database
+    .prepare("SELECT * FROM audit_events WHERE action = 'candidate_rejected'")
+    .get();
+  assert.equal(audit.actor_type, "human_reviewer");
+  assert.deepEqual(JSON.parse(audit.safe_metadata_json), {
+    candidate_id: rejectedCandidateId,
+    evidence_id: evidenceId,
+    state_key: "launch.rejected_option",
+  });
+
+  const rejectedResponse = await fetch(
+    `${webUrl}/review?project_id=project_switchboard_launch&status=rejected`,
+    { headers: { cookie: reviewCookie } },
+  );
+  const rejectedHtml = await rejectedResponse.text();
+  assert.match(rejectedHtml, new RegExp(rejectedCandidateId));
+  assert.match(rejectedHtml, new RegExp(evidenceId));
+  assert.match(rejectedHtml, new RegExp(audit.id));
+  assert.match(rejectedHtml, /Review fixture source/);
+
+  const auditCountBeforeRepeat = created.database
+    .prepare("SELECT COUNT(*) AS count FROM audit_events")
+    .get().count;
+  for (const decision of ["accept", "reject"]) {
+    const repeated = await fetch(`${webUrl}/review/candidates/${rejectedCandidateId}/${decision}`, {
+      method: "POST",
+      headers: { cookie: reviewCookie },
+      redirect: "manual",
+    });
+    assert.equal(repeated.status, 409);
+  }
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count,
+    auditCountBeforeRepeat,
+  );
+
+  const { payload: retry } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "save_project_update",
+    arguments: rejectionPayload,
+  });
+  assert.equal(retry.result.structuredContent.status, "reviewed");
+  assert.deepEqual(retry.result.structuredContent.candidate_statuses, [
+    { candidate_id: rejectedCandidateId, status: "rejected" },
+  ]);
+  assert.equal(retry.result.structuredContent.trusted_state_changed, false);
+
+  const { payload: context } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "get_project_context",
+    arguments: { project_id: "project_switchboard_launch", task: "Exclude rejected options" },
+  });
+  assert.doesNotMatch(JSON.stringify(context.result.structuredContent), /Do not trust this option/);
+});
+
+test("a failed rejection audit rolls the candidate status back to pending", async () => {
+  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "save_project_update",
+    arguments: {
+      project_id: "project_switchboard_launch",
+      summary: "Rollback rejection fixture",
+      candidate_claims: [
+        { state_key: "launch.rollback_rejection", value: true, summary: "Must stay pending" },
+      ],
+      idempotency_key: "review-rejection-rollback",
+    },
+  });
+  const candidateId = capture.result.structuredContent.candidate_ids[0];
+  const userId = created.database
+    .prepare("SELECT id FROM users WHERE email = ?")
+    .get(TEST_EMAIL).id;
+  const auditCountBefore = created.database
+    .prepare("SELECT COUNT(*) AS count FROM audit_events")
+    .get().count;
+  created.database.exec(`
+    CREATE TRIGGER force_rejection_audit_failure
+    BEFORE INSERT ON audit_events
+    WHEN NEW.action = 'candidate_rejected'
+    BEGIN
+      SELECT RAISE(ABORT, 'forced rejection audit failure');
+    END;
+  `);
+  try {
+    assert.throws(
+      () => rejectCandidate(created.database, { candidateId, userId }),
+      /forced rejection audit failure/,
+    );
+  } finally {
+    created.database.exec("DROP TRIGGER force_rejection_audit_failure");
+  }
+  assert.equal(
+    created.database.prepare("SELECT status FROM candidate_claims WHERE id = ?").get(candidateId)
+      .status,
+    "pending",
+  );
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count,
+    auditCountBefore,
+  );
 });
 
 test("a later human acceptance creates a traceable version without rewriting history", async () => {
