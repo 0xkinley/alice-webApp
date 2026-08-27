@@ -102,6 +102,8 @@ The repository targets Node.js 24 and compiles with TypeScript project reference
 
 The root package scripts are the canonical developer and CI interface. They deliberately avoid a task runner or deployment orchestrator while the product has only two small server deployables.
 
+GitHub Actions is the only CI layer in Milestone 02. It receives read-only repository permissions, installs with `npm ci` on Node.js 24, and invokes the same root scripts used locally. The workflow receives no application or provider secrets because verification uses in-memory fixtures and loopback integration servers.
+
 ### Configuration boundary
 
 Both deployables load configuration through the server-only `@alice/config` package. Startup rejects missing or simultaneous inline/file passphrase sources, passphrases shorter than 12 characters, invalid ports, URL credentials or paths, and public HTTP origins. Plain HTTP is accepted only for loopback development. No client bundle or browser-public environment namespace exists in this milestone.
