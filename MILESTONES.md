@@ -77,7 +77,7 @@ Notes:
 
 ## Milestone 02 — Repository and CI Scaffold
 
-Status: Not Started
+Status: In Progress
 
 Branch: `milestone-02-repository-scaffold`
 
