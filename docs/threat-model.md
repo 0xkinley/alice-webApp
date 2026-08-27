@@ -35,6 +35,8 @@ Minimum controls:
 
 Milestone 03 centralizes these controls in deny-by-default user and MCP-connection scopes. The connection policy requires a simultaneous match on internal user, private workspace, active connection, and registered client. Web and MCP project paths use the shared scopes, and composite foreign keys reject cross-workspace ownership at the database layer. Missing, guessed, mismatched, and revoked principals are policy-tested to produce no data and no write.
 
+The complete two-user API and constraint matrix is recorded in `docs/tenant-isolation.md`. It verifies both tenant directions and compares real foreign identifiers with random guessed identifiers for non-disclosing equivalence.
+
 ### Confused-deputy writes
 
 An AI host or prompt injection invokes a write tool without the user's real intent.

@@ -127,7 +127,7 @@ Tasks:
 - [x] Add candidate claims and versioned accepted project state.
 - [x] Add integration connection records without storing host passwords or bearer tokens.
 - [x] Add deny-by-default tenant authorization policies.
-- [ ] Add cross-tenant negative tests for every project data path.
+- [x] Add cross-tenant negative tests for every project data path.
 
 Success criteria:
 
@@ -146,7 +146,8 @@ Notes:
 - Candidate content is immutable with a single pending-to-terminal review transition. Explicit web review appends immutable accepted-state versions; database constraints bind every accepted version to the exact candidate/evidence pair, and current context returns only the latest accepted version with provenance while retaining prior history.
 - OAuth grants now create tenant-bound integration connection records with client classification, bounded scopes, usage timestamps, and revocation state. Authorization codes, confidential client secrets, access tokens, and refresh tokens are stored only as hashes; connection audit metadata contains no bearer values or host credentials.
 - Shared deny-by-default policies now resolve project access only from a server-authenticated user/private-workspace scope. MCP writes additionally require an active connection whose user, workspace, and registered client all match the verified bearer token. Missing, unknown, mismatched, and revoked principals perform no project read or write; composite tenant foreign keys remain the database backstop.
-- The exhaustive cross-tenant negative matrix is the remaining implementation task; milestone completion and CI verification have not yet been performed.
+- A two-user integration matrix now tests both tenant directions across web project list/create/detail, review queue/acceptance, MCP project list/context/capture, and database evidence/candidate/accepted-state/audit references. Real foreign identifiers and random guessed identifiers produce the same non-disclosing failures; denied mutations leave evidence, candidates, accepted state, and audit counts unchanged.
+- All implementation tasks are complete. Final clean-checkout verification, CI, completion documentation, and the clean-tree completion audit remain.
 
 ## Milestone 04 — Capture Loop
 

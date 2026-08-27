@@ -32,6 +32,8 @@ MCP writes require the stronger connection scope: the connection must be active 
 
 The web review queue, project detail, project list, project creation, accepted-context read, candidate capture, and human acceptance all use these shared policies. Database composite foreign keys are the second layer: tenant-owned evidence, candidates, accepted state, audit rows, and connections cannot reference an object in another workspace even if application code is faulty.
 
+`docs/tenant-isolation.md` is the durable path inventory and negative-test matrix. Any future project endpoint or domain operation must be added to that matrix before its milestone can be complete.
+
 ## MCP identity binding
 
 The OAuth authorization screen authenticates an existing alice. user and binds the authorization code, integration connection, access token, and refresh token to that internal user. Access and refresh bearer values remain one-time response secrets; only SHA-256 token digests are stored. An authenticated MCP request derives its user and connection from the verified token row, not from tool arguments.
