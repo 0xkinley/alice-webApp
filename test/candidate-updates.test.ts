@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
 import { createApp } from "../apps/mcp/src/app.ts";
-import { authorize, callMcp } from "./helpers.ts";
+import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
 
 let accessToken;
 let baseUrl;
@@ -28,9 +28,9 @@ const update = {
 before(async () => {
   created = createApp({
     databaseFilename: ":memory:",
-    passphrase: "correct horse battery staple",
     publicUrl: "http://127.0.0.1",
   });
+  createTestIdentity(created.database);
   server = created.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -132,6 +132,14 @@ test("database guards prevent evidence update and deletion", () => {
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count,
     1,
+  );
+  assert.throws(
+    () => created.database.prepare("UPDATE audit_events SET action = 'rewritten'").run(),
+    /audit events are append-only/,
+  );
+  assert.throws(
+    () => created.database.prepare("DELETE FROM audit_events").run(),
+    /audit events are append-only/,
   );
 });
 

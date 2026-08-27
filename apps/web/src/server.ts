@@ -1,9 +1,9 @@
 import { loadWebConfig } from "@alice/config";
 import { createApp } from "./app.ts";
 
-const { databaseFilename, host, passphrase, port, publicUrl } = loadWebConfig();
+const { databaseFilename, host, port, publicUrl } = loadWebConfig();
 
-const { app } = createApp({ databaseFilename, passphrase, publicUrl });
+const { app } = createApp({ databaseFilename, publicUrl });
 app.listen(port, host, () => {
   console.log(`alice. web listening on ${host}:${port}`);
 });

@@ -19,6 +19,10 @@ function authenticatedUserId(context) {
   return context.http?.authInfo?.extra?.userId;
 }
 
+function authenticatedConnectionId(context) {
+  return context.http?.authInfo?.extra?.connectionId;
+}
+
 function oauthToolSecurity(scope) {
   return {
     _meta: { securitySchemes: [{ type: "oauth2", scopes: [scope] }] },
@@ -45,7 +49,7 @@ function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes 
 }
 
 function createProtocolServer(database, publicUrl) {
-  const server = new McpServer({ name: "alice-mcp-compatibility-spike", version: "0.1.0" });
+  const server = new McpServer({ name: "alice-mcp", version: "0.3.0" });
 
   server.registerTool(
     "list_projects",
@@ -121,6 +125,7 @@ function createProtocolServer(database, publicUrl) {
       }
       const result = saveCandidateUpdate(database, {
         clientId: authInfo.clientId,
+        connectionId: authenticatedConnectionId(context),
         publicUrl,
         userId: authenticatedUserId(context),
         payload,
@@ -146,12 +151,11 @@ function createProtocolServer(database, publicUrl) {
 export function createApp({
   database: suppliedDatabase = undefined,
   databaseFilename = ":memory:",
-  passphrase,
   publicUrl,
   reviewUrl = publicUrl,
 }) {
   const database = suppliedDatabase || openDatabase(databaseFilename);
-  const oauth = createOAuth({ database, passphrase, publicUrl });
+  const oauth = createOAuth({ database, publicUrl });
   const publicHostname = new URL(publicUrl).hostname;
   const app = createMcpExpressApp({
     host: "0.0.0.0",
@@ -164,13 +168,13 @@ export function createApp({
     mcpAuthMetadataRouter({
       oauthMetadata: oauth.metadata,
       resourceServerUrl: new URL(oauth.resource),
-      resourceName: "alice. Milestone 01 spike",
+      resourceName: "alice.",
       scopesSupported: ["mcp:read", "mcp:write"],
     }),
   );
 
   app.get("/health", (_request, response) => {
-    response.json({ service: "alice-mcp-compatibility-spike", status: "ok" });
+    response.json({ service: "alice-mcp", status: "ok" });
   });
   app.post("/register", (request, response) => oauth.register(request, response));
   app.get("/authorize", (request, response) => oauth.authorizeForm(request, response));

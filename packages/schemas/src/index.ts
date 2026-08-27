@@ -6,6 +6,11 @@ export const projectIdSchema = z
   .max(200)
   .describe("Project identifier returned by list_projects");
 
+export const createProjectSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  brief: z.string().trim().min(1).max(4_000),
+});
+
 export const candidateClaimSchema = z.object({
   state_key: z
     .string()

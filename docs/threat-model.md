@@ -33,6 +33,10 @@ Minimum controls:
 - caller-scoped database access
 - explicit negative tests for every data path
 
+Milestone 03 centralizes these controls in deny-by-default user and MCP-connection scopes. The connection policy requires a simultaneous match on internal user, private workspace, active connection, and registered client. Web and MCP project paths use the shared scopes, and composite foreign keys reject cross-workspace ownership at the database layer. Missing, guessed, mismatched, and revoked principals are policy-tested to produce no data and no write.
+
+The complete two-user API and constraint matrix is recorded in `docs/tenant-isolation.md`. It verifies both tenant directions and compares real foreign identifiers with random guessed identifiers for non-disclosing equivalence.
+
 ### Confused-deputy writes
 
 An AI host or prompt injection invokes a write tool without the user's real intent.
@@ -57,6 +61,20 @@ Minimum controls:
 - versioned accepted state
 - explicit supersession
 
+Milestone 03 additionally makes accepted-state rows database-immutable, permits only a single pending-to-terminal candidate status transition, and enforces the accepted candidate/evidence pair with a composite foreign key. A later acceptance of the same key creates the next version; current context selects the highest version without deleting history.
+
+### Evidence or audit rewriting
+
+A compromised application path attempts to update or delete the source material or security history after the fact.
+
+Minimum controls:
+
+- database triggers reject every evidence and audit update or delete
+- normal domain and HTTP interfaces expose append operations only
+- composite tenant foreign keys bind evidence and audit rows to their workspace/project
+- state-changing transactions append identifier-only audit metadata without credentials, bearer values, or submitted content
+- tests exercise mutation and deletion attempts directly against the application database role
+
 ### Retry and replay duplication
 
 Hosts retry tool calls and create duplicate evidence or candidates.
@@ -79,7 +97,24 @@ Minimum controls:
 - short-lived access tokens and revocable connections
 - no bearer tokens in application tables or analytics
 
-Milestone 02 adds repository and startup gates around this boundary. Runtime secrets come from server environment variables or a server-readable file, with exactly one passphrase source allowed. Remote web and MCP origins require HTTPS. The repository secret check rejects tracked `.env` files, high-confidence credential formats, and secret-like names under common browser-public environment prefixes. This scanner is a fast preventive check, not a substitute for provider-side secret scanning or credential rotation.
+Milestone 03 stores only SHA-256 digests of OAuth authorization codes, confidential client secrets, access tokens, and refresh tokens. Integration records contain tenant ownership, client classification, granted scopes, timestamps, and revocation state only. Revocation invalidates the full connection and both token classes. Tests compare issued secrets with stored digests and inspect safe audit metadata for bearer leakage.
+
+Milestone 02 added repository and startup gates around the former spike-passphrase boundary. Milestone 03 supersedes that shared passphrase. Remote web and MCP origins still require HTTPS. The repository secret check rejects tracked `.env` files, high-confidence credential formats, and secret-like names under common browser-public environment prefixes. This scanner is a fast preventive check, not a substitute for provider-side secret scanning or credential rotation.
+
+Milestone 03 removes the shared passphrase. User passwords are salted and scrypt-hashed; web sessions and OAuth bearer tokens are random, opaque, and stored only as SHA-256 digests. OAuth grants carry a server-resolved user and connection identifier. A dynamically registered client has no tenant authority until a user authenticates and grants access.
+
+### Account and session compromise
+
+An attacker guesses credentials, fixes a session, or reuses a stolen browser token.
+
+Minimum controls:
+
+- memory-hard, per-user salted password hashes
+- fresh opaque session tokens after registration and login
+- `HttpOnly`, `SameSite=Strict`, root-scoped cookies with `Secure` on HTTPS
+- server-side logout revocation and bounded session lifetime
+- generic invalid-credential responses
+- deployment edge rate limiting before public self-service registration
 
 ### Sensitive overcollection
 

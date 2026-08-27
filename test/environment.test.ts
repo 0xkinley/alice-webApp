@@ -3,11 +3,8 @@ import { test } from "node:test";
 import { loadMcpConfig, loadWebConfig } from "@alice/config";
 import { findingsForText } from "../scripts/check-secrets.mjs";
 
-const secret = "correct horse battery staple";
-
 test("loads bounded server-only configuration for both deployables", () => {
   const mcp = loadMcpConfig({
-    ALICE_AUTH_PASSPHRASE: secret,
     ALICE_PUBLIC_URL: "https://mcp.alice.example",
     ALICE_WEB_URL: "https://app.alice.example",
     PORT: "9000",
@@ -15,30 +12,18 @@ test("loads bounded server-only configuration for both deployables", () => {
   assert.equal(mcp.port, 9000);
   assert.equal(mcp.publicUrl, "https://mcp.alice.example");
   assert.equal(mcp.reviewUrl, "https://app.alice.example");
-  assert.equal(mcp.passphrase, secret);
 
   const web = loadWebConfig({
-    ALICE_AUTH_PASSPHRASE: secret,
     ALICE_WEB_URL: "http://127.0.0.1:8788",
   });
   assert.equal(web.publicUrl, "http://127.0.0.1:8788");
   assert.equal(web.port, 8788);
 });
 
-test("rejects ambiguous, weak, and insecure server configuration", () => {
+test("rejects insecure server configuration", () => {
   assert.throws(
     () =>
       loadMcpConfig({
-        ALICE_AUTH_PASSPHRASE: secret,
-        ALICE_AUTH_PASSPHRASE_FILE: ".data/secret",
-      }),
-    /only one/i,
-  );
-  assert.throws(() => loadWebConfig({ ALICE_AUTH_PASSPHRASE: "too short" }), /12 characters/i);
-  assert.throws(
-    () =>
-      loadMcpConfig({
-        ALICE_AUTH_PASSPHRASE: secret,
         ALICE_PUBLIC_URL: "http://mcp.alice.example",
       }),
     /HTTPS/i,

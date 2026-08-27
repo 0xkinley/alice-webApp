@@ -1,10 +1,7 @@
 import { createHash } from "node:crypto";
+import { tenantScopeForUser } from "./authorization.ts";
 
 // Trusted context is assembled only from human-accepted state.
-
-function workspaceIdForUser(userId) {
-  return `workspace_${userId}`;
-}
 
 function parseJson(value) {
   return JSON.parse(value);
@@ -15,6 +12,8 @@ function approximateTokens(value) {
 }
 
 export function listProjects(database, userId) {
+  const tenant = tenantScopeForUser(database, userId);
+  if (!tenant) return [];
   return database
     .prepare(
       `SELECT id, name, brief, created_at
@@ -22,18 +21,19 @@ export function listProjects(database, userId) {
        WHERE workspace_id = ?
        ORDER BY name`,
     )
-    .all(workspaceIdForUser(userId));
+    .all(tenant.workspaceId);
 }
 
 export function getProjectContext(database, { userId, projectId, task, contextBudget }) {
-  const workspaceId = workspaceIdForUser(userId);
+  const tenant = tenantScopeForUser(database, userId);
+  if (!tenant) return undefined;
   const project = database
     .prepare(
       `SELECT id, name, brief, created_at
        FROM projects
        WHERE id = ? AND workspace_id = ?`,
     )
-    .get(projectId, workspaceId);
+    .get(projectId, tenant.workspaceId);
   if (!project) return undefined;
 
   const rows = database
@@ -57,7 +57,7 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
          )
        ORDER BY accepted.state_key`,
     )
-    .all(projectId, workspaceId);
+    .all(projectId, tenant.workspaceId);
 
   const decisions = rows.map((row) => ({
     accepted_state_id: row.accepted_state_id,

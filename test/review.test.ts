@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
-import { authorize, callMcp } from "./helpers.ts";
+import { authorize, callMcp, createTestIdentity, TEST_EMAIL, TEST_PASSWORD } from "./helpers.ts";
 
 let accessToken;
 let baseUrl;
 let candidateId;
 let created;
+let reviewCookie;
 let server;
 let webServer;
 let webUrl;
@@ -15,15 +16,14 @@ let webUrl;
 before(async () => {
   created = createApp({
     databaseFilename: ":memory:",
-    passphrase: "correct horse battery staple",
     publicUrl: "http://127.0.0.1",
   });
+  createTestIdentity(created.database);
   server = created.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
   const web = createWebApp({
     database: created.database,
-    passphrase: "correct horse battery staple",
     publicUrl: "http://127.0.0.1",
   });
   webServer = web.app.listen(0, "127.0.0.1");
@@ -58,31 +58,32 @@ test("review candidates are hidden until the human signs in", async () => {
     redirect: "manual",
   });
   assert.equal(response.status, 303);
-  assert.match(response.headers.get("location"), /^\/review\/login/);
+  assert.match(response.headers.get("location"), /^\/auth\/login/);
 });
 
 test("an explicit authenticated review accepts a candidate into versioned trusted state", async () => {
-  const loginResponse = await fetch(`${webUrl}/review/login`, {
+  const loginResponse = await fetch(`${webUrl}/auth/login`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      passphrase: "correct horse battery staple",
+      email: TEST_EMAIL,
+      password: TEST_PASSWORD,
       next: "/review?project_id=project_switchboard_launch",
     }),
     redirect: "manual",
   });
   assert.equal(loginResponse.status, 303);
-  const cookie = loginResponse.headers.get("set-cookie").split(";")[0];
+  reviewCookie = loginResponse.headers.get("set-cookie").split(";")[0];
 
   const reviewResponse = await fetch(`${webUrl}/review?project_id=project_switchboard_launch`, {
-    headers: { cookie },
+    headers: { cookie: reviewCookie },
   });
   assert.equal(reviewResponse.status, 200);
   assert.match(await reviewResponse.text(), new RegExp(candidateId));
 
   const acceptResponse = await fetch(`${webUrl}/review/candidates/${candidateId}/accept`, {
     method: "POST",
-    headers: { cookie },
+    headers: { cookie: reviewCookie },
     redirect: "manual",
   });
   assert.equal(acceptResponse.status, 303);
@@ -106,6 +107,71 @@ test("an explicit authenticated review accepts a candidate into versioned truste
     arguments: { project_id: "project_switchboard_launch", task: "Read accepted price" },
   });
   assert.equal(payload.result.structuredContent.accepted_decisions[0].value, 24);
+});
+
+test("a later human acceptance creates a traceable version without rewriting history", async () => {
+  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "save_project_update",
+    arguments: {
+      project_id: "project_switchboard_launch",
+      summary: "Revise price",
+      candidate_claims: [
+        { state_key: "launch.monthly_price_usd", value: 29, summary: "Revised price" },
+      ],
+      idempotency_key: "review-fixture-revised-price",
+    },
+  });
+  const secondCandidateId = capture.result.structuredContent.candidate_ids[0];
+  const secondEvidenceId = capture.result.structuredContent.evidence_id;
+  const accept = await fetch(`${webUrl}/review/candidates/${secondCandidateId}/accept`, {
+    method: "POST",
+    headers: { cookie: reviewCookie },
+    redirect: "manual",
+  });
+  assert.equal(accept.status, 303);
+
+  const versions = created.database
+    .prepare(
+      `SELECT id, candidate_id, evidence_id, value_json, version
+       FROM accepted_project_state
+       WHERE state_key = 'launch.monthly_price_usd'
+       ORDER BY version`,
+    )
+    .all();
+  assert.equal(versions.length, 2);
+  assert.deepEqual(
+    versions.map(({ version }) => version),
+    [1, 2],
+  );
+  assert.equal(JSON.parse(versions[0].value_json), 24);
+  assert.equal(JSON.parse(versions[1].value_json), 29);
+  assert.equal(versions[1].candidate_id, secondCandidateId);
+  assert.equal(versions[1].evidence_id, secondEvidenceId);
+
+  const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "get_project_context",
+    arguments: { project_id: "project_switchboard_launch", task: "Read current price" },
+  });
+  const [current] = payload.result.structuredContent.accepted_decisions;
+  assert.equal(current.value, 29);
+  assert.equal(current.version, 2);
+  assert.deepEqual(current.provenance, {
+    candidate_id: secondCandidateId,
+    evidence_id: secondEvidenceId,
+  });
+
+  assert.throws(
+    () => created.database.prepare("UPDATE accepted_project_state SET value_json = '30'").run(),
+    /versioned and immutable/,
+  );
+  assert.throws(
+    () => created.database.prepare("DELETE FROM accepted_project_state").run(),
+    /versioned and immutable/,
+  );
+  assert.throws(
+    () => created.database.prepare("DELETE FROM candidate_claims").run(),
+    /preserve history/,
+  );
 });
 
 test("MCP exposes no trusted-state review action", async () => {

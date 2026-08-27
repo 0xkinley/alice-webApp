@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createApp } from "../apps/mcp/src/app.ts";
-import { authorize, callMcp } from "./helpers.ts";
+import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
 
 let accessToken;
 let baseUrl;
@@ -11,9 +11,9 @@ let server;
 before(async () => {
   created = createApp({
     databaseFilename: ":memory:",
-    passphrase: "correct horse battery staple",
     publicUrl: "http://127.0.0.1",
   });
+  const identity = createTestIdentity(created.database);
   server = created.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -22,19 +22,21 @@ before(async () => {
   } = await authorize(baseUrl));
 
   const now = new Date().toISOString();
+  const connection = created.database.prepare("SELECT id FROM integration_connections").get();
   created.database
     .prepare(
       `INSERT INTO evidence_events
-        (id, workspace_id, project_id, exact_payload_json, actor_type, client_id,
-         client_classification, tool_name, idempotency_key, payload_hash, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, workspace_id, project_id, exact_payload_json, actor_type, connection_id,
+         client_id, client_classification, tool_name, idempotency_key, payload_hash, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       "evidence_A",
-      "workspace_spike-user",
+      identity.workspace_id,
       "project_switchboard_launch",
       '{"fixture":"A"}',
       "host",
+      connection.id,
       "test-client",
       "test",
       "test_fixture",
@@ -50,7 +52,7 @@ before(async () => {
     )
     .run(
       "candidate_A",
-      "workspace_spike-user",
+      identity.workspace_id,
       "project_switchboard_launch",
       "evidence_A",
       "launch.icp",
@@ -67,7 +69,7 @@ before(async () => {
     )
     .run(
       "accepted_A",
-      "workspace_spike-user",
+      identity.workspace_id,
       "project_switchboard_launch",
       "candidate_A",
       "evidence_A",
@@ -84,7 +86,7 @@ before(async () => {
     )
     .run(
       "candidate_pending",
-      "workspace_spike-user",
+      identity.workspace_id,
       "project_switchboard_launch",
       "evidence_A",
       "launch.pending",
@@ -102,11 +104,11 @@ after(async () => {
 });
 
 test("lists only projects in the authenticated workspace", async () => {
-  created.database
-    .prepare(
-      "INSERT INTO projects (id, workspace_id, name, brief, created_at) VALUES (?, ?, ?, ?, ?)",
-    )
-    .run("project_other", "workspace_other", "Other tenant", "Private", new Date().toISOString());
+  createTestIdentity(created.database, {
+    email: "other@alice.example",
+    password: "another correct horse battery staple",
+    projectId: "project_other",
+  });
 
   const { response, payload } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "list_projects",

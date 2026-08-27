@@ -111,7 +111,7 @@ Notes:
 
 ## Milestone 03 — Authentication and Data Foundation
 
-Status: Not Started
+Status: Complete
 
 Branch: `milestone-03-auth-and-database`
 
@@ -121,24 +121,37 @@ Implement production-shaped user authentication, one private workspace per user,
 
 Tasks:
 
-- [ ] Implement user authentication and automatic private-workspace creation.
-- [ ] Implement projects inside the user's private workspace.
-- [ ] Add immutable evidence events and append-only audit events.
-- [ ] Add candidate claims and versioned accepted project state.
-- [ ] Add integration connection records without storing host passwords or bearer tokens.
-- [ ] Add deny-by-default tenant authorization policies.
-- [ ] Add cross-tenant negative tests for every project data path.
+- [x] Implement user authentication and automatic private-workspace creation.
+- [x] Implement projects inside the user's private workspace.
+- [x] Add immutable evidence events and append-only audit events.
+- [x] Add candidate claims and versioned accepted project state.
+- [x] Add integration connection records without storing host passwords or bearer tokens.
+- [x] Add deny-by-default tenant authorization policies.
+- [x] Add cross-tenant negative tests for every project data path.
 
 Success criteria:
 
-- A user can create and revisit private projects.
-- Evidence remains immutable through normal application roles.
+- A user can authenticate, create projects, and revisit the same private workspace.
+- Evidence and audit history remain immutable through normal application roles.
+- Candidate creation cannot change trusted state; only explicit human review can do so.
+- Accepted state is versioned and traceable to its candidate and evidence.
 - Two users cannot read or mutate each other's workspace or project data, including with guessed identifiers.
-- Accepted state remains traceable to candidate claims and evidence.
+- Pending candidates remain excluded from trusted context by default.
+- A clean checkout installs, format-checks, lints, typechecks, scans for secrets, tests, and builds both deployables.
+- CI passes, documentation is current, and the working tree is clean.
 
 Notes:
 
 - Do not add team or sharing UI.
+- Started on 2026-08-27 after verifying Milestone 02 complete. Merge `04182ac` is present on synchronized local and remote `main`, the starting tree was clean, and GitHub Actions run `33065649076` passed the Milestone 02 merge verification.
+- First-party registration and login now use salted scrypt password digests, opaque hashed web sessions, and transactional creation of exactly one private workspace. MCP OAuth grants resolve the authenticated alice. user rather than a shared spike identity. The shared spike passphrase has been removed from runtime configuration.
+- Authenticated users can create bounded projects, list them in their private workspace, open project details, and revisit the same projects after a new login. Identifiers are server-generated, names are unique per workspace, and foreign or guessed identifiers return a non-disclosing not-found response.
+- Evidence capture retains the exact validated payload and content hash, while database triggers reject all evidence updates and deletes. Registration, sessions, projects, integration grants/revocation, candidate submission, and human acceptance append identifier-only audit events; audit updates and deletes are also database-rejected.
+- Candidate content is immutable with a single pending-to-terminal review transition. Explicit web review appends immutable accepted-state versions; database constraints bind every accepted version to the exact candidate/evidence pair, and current context returns only the latest accepted version with provenance while retaining prior history.
+- OAuth grants now create tenant-bound integration connection records with client classification, bounded scopes, usage timestamps, and revocation state. Authorization codes, confidential client secrets, access tokens, and refresh tokens are stored only as hashes; connection audit metadata contains no bearer values or host credentials.
+- Shared deny-by-default policies now resolve project access only from a server-authenticated user/private-workspace scope. MCP writes additionally require an active connection whose user, workspace, and registered client all match the verified bearer token. Missing, unknown, mismatched, and revoked principals perform no project read or write; composite tenant foreign keys remain the database backstop.
+- A two-user integration matrix now tests both tenant directions across web project list/create/detail, review queue/acceptance, MCP project list/context/capture, and database evidence/candidate/accepted-state/audit references. Real foreign identifiers and random guessed identifiers produce the same non-disclosing failures; denied mutations leave evidence, candidates, accepted state, and audit counts unchanged.
+- Completed on 2026-08-28. GitHub Actions run `33120153227` passed implementation commit `44c2795`. A fresh local clone at documentation commit `cf82e07` installed with `npm ci`, passed the complete `npm run check` contract with 33 tests, and emitted both `apps/web/dist/server.js` and `apps/mcp/dist/server.js`. Authentication, one private workspace per user, tenant-scoped projects, immutable evidence and audit history, candidate-only MCP writes, human-only versioned acceptance, hash-only integration credentials, and both-direction guessed-identifier isolation are verified. Milestone 04 was not started.
 
 ## Milestone 04 — Capture Loop
 
