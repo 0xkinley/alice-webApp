@@ -111,7 +111,7 @@ Notes:
 
 ## Milestone 03 — Authentication and Data Foundation
 
-Status: In Progress
+Status: Complete
 
 Branch: `milestone-03-auth-and-database`
 
@@ -151,7 +151,7 @@ Notes:
 - OAuth grants now create tenant-bound integration connection records with client classification, bounded scopes, usage timestamps, and revocation state. Authorization codes, confidential client secrets, access tokens, and refresh tokens are stored only as hashes; connection audit metadata contains no bearer values or host credentials.
 - Shared deny-by-default policies now resolve project access only from a server-authenticated user/private-workspace scope. MCP writes additionally require an active connection whose user, workspace, and registered client all match the verified bearer token. Missing, unknown, mismatched, and revoked principals perform no project read or write; composite tenant foreign keys remain the database backstop.
 - A two-user integration matrix now tests both tenant directions across web project list/create/detail, review queue/acceptance, MCP project list/context/capture, and database evidence/candidate/accepted-state/audit references. Real foreign identifiers and random guessed identifiers produce the same non-disclosing failures; denied mutations leave evidence, candidates, accepted state, and audit counts unchanged.
-- All implementation tasks are complete. GitHub Actions run `33120153227` passed commit `44c2795`, including the 33-test tenant-isolation matrix. Final clean-checkout verification, completion documentation, and the clean-tree completion audit remain.
+- Completed on 2026-08-28. GitHub Actions run `33120153227` passed implementation commit `44c2795`. A fresh local clone at documentation commit `cf82e07` installed with `npm ci`, passed the complete `npm run check` contract with 33 tests, and emitted both `apps/web/dist/server.js` and `apps/mcp/dist/server.js`. Authentication, one private workspace per user, tenant-scoped projects, immutable evidence and audit history, candidate-only MCP writes, human-only versioned acceptance, hash-only integration credentials, and both-direction guessed-identifier isolation are verified. Milestone 04 was not started.
 
 ## Milestone 04 — Capture Loop
 
