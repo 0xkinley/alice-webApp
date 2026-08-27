@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { acceptCandidate } from "@alice/domain";
 import express from "express";
 import { renderPage, requireAuthenticatedUser } from "./auth.ts";
 
@@ -11,80 +11,6 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-}
-
-function acceptCandidate(database, candidateId, userId) {
-  const { workspace_id: workspaceId } = database
-    .prepare("SELECT id AS workspace_id FROM workspaces WHERE user_id = ?")
-    .get(userId);
-  const candidate = database
-    .prepare(
-      `SELECT * FROM candidate_claims
-       WHERE id = ? AND workspace_id = ? AND status = 'pending'`,
-    )
-    .get(candidateId, workspaceId);
-  if (!candidate) return undefined;
-
-  const acceptedAt = new Date().toISOString();
-  const acceptedStateId = `accepted_${randomUUID()}`;
-  const auditId = `audit_${randomUUID()}`;
-  database.exec("BEGIN IMMEDIATE");
-  try {
-    const { version } = database
-      .prepare(
-        `SELECT COALESCE(MAX(version), 0) + 1 AS version
-         FROM accepted_project_state WHERE project_id = ? AND state_key = ?`,
-      )
-      .get(candidate.project_id, candidate.state_key);
-    database
-      .prepare(
-        `INSERT INTO accepted_project_state
-          (id, workspace_id, project_id, candidate_id, evidence_id, state_key,
-           value_json, version, accepted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        acceptedStateId,
-        workspaceId,
-        candidate.project_id,
-        candidate.id,
-        candidate.evidence_id,
-        candidate.state_key,
-        candidate.value_json,
-        version,
-        acceptedAt,
-      );
-    database
-      .prepare("UPDATE candidate_claims SET status = 'accepted' WHERE id = ?")
-      .run(candidate.id);
-    database
-      .prepare(
-        `INSERT INTO audit_events
-          (id, workspace_id, project_id, action, actor_type, actor_id,
-           correlation_id, safe_metadata_json, created_at)
-         VALUES (?, ?, ?, 'candidate_accepted', 'human_reviewer', ?, ?, ?, ?)`,
-      )
-      .run(
-        auditId,
-        workspaceId,
-        candidate.project_id,
-        userId,
-        `review_${randomUUID()}`,
-        JSON.stringify({
-          accepted_state_id: acceptedStateId,
-          candidate_id: candidate.id,
-          evidence_id: candidate.evidence_id,
-          state_key: candidate.state_key,
-          version,
-        }),
-        acceptedAt,
-      );
-    database.exec("COMMIT");
-    return { acceptedStateId, projectId: candidate.project_id };
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
-  }
 }
 
 export function createReviewRouter({ database }) {
@@ -132,7 +58,10 @@ export function createReviewRouter({ database }) {
   });
 
   router.post("/candidates/:candidateId/accept", (request, response) => {
-    const result = acceptCandidate(database, request.params.candidateId, request.aliceUser!.id);
+    const result = acceptCandidate(database, {
+      candidateId: request.params.candidateId,
+      userId: request.aliceUser!.id,
+    });
     if (!result)
       return response
         .status(409)

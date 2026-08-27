@@ -57,6 +57,8 @@ Minimum controls:
 - versioned accepted state
 - explicit supersession
 
+Milestone 03 additionally makes accepted-state rows database-immutable, permits only a single pending-to-terminal candidate status transition, and enforces the accepted candidate/evidence pair with a composite foreign key. A later acceptance of the same key creates the next version; current context selects the highest version without deleting history.
+
 ### Evidence or audit rewriting
 
 A compromised application path attempts to update or delete the source material or security history after the fact.

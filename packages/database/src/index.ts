@@ -141,7 +141,8 @@ function createSchema(database) {
       FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
       FOREIGN KEY (workspace_id, project_id, evidence_id)
         REFERENCES evidence_events(workspace_id, project_id, id),
-      UNIQUE (workspace_id, project_id, id)
+      UNIQUE (workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, id, evidence_id)
     ) STRICT;
 
     CREATE TABLE accepted_project_state (
@@ -157,6 +158,8 @@ function createSchema(database) {
       FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
       FOREIGN KEY (workspace_id, project_id, candidate_id)
         REFERENCES candidate_claims(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, candidate_id, evidence_id)
+        REFERENCES candidate_claims(workspace_id, project_id, id, evidence_id),
       FOREIGN KEY (workspace_id, project_id, evidence_id)
         REFERENCES evidence_events(workspace_id, project_id, id),
       UNIQUE (project_id, state_key, version)
@@ -198,6 +201,40 @@ function createSchema(database) {
     BEFORE DELETE ON audit_events
     BEGIN
       SELECT RAISE(ABORT, 'audit events are append-only');
+    END;
+
+    CREATE TRIGGER candidate_claims_status_only_update
+    BEFORE UPDATE ON candidate_claims
+    WHEN OLD.status <> 'pending'
+      OR NEW.status NOT IN ('accepted', 'rejected')
+      OR NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.project_id IS NOT OLD.project_id
+      OR NEW.evidence_id IS NOT OLD.evidence_id
+      OR NEW.state_key IS NOT OLD.state_key
+      OR NEW.value_json IS NOT OLD.value_json
+      OR NEW.summary IS NOT OLD.summary
+      OR NEW.created_at IS NOT OLD.created_at
+    BEGIN
+      SELECT RAISE(ABORT, 'candidate claims preserve submitted content and terminal status');
+    END;
+
+    CREATE TRIGGER candidate_claims_no_delete
+    BEFORE DELETE ON candidate_claims
+    BEGIN
+      SELECT RAISE(ABORT, 'candidate claims preserve history');
+    END;
+
+    CREATE TRIGGER accepted_project_state_no_update
+    BEFORE UPDATE ON accepted_project_state
+    BEGIN
+      SELECT RAISE(ABORT, 'accepted project state is versioned and immutable');
+    END;
+
+    CREATE TRIGGER accepted_project_state_no_delete
+    BEFORE DELETE ON accepted_project_state
+    BEGIN
+      SELECT RAISE(ABORT, 'accepted project state is versioned and immutable');
     END;
 
     PRAGMA user_version = ${SCHEMA_VERSION};

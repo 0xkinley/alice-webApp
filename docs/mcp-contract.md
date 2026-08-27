@@ -60,6 +60,8 @@ The server must atomically:
 
 The tool must not accept, reject, supersede, or otherwise mutate trusted state.
 
+Milestone 03 enforces this separation structurally: candidate capture and human acceptance are separate domain operations, and only the web review control plane imports acceptance. Accepted rows are append-only versions whose candidate/evidence pair is constraint-verified. The MCP tool list continues to expose only the three tools above.
+
 ## Deferred tools
 
 The MVP does not expose MCP tools for:

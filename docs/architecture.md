@@ -81,6 +81,8 @@ Milestone 03 replaces the single spike identity with first-party user authentica
 
 Security- and state-relevant operations append audit events in the same transaction as their primary write. The application can insert but database triggers prevent updating or deleting evidence and audit history. Safe audit metadata contains identifiers and counts, never passwords, session tokens, bearer tokens, or submitted evidence content.
 
+Human acceptance is a domain operation imported only by the web review control plane. It adds a new immutable version for a state key and never overwrites the prior accepted row. Candidate/evidence provenance is enforced as an exact composite database reference. The MCP deployable still has no trusted-state tool or acceptance import.
+
 ## Repository and deployable boundaries
 
 Milestone 02 establishes an npm workspace with two deployables and three shared packages:

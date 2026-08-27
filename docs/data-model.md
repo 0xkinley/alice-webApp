@@ -36,9 +36,13 @@ Milestone 03 retains those triggers in the versioned tenant schema and adds comp
 
 Untrusted proposed decisions, facts, requirements, constraints, preferences, or open questions. Each candidate references its source evidence.
 
+Submitted candidate content is immutable. Its only permitted update is one transition from `pending` to the terminal `accepted` or `rejected` status; deletion and further status changes are database-rejected. Candidate creation never inserts accepted state.
+
 ### Accepted project state
 
 Versioned trusted state accepted by a human. Acceptance creates a traceable state record; it never overwrites or detaches prior history.
+
+The web review control plane calls the tenant-scoped acceptance domain operation. In one transaction it verifies a pending candidate in the reviewer's workspace, allocates the next per-project/state-key version, inserts an immutable accepted row, transitions the candidate to `accepted`, and appends the human-review audit event. A composite foreign key requires the accepted row's candidate and evidence identifiers to be the exact pair recorded on the candidate. Database triggers reject accepted-state updates and deletes.
 
 ### Conflicts
 
