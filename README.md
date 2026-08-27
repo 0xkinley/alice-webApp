@@ -4,7 +4,7 @@ alice. is the independent project intelligence layer for the AI tools users alre
 
 > One project. Whichever AI you use.
 
-The first product test completed a ChatGPT → alice. → Claude → alice. → ChatGPT round trip using official authenticated remote MCP integrations, explicit capture, human-reviewed trusted state, and preserved provenance. Milestone 03 adds user authentication and a private tenant-shaped data foundation while preserving those trust guarantees.
+The first product test completed a ChatGPT → alice. → Claude → alice. → ChatGPT round trip using official authenticated remote MCP integrations, explicit capture, human-reviewed trusted state, and preserved provenance. Milestone 03 provides user authentication and a private tenant-shaped data foundation while preserving those trust guarantees.
 
 ## Prerequisites
 
@@ -18,17 +18,17 @@ npm ci
 npm run check
 ```
 
-`npm run check` verifies formatting, linting, TypeScript project references, repository secret policy, 18 tests, and production builds for the web and MCP deployables.
+`npm run check` verifies formatting, linting, TypeScript project references, repository secret policy, 33 tests, and production builds for the web and MCP deployables.
 
 ## Workspace
 
 ```text
-apps/web          human review control plane
-apps/mcp          OAuth and authenticated remote MCP server
+apps/web          authentication, projects, and human review control plane
+apps/mcp          tenant-bound OAuth and authenticated remote MCP server
 packages/config   server-only environment validation
 packages/schemas  shared boundary schemas
-packages/domain   trusted-context and candidate-capture rules
-packages/database SQLite persistence adapter and bootstrap schema
+packages/domain   tenant authorization, trusted context, capture, and review rules
+packages/database versioned tenant schema and SQLite persistence adapter
 ```
 
 Production JavaScript is emitted under each workspace's ignored `dist/` directory. Run `npm run build` before `npm run start:web` or `npm run start:mcp`. The `dev:web` and `dev:mcp` scripts execute TypeScript source directly for local development.
@@ -82,6 +82,7 @@ See [Repository and deployment boundaries](docs/repository-and-deployment.md) be
 - [Minimum data model](docs/data-model.md)
 - [Initial threat model](docs/threat-model.md)
 - [Authentication and tenancy](docs/authentication-and-tenancy.md)
+- [Tenant-isolation verification](docs/tenant-isolation.md)
 - [Repository instructions](AGENTS.md)
 
 Every milestone begins in a new Codex task and a dedicated milestone branch, as defined in `AGENTS.md`.

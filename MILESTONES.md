@@ -131,10 +131,14 @@ Tasks:
 
 Success criteria:
 
-- A user can create and revisit private projects.
-- Evidence remains immutable through normal application roles.
+- A user can authenticate, create projects, and revisit the same private workspace.
+- Evidence and audit history remain immutable through normal application roles.
+- Candidate creation cannot change trusted state; only explicit human review can do so.
+- Accepted state is versioned and traceable to its candidate and evidence.
 - Two users cannot read or mutate each other's workspace or project data, including with guessed identifiers.
-- Accepted state remains traceable to candidate claims and evidence.
+- Pending candidates remain excluded from trusted context by default.
+- A clean checkout installs, format-checks, lints, typechecks, scans for secrets, tests, and builds both deployables.
+- CI passes, documentation is current, and the working tree is clean.
 
 Notes:
 
@@ -147,7 +151,7 @@ Notes:
 - OAuth grants now create tenant-bound integration connection records with client classification, bounded scopes, usage timestamps, and revocation state. Authorization codes, confidential client secrets, access tokens, and refresh tokens are stored only as hashes; connection audit metadata contains no bearer values or host credentials.
 - Shared deny-by-default policies now resolve project access only from a server-authenticated user/private-workspace scope. MCP writes additionally require an active connection whose user, workspace, and registered client all match the verified bearer token. Missing, unknown, mismatched, and revoked principals perform no project read or write; composite tenant foreign keys remain the database backstop.
 - A two-user integration matrix now tests both tenant directions across web project list/create/detail, review queue/acceptance, MCP project list/context/capture, and database evidence/candidate/accepted-state/audit references. Real foreign identifiers and random guessed identifiers produce the same non-disclosing failures; denied mutations leave evidence, candidates, accepted state, and audit counts unchanged.
-- All implementation tasks are complete. Final clean-checkout verification, CI, completion documentation, and the clean-tree completion audit remain.
+- All implementation tasks are complete. GitHub Actions run `33120153227` passed commit `44c2795`, including the 33-test tenant-isolation matrix. Final clean-checkout verification, completion documentation, and the clean-tree completion audit remain.
 
 ## Milestone 04 — Capture Loop
 

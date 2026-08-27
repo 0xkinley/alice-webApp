@@ -87,7 +87,7 @@ Tenant authorization is centralized in the domain package. Web project operation
 
 ## Repository and deployable boundaries
 
-Milestone 02 establishes an npm workspace with two deployables and three shared packages:
+The repository uses an npm workspace with two deployables and four shared packages:
 
 ```text
 apps/
@@ -100,7 +100,7 @@ packages/
   database/  persistence access and schema bootstrap
 ```
 
-The web and MCP processes are server-only applications. The MCP deployable can append immutable evidence and pending candidates through the domain package, but it imports no review route and exposes no trusted-state mutation tool. The web deployable owns the explicit human review route. Both currently use the Milestone 01 SQLite persistence adapter; a shared production database and tenant-shaped authentication remain Milestone 03 work.
+The web and MCP processes are server-only applications. The MCP deployable can append immutable evidence and pending candidates through the domain package, but it imports no review route and exposes no trusted-state mutation tool. The web deployable owns authentication, private project management, and the explicit human review route. Both use the Milestone 03 versioned tenant schema through the SQLite persistence adapter. A shared hosted database topology remains a deployment decision, and any replacement must preserve the same constraints and authorization boundaries.
 
 This split changes endpoint topology, not trust behavior. `ALICE_WEB_URL` supplies the review origin returned by MCP capture results, while `ALICE_PUBLIC_URL` remains the OAuth issuer and MCP resource origin.
 
@@ -110,7 +110,7 @@ The repository targets Node.js 24 and compiles with TypeScript project reference
 
 The root package scripts are the canonical developer and CI interface. They deliberately avoid a task runner or deployment orchestrator while the product has only two small server deployables.
 
-GitHub Actions is the only CI layer in Milestone 02. It receives read-only repository permissions, installs with `npm ci` on Node.js 24, and invokes the same root scripts used locally. The workflow receives no application or provider secrets because verification uses in-memory fixtures and loopback integration servers.
+GitHub Actions is the repository CI layer. It receives read-only repository permissions, installs with `npm ci` on Node.js 24, and invokes the same root scripts used locally. The workflow receives no application or provider secrets because verification uses in-memory fixtures and loopback integration servers.
 
 ### Configuration boundary
 

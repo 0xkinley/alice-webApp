@@ -1,8 +1,8 @@
 # Repository and Deployment Boundaries
 
-Status: Accepted for Milestone 02
+Status: Accepted for Milestone 02; updated for Milestone 03
 
-Decision date: 2026-08-27
+Decision date: 2026-08-27; updated 2026-08-28
 
 ## Purpose
 
@@ -34,12 +34,13 @@ Entry point: `apps/web/dist/server.js`
 
 Responsibilities:
 
-- render the human review interface;
-- authenticate the spike reviewer;
-- execute explicit candidate acceptance; and
+- register and authenticate users with one private workspace each;
+- create and revisit tenant-scoped projects;
+- render the candidate review interface;
+- execute explicit human candidate acceptance; and
 - expose `/health` for process checks.
 
-The web process is server-rendered. Milestone 02 creates no browser JavaScript bundle and exposes no configuration or secret through a client-public environment prefix.
+The web process is server-rendered. It creates no browser JavaScript bundle and exposes no configuration or secret through a client-public environment prefix.
 
 ### MCP server
 
@@ -78,13 +79,13 @@ Milestone 03 adds production-shaped identity and tenant isolation but intentiona
 
 ## Hosting boundary
 
-Milestone 02 deliberately chooses no cloud vendor, container platform, reverse proxy, or infrastructure-as-code layer. A future hosting decision must provide:
+The repository deliberately chooses no cloud vendor, container platform, reverse proxy, or infrastructure-as-code layer. A future hosting decision must provide:
 
 - stable HTTPS origins for web and MCP;
 - server-side secret injection;
 - a shared durable database appropriate for the topology;
 - separate health checks and logs for both processes;
 - no bearer-token or submitted-evidence logging; and
-- an explicit migration path from the spike passphrase to Milestone 03 authentication.
+- a documented backup and migration path for the versioned tenant schema.
 
 Provider-specific behavior stays inside the MCP integration surface. The web application does not receive provider credentials or configuration, and neither deployable routes work between AI models.
