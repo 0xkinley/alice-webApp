@@ -1,4 +1,5 @@
 export { saveCandidateUpdate } from "./candidate-updates.ts";
+export { appendAuditEvent } from "./audit.ts";
 export {
   authenticateUser,
   createUserSession,

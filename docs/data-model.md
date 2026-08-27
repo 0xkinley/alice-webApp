@@ -30,6 +30,8 @@ Immutable records of explicitly submitted material. Store the exact validated MC
 
 For the Milestone 01 spike, the validated payload is serialized once, hashed with SHA-256, and inserted in the same database transaction before any candidate claim. Candidate foreign keys require the evidence row to exist first. Database triggers reject evidence updates and deletes; an idempotent retry may only reuse an existing event when its payload hash matches.
 
+Milestone 03 retains those triggers in the versioned tenant schema and adds composite workspace/project/connection foreign keys. Evidence insertion, candidate insertion, and its audit event share one immediate transaction. Normal application code exposes no evidence update or delete operation.
+
 ### Candidate claims
 
 Untrusted proposed decisions, facts, requirements, constraints, preferences, or open questions. Each candidate references its source evidence.
@@ -55,6 +57,8 @@ Records which authenticated MCP client a user connected, granted capabilities, f
 ### Audit events
 
 Append-only records of security- and state-relevant actions. Store identifiers, safe metadata, and correlation IDs rather than unsaved conversation content.
+
+The current action set covers registration, session creation and revocation, project creation, integration authorization and revocation, candidate submission, and human acceptance. Audit insertion participates in the transaction for the associated state change. Database triggers reject every audit update and delete. Metadata excludes passwords, session values, bearer tokens, email addresses, and submitted evidence content.
 
 ## Required invariants
 

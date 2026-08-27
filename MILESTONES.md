@@ -123,7 +123,7 @@ Tasks:
 
 - [x] Implement user authentication and automatic private-workspace creation.
 - [x] Implement projects inside the user's private workspace.
-- [ ] Add immutable evidence events and append-only audit events.
+- [x] Add immutable evidence events and append-only audit events.
 - [ ] Add candidate claims and versioned accepted project state.
 - [ ] Add integration connection records without storing host passwords or bearer tokens.
 - [ ] Add deny-by-default tenant authorization policies.
@@ -142,6 +142,7 @@ Notes:
 - Started on 2026-08-27 after verifying Milestone 02 complete. Merge `04182ac` is present on synchronized local and remote `main`, the starting tree was clean, and GitHub Actions run `33065649076` passed the Milestone 02 merge verification.
 - First-party registration and login now use salted scrypt password digests, opaque hashed web sessions, and transactional creation of exactly one private workspace. MCP OAuth grants resolve the authenticated alice. user rather than a shared spike identity. The shared spike passphrase has been removed from runtime configuration.
 - Authenticated users can create bounded projects, list them in their private workspace, open project details, and revisit the same projects after a new login. Identifiers are server-generated, names are unique per workspace, and foreign or guessed identifiers return a non-disclosing not-found response.
+- Evidence capture retains the exact validated payload and content hash, while database triggers reject all evidence updates and deletes. Registration, sessions, projects, integration grants/revocation, candidate submission, and human acceptance append identifier-only audit events; audit updates and deletes are also database-rejected.
 
 ## Milestone 04 — Capture Loop
 

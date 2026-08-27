@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { appendAuditEvent } from "./audit.ts";
 
 const PASSWORD_ALGORITHM = "scrypt-v1";
 const PASSWORD_KEY_LENGTH = 64;
@@ -56,6 +57,14 @@ export function registerUser(database, { email, password }) {
     database
       .prepare("INSERT INTO workspaces (id, user_id, name, created_at) VALUES (?, ?, ?, ?)")
       .run(workspaceId, userId, "Private workspace", createdAt);
+    appendAuditEvent(database, {
+      workspaceId,
+      action: "user_registered",
+      actorType: "human_user",
+      actorId: userId,
+      correlationId: `registration_${randomUUID()}`,
+      metadata: { user_id: userId, workspace_id: workspaceId },
+    });
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");
@@ -85,11 +94,26 @@ export function authenticateUser(database, { email, password }) {
 export function createUserSession(database, userId) {
   const token = `alice_session_${randomBytes(32).toString("base64url")}`;
   const now = Math.floor(Date.now() / 1000);
-  database
-    .prepare(
-      "INSERT INTO web_sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
-    )
-    .run(sha256(token), userId, now + SESSION_TTL_SECONDS, new Date().toISOString());
+  const workspace = database.prepare("SELECT id FROM workspaces WHERE user_id = ?").get(userId);
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database
+      .prepare(
+        "INSERT INTO web_sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(sha256(token), userId, now + SESSION_TTL_SECONDS, new Date().toISOString());
+    appendAuditEvent(database, {
+      workspaceId: workspace.id,
+      action: "user_session_created",
+      actorType: "human_user",
+      actorId: userId,
+      correlationId: `session_${randomUUID()}`,
+    });
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
   return { token, maxAge: SESSION_TTL_SECONDS };
 }
 
@@ -108,5 +132,29 @@ export function userForSession(database, token) {
 
 export function revokeUserSession(database, token) {
   if (!token) return;
-  database.prepare("DELETE FROM web_sessions WHERE token_hash = ?").run(sha256(token));
+  const tokenHash = sha256(token);
+  const session = database
+    .prepare(
+      `SELECT web_sessions.user_id, workspaces.id AS workspace_id
+       FROM web_sessions
+       JOIN workspaces ON workspaces.user_id = web_sessions.user_id
+       WHERE web_sessions.token_hash = ?`,
+    )
+    .get(tokenHash);
+  if (!session) return;
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database.prepare("DELETE FROM web_sessions WHERE token_hash = ?").run(tokenHash);
+    appendAuditEvent(database, {
+      workspaceId: session.workspace_id,
+      action: "user_session_revoked",
+      actorType: "human_user",
+      actorId: session.user_id,
+      correlationId: `session_${randomUUID()}`,
+    });
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
 }

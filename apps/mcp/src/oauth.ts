@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { authenticateUser } from "@alice/domain";
+import { appendAuditEvent, authenticateUser } from "@alice/domain";
 import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/server";
 
 const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
@@ -326,41 +326,60 @@ export function createOAuth({ database, publicUrl }) {
     const scopes = parseScope(request.body.scope);
     const connectionId = secret("connection");
     const connectedAt = new Date().toISOString();
-    database
-      .prepare(
-        `INSERT INTO integration_connections
-          (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
-           first_connected_at, last_used_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        connectionId,
-        user.id,
-        user.workspace_id,
-        client.client_id,
-        clientClassification(client.client_name),
-        scopes.join(" "),
-        connectedAt,
-        connectedAt,
-      );
-    database
-      .prepare(
-        `INSERT INTO oauth_authorization_codes
-          (code_hash, client_id, user_id, connection_id, redirect_uri, code_challenge,
-           scope, resource, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        sha256(code),
-        client.client_id,
-        user.id,
-        connectionId,
-        request.body.redirect_uri,
-        request.body.code_challenge,
-        scopes.join(" "),
-        resource,
-        nowSeconds() + AUTHORIZATION_CODE_TTL_SECONDS,
-      );
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database
+        .prepare(
+          `INSERT INTO integration_connections
+            (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
+             first_connected_at, last_used_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          connectionId,
+          user.id,
+          user.workspace_id,
+          client.client_id,
+          clientClassification(client.client_name),
+          scopes.join(" "),
+          connectedAt,
+          connectedAt,
+        );
+      database
+        .prepare(
+          `INSERT INTO oauth_authorization_codes
+            (code_hash, client_id, user_id, connection_id, redirect_uri, code_challenge,
+             scope, resource, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          sha256(code),
+          client.client_id,
+          user.id,
+          connectionId,
+          request.body.redirect_uri,
+          request.body.code_challenge,
+          scopes.join(" "),
+          resource,
+          nowSeconds() + AUTHORIZATION_CODE_TTL_SECONDS,
+        );
+      appendAuditEvent(database, {
+        workspaceId: user.workspace_id,
+        action: "integration_connection_authorized",
+        actorType: "human_user",
+        actorId: user.id,
+        correlationId: `connection_${connectionId}`,
+        metadata: {
+          connection_id: connectionId,
+          client_id: client.client_id,
+          scopes,
+        },
+      });
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
 
     const redirect = new URL(request.body.redirect_uri);
     redirect.searchParams.set("code", code);
@@ -442,26 +461,46 @@ export function createOAuth({ database, publicUrl }) {
       return oauthError(response, 401, "invalid_client", "Client authentication failed.");
     const tokenHash = sha256(String(request.body.token || ""));
     const revokedAt = new Date().toISOString();
-    database
-      .prepare(
-        "UPDATE oauth_access_tokens SET revoked_at = ? WHERE token_hash = ? AND client_id = ?",
-      )
-      .run(revokedAt, tokenHash, client.client_id);
-    database
-      .prepare(
-        "UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE token_hash = ? AND client_id = ?",
-      )
-      .run(revokedAt, tokenHash, client.client_id);
     const connection = database
       .prepare(
-        `SELECT connection_id FROM oauth_access_tokens WHERE token_hash = ? AND client_id = ?
-         UNION SELECT connection_id FROM oauth_refresh_tokens WHERE token_hash = ? AND client_id = ?`,
+        `SELECT tokens.connection_id, connections.workspace_id, connections.user_id
+         FROM (
+           SELECT connection_id FROM oauth_access_tokens WHERE token_hash = ? AND client_id = ?
+           UNION
+           SELECT connection_id FROM oauth_refresh_tokens WHERE token_hash = ? AND client_id = ?
+         ) tokens
+         JOIN integration_connections connections ON connections.id = tokens.connection_id`,
       )
       .get(tokenHash, client.client_id, tokenHash, client.client_id);
     if (connection) {
-      database
-        .prepare("UPDATE integration_connections SET revoked_at = ? WHERE id = ?")
-        .run(revokedAt, connection.connection_id);
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        database
+          .prepare(
+            "UPDATE oauth_access_tokens SET revoked_at = ? WHERE connection_id = ? AND client_id = ?",
+          )
+          .run(revokedAt, connection.connection_id, client.client_id);
+        database
+          .prepare(
+            "UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE connection_id = ? AND client_id = ?",
+          )
+          .run(revokedAt, connection.connection_id, client.client_id);
+        database
+          .prepare("UPDATE integration_connections SET revoked_at = ? WHERE id = ?")
+          .run(revokedAt, connection.connection_id);
+        appendAuditEvent(database, {
+          workspaceId: connection.workspace_id,
+          action: "integration_connection_revoked",
+          actorType: "human_user",
+          actorId: connection.user_id,
+          correlationId: `connection_${connection.connection_id}`,
+          metadata: { connection_id: connection.connection_id, client_id: client.client_id },
+        });
+        database.exec("COMMIT");
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
     }
     response.status(200).end();
   }

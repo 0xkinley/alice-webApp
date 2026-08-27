@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { appendAuditEvent } from "./audit.ts";
 
 // Host submissions remain candidate-only domain operations.
 
@@ -118,24 +119,15 @@ export function saveCandidateUpdate(
       );
     });
 
-    database
-      .prepare(
-        `INSERT INTO audit_events
-          (id, workspace_id, project_id, action, actor_type, actor_id,
-           correlation_id, safe_metadata_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        `audit_${randomUUID()}`,
-        workspaceId,
-        project.id,
-        "candidate_update_submitted",
-        "mcp_host",
-        clientId,
-        correlationId,
-        JSON.stringify({ evidence_id: evidenceId, candidate_count: candidateIds.length }),
-        createdAt,
-      );
+    appendAuditEvent(database, {
+      workspaceId,
+      projectId: project.id,
+      action: "candidate_update_submitted",
+      actorType: "mcp_host",
+      actorId: clientId,
+      correlationId,
+      metadata: { evidence_id: evidenceId, candidate_count: candidateIds.length },
+    });
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");

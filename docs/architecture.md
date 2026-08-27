@@ -79,6 +79,8 @@ For the Milestone 01 spike, the minimum control plane is a passphrase-authentica
 
 Milestone 03 replaces the single spike identity with first-party user authentication. Registration atomically creates one private workspace, and both web sessions and MCP OAuth grants resolve the tenant from server-held identity. The original passphrase is no longer runtime configuration. See `docs/authentication-and-tenancy.md`.
 
+Security- and state-relevant operations append audit events in the same transaction as their primary write. The application can insert but database triggers prevent updating or deleting evidence and audit history. Safe audit metadata contains identifiers and counts, never passwords, session tokens, bearer tokens, or submitted evidence content.
+
 ## Repository and deployable boundaries
 
 Milestone 02 establishes an npm workspace with two deployables and three shared packages:

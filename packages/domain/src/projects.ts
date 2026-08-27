@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createProjectSchema } from "@alice/schemas";
+import { appendAuditEvent } from "./audit.ts";
 
 function workspaceIdForUser(database, userId) {
   return database.prepare("SELECT id FROM workspaces WHERE user_id = ?").get(userId)?.id;
@@ -11,6 +12,7 @@ export function createProject(database, userId, input) {
   const project = createProjectSchema.parse(input);
   const projectId = `project_${randomUUID()}`;
   const createdAt = new Date().toISOString();
+  database.exec("BEGIN IMMEDIATE");
   try {
     database
       .prepare(
@@ -18,7 +20,18 @@ export function createProject(database, userId, input) {
          VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .run(projectId, workspaceId, project.name, project.brief, createdAt, createdAt);
+    appendAuditEvent(database, {
+      workspaceId,
+      projectId,
+      action: "project_created",
+      actorType: "human_user",
+      actorId: userId,
+      correlationId: `project_${randomUUID()}`,
+      metadata: { project_id: projectId },
+    });
+    database.exec("COMMIT");
   } catch (error) {
+    database.exec("ROLLBACK");
     if (String(error).includes("UNIQUE constraint failed: projects.workspace_id, projects.name")) {
       throw new Error("A project with this name already exists in your workspace.", {
         cause: error,

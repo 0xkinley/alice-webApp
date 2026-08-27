@@ -57,6 +57,18 @@ Minimum controls:
 - versioned accepted state
 - explicit supersession
 
+### Evidence or audit rewriting
+
+A compromised application path attempts to update or delete the source material or security history after the fact.
+
+Minimum controls:
+
+- database triggers reject every evidence and audit update or delete
+- normal domain and HTTP interfaces expose append operations only
+- composite tenant foreign keys bind evidence and audit rows to their workspace/project
+- state-changing transactions append identifier-only audit metadata without credentials, bearer values, or submitted content
+- tests exercise mutation and deletion attempts directly against the application database role
+
 ### Retry and replay duplication
 
 Hosts retry tool calls and create duplicate evidence or candidates.

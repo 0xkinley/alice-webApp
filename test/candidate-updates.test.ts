@@ -133,6 +133,14 @@ test("database guards prevent evidence update and deletion", () => {
     created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count,
     1,
   );
+  assert.throws(
+    () => created.database.prepare("UPDATE audit_events SET action = 'rewritten'").run(),
+    /audit events are append-only/,
+  );
+  assert.throws(
+    () => created.database.prepare("DELETE FROM audit_events").run(),
+    /audit events are append-only/,
+  );
 });
 
 test("a read-only token cannot call the write tool", async () => {
