@@ -25,7 +25,9 @@ function existingSubmission(
 ) {
   const evidence = database
     .prepare(
-      `SELECT id, payload_hash FROM evidence_events
+      `SELECT id, exact_payload_json, actor_type, connection_id, client_id,
+              client_classification, tool_name, payload_hash, created_at
+       FROM evidence_events
        WHERE workspace_id = ? AND connection_id = ? AND project_id = ? AND idempotency_key = ?`,
     )
     .get(workspaceId, connectionId, projectId, idempotencyKey);
@@ -33,20 +35,81 @@ function existingSubmission(
   if (evidence.payload_hash !== payloadHash) {
     return { error: "The idempotency key was already used with a different payload." };
   }
+
   const candidates = database
     .prepare(
-      `SELECT id FROM candidate_claims
+      `SELECT id, state_key, status FROM candidate_claims
        WHERE workspace_id = ? AND project_id = ? AND evidence_id = ?
        ORDER BY created_at, id`,
     )
     .all(workspaceId, projectId, evidence.id);
+  const auditEvents = database
+    .prepare(
+      `SELECT id, correlation_id FROM audit_events
+       WHERE workspace_id = ? AND project_id = ? AND action = 'candidate_update_submitted'
+         AND json_extract(safe_metadata_json, '$.evidence_id') = ?
+       ORDER BY created_at, id`,
+    )
+    .all(workspaceId, projectId, evidence.id);
+
+  let submittedClaims;
+  try {
+    submittedClaims = JSON.parse(evidence.exact_payload_json).candidate_claims;
+  } catch {
+    return { error: "The stored capture receipt is incomplete." };
+  }
+  if (!Array.isArray(submittedClaims) || submittedClaims.length !== candidates.length) {
+    return { error: "The stored capture receipt is incomplete." };
+  }
+
+  const candidatesByStateKey = new Map();
+  for (const candidate of candidates) {
+    const bucket = candidatesByStateKey.get(candidate.state_key) || [];
+    bucket.push(candidate);
+    candidatesByStateKey.set(candidate.state_key, bucket);
+  }
+  const orderedCandidates = submittedClaims.map((claim) =>
+    candidatesByStateKey.get(claim.state_key)?.shift(),
+  );
+  if (
+    orderedCandidates.some((candidate) => !candidate) ||
+    [...candidatesByStateKey.values()].some((bucket) => bucket.length > 0) ||
+    auditEvents.length !== 1
+  ) {
+    return { error: "The stored capture receipt is incomplete." };
+  }
+
+  const statuses = orderedCandidates.map((candidate) => candidate.status);
+  const pendingCount = statuses.filter((status) => status === "pending").length;
+  const status =
+    pendingCount === statuses.length
+      ? "pending_review"
+      : pendingCount === 0
+        ? "reviewed"
+        : "partially_reviewed";
+  const audit = auditEvents[0];
   return {
     evidence_id: evidence.id,
-    candidate_ids: candidates.map((candidate) => candidate.id),
-    status: "pending_review",
+    candidate_ids: orderedCandidates.map((candidate) => candidate.id),
+    candidate_statuses: orderedCandidates.map((candidate) => ({
+      candidate_id: candidate.id,
+      status: candidate.status,
+    })),
+    audit_event_id: audit.id,
+    correlation_id: audit.correlation_id,
+    status,
     trusted_state_changed: false,
     deduplicated: true,
     review_url: reviewUrl,
+    provenance: {
+      actor_type: evidence.actor_type,
+      connection_id: evidence.connection_id,
+      client_id: evidence.client_id,
+      client_classification: evidence.client_classification,
+      tool_name: evidence.tool_name,
+      payload_hash: evidence.payload_hash,
+      captured_at: evidence.created_at,
+    },
   };
 }
 
@@ -66,17 +129,6 @@ export function saveCandidateUpdate(
   const reviewUrl = new URL(`/review?project_id=${encodeURIComponent(project.id)}`, publicUrl).href;
   const exactPayloadJson = JSON.stringify(payload);
   const payloadHash = createHash("sha256").update(exactPayloadJson).digest("hex");
-  const duplicate = existingSubmission(
-    database,
-    tenant.workspaceId,
-    connectionId,
-    project.id,
-    payload.idempotency_key,
-    payloadHash,
-    reviewUrl,
-  );
-  if (duplicate) return duplicate;
-
   const evidenceId = `evidence_${randomUUID()}`;
   const candidateIds = payload.candidate_claims.map(() => `candidate_${randomUUID()}`);
   const correlationId = `capture_${randomUUID()}`;
@@ -84,6 +136,20 @@ export function saveCandidateUpdate(
 
   database.exec("BEGIN IMMEDIATE");
   try {
+    const duplicate = existingSubmission(
+      database,
+      tenant.workspaceId,
+      connectionId,
+      project.id,
+      payload.idempotency_key,
+      payloadHash,
+      reviewUrl,
+    );
+    if (duplicate) {
+      database.exec("COMMIT");
+      return duplicate;
+    }
+
     database
       .prepare(
         `INSERT INTO evidence_events
@@ -131,12 +197,15 @@ export function saveCandidateUpdate(
       actorType: "mcp_host",
       actorId: clientId,
       correlationId,
-      metadata: { evidence_id: evidenceId, candidate_count: candidateIds.length },
+      metadata: {
+        evidence_id: evidenceId,
+        candidate_ids: candidateIds,
+        candidate_count: candidateIds.length,
+        connection_id: connectionId,
+        payload_hash: payloadHash,
+      },
     });
-    database.exec("COMMIT");
-  } catch (error) {
-    database.exec("ROLLBACK");
-    const racedDuplicate = existingSubmission(
+    const result = existingSubmission(
       database,
       tenant.workspaceId,
       connectionId,
@@ -145,16 +214,11 @@ export function saveCandidateUpdate(
       payloadHash,
       reviewUrl,
     );
-    if (racedDuplicate) return racedDuplicate;
+    if (!result || result.error) throw new Error("Capture receipt was not created atomically.");
+    database.exec("COMMIT");
+    return { ...result, deduplicated: false };
+  } catch (error) {
+    database.exec("ROLLBACK");
     throw error;
   }
-
-  return {
-    evidence_id: evidenceId,
-    candidate_ids: candidateIds,
-    status: "pending_review",
-    trusted_state_changed: false,
-    deduplicated: false,
-    review_url: reviewUrl,
-  };
 }

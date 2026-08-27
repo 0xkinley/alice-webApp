@@ -85,6 +85,8 @@ Minimum controls:
 - unique idempotency constraint scoped to connection and project
 - transactional evidence, candidate, and audit creation
 
+Milestone 04 performs the idempotency lookup under the same immediate transaction as creation. Commit requires a complete receipt containing one immutable evidence event, every submitted candidate, and exactly one correlated audit event. Candidate or audit failure rolls all capture rows back. Identical retries return the original evidence, ordered candidate, audit, correlation, and provenance identifiers without another insert; different-payload reuse and partial stored receipts fail closed.
+
 ### Token leakage or misuse
 
 OAuth tokens appear in logs, storage, errors, or are accepted for the wrong audience.

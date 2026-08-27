@@ -130,7 +130,7 @@ function createProtocolServer(database, publicUrl) {
         userId: authenticatedUserId(context),
         payload,
       });
-      if (result.error) {
+      if ("error" in result) {
         return { content: [{ type: "text", text: result.error }], isError: true };
       }
       return {

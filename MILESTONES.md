@@ -166,7 +166,7 @@ Productionize explicit capture from supported AI hosts into immutable evidence, 
 Tasks:
 
 - [x] Finalize the `save_project_update` contract and validation limits.
-- [ ] Make evidence, candidates, provenance, and audit creation transactional and idempotent.
+- [x] Make evidence, candidates, provenance, and audit creation transactional and idempotent.
 - [ ] Build the candidate review queue.
 - [ ] Implement accept and reject actions.
 - [ ] Implement explicit supersession without overwriting history.
@@ -184,6 +184,7 @@ Notes:
 - Host-generated does not mean alice.-verified.
 - Started on 2026-08-28 after verifying Milestone 03 complete. Merge `e27e546` is present on synchronized local and remote `main`, the starting tree was clean, and GitHub Actions run `33120961142` passed the Milestone 03 merge verification. The complete local `npm run check` contract also passed with 33 tests and both deployable builds before this branch was created.
 - `save_project_update` now exposes a strict, explicit-save-only contract: 1-20 unique state keys, bounded summaries and deliberately supplied source material, safe 8-128 character retry keys, 8 KiB/depth-8/256-node candidate values, and a 32 KiB validated payload ceiling. Unknown fields and attempts to imply acceptance, rejection, or supersession are outside the tool contract; the exact normalized validated payload remains the immutable evidence body.
+- Capture idempotency is now resolved inside the same immediate transaction as evidence, candidates, provenance, and one correlated audit event. Commit requires a complete receipt; forced candidate or audit failures roll every capture row back. Identical retries return the original evidence, audit, correlation, provenance, and payload-ordered candidate identifiers without another write, while different-payload key reuse and incomplete receipts fail closed.
 
 ## Milestone 05 — Consumption Loop
 

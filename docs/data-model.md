@@ -32,11 +32,17 @@ For the Milestone 01 spike, the validated payload is serialized once, hashed wit
 
 Milestone 03 retains those triggers in the versioned tenant schema and adds composite workspace/project/connection foreign keys. Evidence insertion, candidate insertion, and its audit event share one immediate transaction. Normal application code exposes no evidence update or delete operation.
 
+Milestone 04 moves the idempotency lookup inside that same `BEGIN IMMEDIATE` transaction. A new save cannot commit unless the immutable evidence row, every candidate in submitted order, and exactly one correlated audit event are all readable as one complete receipt. Any candidate or audit failure rolls the entire capture back. The audit receipt stores only safe identifiers, counts, the evidence hash, and correlation data; source notes, source context, candidate values, and bearer material remain absent.
+
+The idempotency uniqueness scope is the authenticated integration connection plus project plus caller key. An identical validated payload returns the original ordered evidence/candidate/audit identifiers and provenance without inserting anything. A different payload under the same key fails closed. Retry reconstruction uses the immutable evidence payload's candidate order rather than UUID sort order, and a partial or inconsistent stored receipt fails closed instead of being repaired or duplicated.
+
 ### Candidate claims
 
 Untrusted proposed decisions, facts, requirements, constraints, preferences, or open questions. Each candidate references its source evidence.
 
 Submitted candidate content is immutable. Its only permitted update is one transition from `pending` to the terminal `accepted` or `rejected` status; deletion and further status changes are database-rejected. Candidate creation never inserts accepted state.
+
+The capture receipt returns each candidate identifier with its current review status. A retry after human review reports the terminal status but never changes it, creates a new audit event, or rewrites the original evidence.
 
 ### Accepted project state
 
