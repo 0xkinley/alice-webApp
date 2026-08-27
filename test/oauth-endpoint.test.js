@@ -44,7 +44,9 @@ test("rejects an unauthenticated MCP request with a discovery challenge", async 
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
   });
   assert.equal(response.status, 401);
-  assert.match(response.headers.get("www-authenticate"), /resource_metadata=/);
+  const challenge = response.headers.get("www-authenticate");
+  assert.match(challenge, /resource_metadata=/);
+  assert.match(challenge, /scope="mcp:read mcp:write"/);
 });
 
 test("completes DCR, authorization-code PKCE, authenticated MCP, and revocation", async () => {

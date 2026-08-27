@@ -3,10 +3,13 @@ import {
   createMcpExpressApp,
   getOAuthProtectedResourceMetadataUrl,
   mcpAuthMetadataRouter,
-  requireBearerAuth,
 } from "@modelcontextprotocol/express";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
-import { McpServer } from "@modelcontextprotocol/server";
+import {
+  bearerAuthChallengeResponse,
+  McpServer,
+  verifyBearerToken,
+} from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { saveCandidateUpdate } from "./candidate-updates.js";
 import { openDatabase } from "./database.js";
@@ -21,6 +24,25 @@ function authenticatedUserId(context) {
 function oauthToolSecurity(scope) {
   return {
     _meta: { securitySchemes: [{ type: "oauth2", scopes: [scope] }] },
+  };
+}
+
+function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes }) {
+  return async (request, response, next) => {
+    try {
+      request.auth = await verifyBearerToken(request.get("authorization"), {
+        verifier,
+        requiredScopes: [],
+      });
+      next();
+    } catch (error) {
+      const challenge = bearerAuthChallengeResponse(error, {
+        requiredScopes: advertisedScopes,
+        resourceMetadataUrl,
+      });
+      for (const [name, value] of challenge.headers) response.set(name, value);
+      response.status(challenge.status).send(await challenge.text());
+    }
   };
 }
 
@@ -176,9 +198,9 @@ export function createApp({ databaseFilename, passphrase, publicUrl }) {
   app.post("/revoke", (request, response) => oauth.revoke(request, response));
   app.use("/review", createReviewRouter({ database, passphrase, publicUrl }));
 
-  const authenticate = requireBearerAuth({
+  const authenticate = requireMcpBearerAuth({
     verifier: oauth.verifier,
-    requiredScopes: ["mcp:read"],
+    advertisedScopes: ["mcp:read", "mcp:write"],
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(new URL(oauth.resource)),
   });
 

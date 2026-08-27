@@ -59,7 +59,7 @@ Recorded at 2026-08-27 Asia/Dubai from the target personal Claude Pro account:
 
 Run 1 therefore proves Claude's authenticated read and correct use of A-C without restatement, but fails the complete Claude leg. A retry must be recorded as a new run.
 
-Before a new run, the dynamic client-registration response was corrected to return the bounded RFC 7591 default `scope` metadata (`mcp:read mcp:write offline_access`). The authorization page was also corrected to describe only the scopes actually requested. Integration coverage verifies both behaviors.
+Before a new run, the dynamic client-registration response was corrected to return the bounded RFC 7591 default `scope` metadata (`mcp:read mcp:write offline_access`). A reconnect probe showed Claude still derived `mcp:read offline_access` from the resource challenge, so the unauthenticated challenge was corrected to advertise the `mcp:read mcp:write` union. The authorization page now describes only the scopes actually requested. Integration coverage verifies these behaviors and confirms that read-only tokens still fail closed at the write tool.
 
 ## ChatGPT Plus eligibility investigation
 

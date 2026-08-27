@@ -36,8 +36,10 @@ Verified on 2026-08-27 with a personal Claude Pro account and a custom remote MC
 
 - Claude used dynamic client registration and requested `mcp:read offline_access` during initial authorization when alice.'s registration response did not include registered `scope` metadata.
 - Claude exposed all three tools and allowed an explicit write confirmation, but the server correctly rejected the write because the bearer token lacked `mcp:write`.
-- RFC 7591 permits an authorization server to register omitted client scope metadata with defaults and requires registered metadata to be returned in the client information response. The spike now returns its bounded `mcp:read mcp:write offline_access` default in the dynamic client information response so Claude can request it during authorization.
+- RFC 7591 permits an authorization server to register omitted client scope metadata with defaults and requires registered metadata to be returned in the client information response. The spike now returns its bounded `mcp:read mcp:write offline_access` default in the dynamic client information response.
 - The authorization page derives its description from the scopes actually requested, preventing a read-only grant from being presented as candidate-write access.
+- A reconnect probe showed that Claude derives its authorization request from the MCP resource's `WWW-Authenticate` scope challenge rather than expanding to the DCR response default. The spike therefore advertises the bounded `mcp:read mcp:write` union in the unauthenticated resource challenge.
+- Transport authentication accepts any valid alice. access token. Least privilege remains enforced per tool: read actions require an authenticated connection and `save_project_update` separately requires `mcp:write`, so a read-only token can retrieve context but still fails closed on capture.
 
 The failed read-only write attempt created no evidence or candidate and is retained as a fail-closed compatibility result.
 
