@@ -61,6 +61,19 @@ Run 1 therefore proves Claude's authenticated read and correct use of A-C withou
 
 Before a new run, the dynamic client-registration response was corrected to return the bounded RFC 7591 default `scope` metadata (`mcp:read mcp:write offline_access`). A reconnect probe showed Claude still derived `mcp:read offline_access` from the resource challenge, so the unauthenticated challenge was corrected to advertise the `mcp:read mcp:write` union. The authorization page now describes only the scopes actually requested. Integration coverage verifies these behaviors and confirms that read-only tokens still fail closed at the write tool.
 
+### Claude continuation run 2
+
+Recorded at 2026-08-27 Asia/Dubai:
+
+- Claude continued to reuse the old read-only discovery result after disconnecting and reconnecting the same endpoint. A fresh temporary tunnel hostname forced clean discovery of the corrected challenge.
+- The fresh OAuth request asked for `mcp:read mcp:write offline_access`, and direct database verification confirmed the issued access token contains both MCP scopes.
+- In a new conversation with only alice. enabled, the exact fixture prompt was supplied without A-C. Claude again retrieved and correctly used all three accepted decisions.
+- Claude proposed a two-account criterion requiring a context retrieval from both ChatGPT and Claude, but set a seven-day window and added a three-accepted-claim condition. The seven-day window is not semantically equivalent to the precommitted 10-minute criterion, so D correctness failed.
+- After explicit confirmation, Claude successfully created pending candidate `candidate_04f4e885-1d16-4743-89b7-68a6bbf24216` from immutable evidence `evidence_13fd610e-0b73-480f-bc6f-666f87b020fd`.
+- Database verification found zero accepted `launch.onboarding_success` rows. The incorrect candidate remains pending and must not be approved.
+
+Run 2 proves authenticated Claude read and write compatibility and preserves fail-closed trusted state, but it fails the D rubric. A further attempt must be a fresh recorded run.
+
 ## ChatGPT Plus eligibility investigation
 
 Recorded at 2026-08-26 Asia/Dubai:
