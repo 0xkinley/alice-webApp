@@ -86,6 +86,7 @@ apps/
   web/       human review control plane
   mcp/       OAuth and remote MCP transport
 packages/
+  config/    validated server-only runtime configuration
   schemas/   validated cross-boundary payloads
   domain/    capture and context rules
   database/  persistence access and schema bootstrap
@@ -100,6 +101,10 @@ This split changes endpoint topology, not trust behavior. `ALICE_WEB_URL` suppli
 The repository targets Node.js 24 and compiles with TypeScript project references. Shared packages emit declarations and JavaScript before the two application projects. Production commands execute only emitted `dist/` JavaScript; source-mode test commands opt into the workspace packages' `development` export condition. Generated output and TypeScript build metadata are ignored rather than committed.
 
 The root package scripts are the canonical developer and CI interface. They deliberately avoid a task runner or deployment orchestrator while the product has only two small server deployables.
+
+### Configuration boundary
+
+Both deployables load configuration through the server-only `@alice/config` package. Startup rejects missing or simultaneous inline/file passphrase sources, passphrases shorter than 12 characters, invalid ports, URL credentials or paths, and public HTTP origins. Plain HTTP is accepted only for loopback development. No client bundle or browser-public environment namespace exists in this milestone.
 
 ## Round-trip success test
 

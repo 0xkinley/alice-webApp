@@ -17,10 +17,11 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
+    "check:secrets": "node scripts/check-secrets.mjs",
     "typecheck": "tsc -b --pretty false",
     "test": "node --conditions=development --test test/*.test.ts",
     "build": "tsc -b --clean && tsc -b --pretty false",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build"
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run check:secrets && npm test && npm run build"
   },
   "engines": {
     "node": ">=24"

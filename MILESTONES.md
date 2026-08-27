@@ -89,7 +89,7 @@ Tasks:
 
 - [x] Establish the workspace layout for web, MCP, shared schemas, domain logic, and database access.
 - [x] Add formatting, linting, typechecking, unit tests, and production builds.
-- [ ] Add environment validation and secret-leak checks.
+- [x] Add environment validation and secret-leak checks.
 - [ ] Add CI that runs all required checks from a clean checkout.
 - [ ] Document local setup and deployment boundaries.
 
@@ -103,7 +103,8 @@ Notes:
 
 - Avoid orchestration or infrastructure that two small deployables do not yet require.
 - The npm workspace now separates `apps/web`, `apps/mcp`, `packages/schemas`, `packages/domain`, and `packages/database`. The Milestone 01 review authority remains server-side in the web deployable; MCP capture remains candidate-only.
-- The root scripts are the single verification interface: Prettier formatting, ESLint, TypeScript project-reference typechecking, the 15-test Milestone 01 regression suite, and production compilation for both deployables.
+- The root scripts are the single verification interface: Prettier formatting, ESLint, TypeScript project-reference typechecking, the 15-test Milestone 01 regression suite plus configuration-policy tests, and production compilation for both deployables.
+- Server configuration now fails closed on missing or ambiguous secrets, weak passphrases, invalid ports, and non-HTTPS public origins. Repository checks reject tracked environment files, high-confidence credential patterns, and secret-like browser-public environment names.
 
 ## Milestone 03 — Authentication and Data Foundation
 
