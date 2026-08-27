@@ -4,7 +4,7 @@ alice. is the independent project intelligence layer for the AI tools users alre
 
 > One project. Whichever AI you use.
 
-The first product test completed a ChatGPT → alice. → Claude → alice. → ChatGPT round trip using official authenticated remote MCP integrations, explicit capture, human-reviewed trusted state, and preserved provenance. Milestone 02 packages that verified behavior as a TypeScript workspace with repeatable local and CI checks.
+The first product test completed a ChatGPT → alice. → Claude → alice. → ChatGPT round trip using official authenticated remote MCP integrations, explicit capture, human-reviewed trusted state, and preserved provenance. Milestone 03 adds user authentication and a private tenant-shaped data foundation while preserving those trust guarantees.
 
 ## Prerequisites
 
@@ -35,14 +35,11 @@ Production JavaScript is emitted under each workspace's ignored `dist/` director
 
 ## Local development
 
-Create a passphrase of at least 12 characters. Supply it either through `ALICE_AUTH_PASSPHRASE` or a server-readable file through `ALICE_AUTH_PASSPHRASE_FILE`, never both.
-
 Start the web control plane:
 
 ```bash
-ALICE_AUTH_PASSPHRASE='local-development-passphrase' \
 ALICE_WEB_URL=http://127.0.0.1:8788 \
-ALICE_DATABASE_PATH=.data/spike.sqlite \
+ALICE_DATABASE_PATH=.data/alice.sqlite \
 PORT=8788 \
 npm run dev:web
 ```
@@ -50,15 +47,16 @@ npm run dev:web
 In a second terminal, start the MCP server against the same local database:
 
 ```bash
-ALICE_AUTH_PASSPHRASE='local-development-passphrase' \
 ALICE_PUBLIC_URL=http://127.0.0.1:8787 \
 ALICE_WEB_URL=http://127.0.0.1:8788 \
-ALICE_DATABASE_PATH=.data/spike.sqlite \
+ALICE_DATABASE_PATH=.data/alice.sqlite \
 PORT=8787 \
 npm run dev:mcp
 ```
 
 The loopback URLs may use HTTP. Configured non-loopback origins must use HTTPS. Runtime data, local environment files, secrets, and build output are ignored by Git.
+
+Open `http://127.0.0.1:8788/auth/register` to create an account. Registration automatically provisions one private workspace. Passwords, browser sessions, and OAuth bearer tokens are stored only as salted or cryptographic digests.
 
 See [Repository and deployment boundaries](docs/repository-and-deployment.md) before hosting either process.
 
@@ -83,6 +81,7 @@ See [Repository and deployment boundaries](docs/repository-and-deployment.md) be
 - [MCP contract](docs/mcp-contract.md)
 - [Minimum data model](docs/data-model.md)
 - [Initial threat model](docs/threat-model.md)
+- [Authentication and tenancy](docs/authentication-and-tenancy.md)
 - [Repository instructions](AGENTS.md)
 
 Every milestone begins in a new Codex task and a dedicated milestone branch, as defined in `AGENTS.md`.

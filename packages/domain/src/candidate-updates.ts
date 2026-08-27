@@ -2,8 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 
 // Host submissions remain candidate-only domain operations.
 
-function workspaceIdForUser(userId) {
-  return `workspace_${userId}`;
+function workspaceIdForUser(database, userId) {
+  return database.prepare("SELECT id FROM workspaces WHERE user_id = ?").get(userId)?.id;
 }
 
 function clientClassification(database, clientId) {
@@ -16,13 +16,20 @@ function clientClassification(database, clientId) {
   return "unknown_mcp_client";
 }
 
-function existingSubmission(database, clientId, projectId, idempotencyKey, payloadHash, reviewUrl) {
+function existingSubmission(
+  database,
+  connectionId,
+  projectId,
+  idempotencyKey,
+  payloadHash,
+  reviewUrl,
+) {
   const evidence = database
     .prepare(
       `SELECT id, payload_hash FROM evidence_events
-       WHERE client_id = ? AND project_id = ? AND idempotency_key = ?`,
+       WHERE connection_id = ? AND project_id = ? AND idempotency_key = ?`,
     )
-    .get(clientId, projectId, idempotencyKey);
+    .get(connectionId, projectId, idempotencyKey);
   if (!evidence) return undefined;
   if (evidence.payload_hash !== payloadHash) {
     return { error: "The idempotency key was already used with a different payload." };
@@ -40,8 +47,12 @@ function existingSubmission(database, clientId, projectId, idempotencyKey, paylo
   };
 }
 
-export function saveCandidateUpdate(database, { clientId, publicUrl, userId, payload }) {
-  const workspaceId = workspaceIdForUser(userId);
+export function saveCandidateUpdate(
+  database,
+  { clientId, connectionId, publicUrl, userId, payload },
+) {
+  const workspaceId = workspaceIdForUser(database, userId);
+  if (!workspaceId || !connectionId) return { error: "Authenticated tenant context is missing." };
   const project = database
     .prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ?")
     .get(payload.project_id, workspaceId);
@@ -52,7 +63,7 @@ export function saveCandidateUpdate(database, { clientId, publicUrl, userId, pay
   const payloadHash = createHash("sha256").update(exactPayloadJson).digest("hex");
   const duplicate = existingSubmission(
     database,
-    clientId,
+    connectionId,
     project.id,
     payload.idempotency_key,
     payloadHash,
@@ -70,9 +81,9 @@ export function saveCandidateUpdate(database, { clientId, publicUrl, userId, pay
     database
       .prepare(
         `INSERT INTO evidence_events
-          (id, workspace_id, project_id, exact_payload_json, actor_type, client_id,
-           client_classification, tool_name, idempotency_key, payload_hash, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, workspace_id, project_id, exact_payload_json, actor_type, connection_id,
+           client_id, client_classification, tool_name, idempotency_key, payload_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         evidenceId,
@@ -80,6 +91,7 @@ export function saveCandidateUpdate(database, { clientId, publicUrl, userId, pay
         project.id,
         exactPayloadJson,
         "mcp_host",
+        connectionId,
         clientId,
         clientClassification(database, clientId),
         "save_project_update",
@@ -129,7 +141,7 @@ export function saveCandidateUpdate(database, { clientId, publicUrl, userId, pay
     database.exec("ROLLBACK");
     const racedDuplicate = existingSubmission(
       database,
-      clientId,
+      connectionId,
       project.id,
       payload.idempotency_key,
       payloadHash,

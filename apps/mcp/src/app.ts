@@ -19,6 +19,10 @@ function authenticatedUserId(context) {
   return context.http?.authInfo?.extra?.userId;
 }
 
+function authenticatedConnectionId(context) {
+  return context.http?.authInfo?.extra?.connectionId;
+}
+
 function oauthToolSecurity(scope) {
   return {
     _meta: { securitySchemes: [{ type: "oauth2", scopes: [scope] }] },
@@ -121,6 +125,7 @@ function createProtocolServer(database, publicUrl) {
       }
       const result = saveCandidateUpdate(database, {
         clientId: authInfo.clientId,
+        connectionId: authenticatedConnectionId(context),
         publicUrl,
         userId: authenticatedUserId(context),
         payload,
@@ -146,12 +151,11 @@ function createProtocolServer(database, publicUrl) {
 export function createApp({
   database: suppliedDatabase = undefined,
   databaseFilename = ":memory:",
-  passphrase,
   publicUrl,
   reviewUrl = publicUrl,
 }) {
   const database = suppliedDatabase || openDatabase(databaseFilename);
-  const oauth = createOAuth({ database, passphrase, publicUrl });
+  const oauth = createOAuth({ database, publicUrl });
   const publicHostname = new URL(publicUrl).hostname;
   const app = createMcpExpressApp({
     host: "0.0.0.0",

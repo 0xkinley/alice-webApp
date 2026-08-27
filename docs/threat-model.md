@@ -79,7 +79,22 @@ Minimum controls:
 - short-lived access tokens and revocable connections
 - no bearer tokens in application tables or analytics
 
-Milestone 02 adds repository and startup gates around this boundary. Runtime secrets come from server environment variables or a server-readable file, with exactly one passphrase source allowed. Remote web and MCP origins require HTTPS. The repository secret check rejects tracked `.env` files, high-confidence credential formats, and secret-like names under common browser-public environment prefixes. This scanner is a fast preventive check, not a substitute for provider-side secret scanning or credential rotation.
+Milestone 02 added repository and startup gates around the former spike-passphrase boundary. Milestone 03 supersedes that shared passphrase. Remote web and MCP origins still require HTTPS. The repository secret check rejects tracked `.env` files, high-confidence credential formats, and secret-like names under common browser-public environment prefixes. This scanner is a fast preventive check, not a substitute for provider-side secret scanning or credential rotation.
+
+Milestone 03 removes the shared passphrase. User passwords are salted and scrypt-hashed; web sessions and OAuth bearer tokens are random, opaque, and stored only as SHA-256 digests. OAuth grants carry a server-resolved user and connection identifier. A dynamically registered client has no tenant authority until a user authenticates and grants access.
+
+### Account and session compromise
+
+An attacker guesses credentials, fixes a session, or reuses a stolen browser token.
+
+Minimum controls:
+
+- memory-hard, per-user salted password hashes
+- fresh opaque session tokens after registration and login
+- `HttpOnly`, `SameSite=Strict`, root-scoped cookies with `Secure` on HTTPS
+- server-side logout revocation and bounded session lifetime
+- generic invalid-credential responses
+- deployment edge rate limiting before public self-service registration
 
 ### Sensitive overcollection
 

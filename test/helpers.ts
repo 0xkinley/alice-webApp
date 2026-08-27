@@ -1,14 +1,43 @@
 import { createHash } from "node:crypto";
+import { registerUser } from "@alice/domain";
+
+export const TEST_EMAIL = "tester@alice.example";
+export const TEST_PASSWORD = "correct horse battery staple";
+
+export function createTestIdentity(
+  database,
+  { email = TEST_EMAIL, password = TEST_PASSWORD, projectId = "project_switchboard_launch" } = {},
+) {
+  const user = registerUser(database, { email, password });
+  const now = new Date().toISOString();
+  database
+    .prepare(
+      `INSERT INTO projects (id, workspace_id, name, brief, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      projectId,
+      user.workspace_id,
+      projectId === "project_switchboard_launch" ? "Switchboard Launch" : "Private project",
+      "Test project",
+      now,
+      now,
+    );
+  return { ...user, project_id: projectId };
+}
 
 // Shared round-trip helpers exercise the workspace source entry points.
 
-export async function authorize(baseUrl) {
+export async function authorize(
+  baseUrl,
+  { email = TEST_EMAIL, password = TEST_PASSWORD, clientName = "MCP integration test" } = {},
+) {
   const redirectUri = "http://127.0.0.1/callback";
   const registrationResponse = await fetch(`${baseUrl}/register`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      client_name: "MCP integration test",
+      client_name: clientName,
       redirect_uris: [redirectUri],
       token_endpoint_auth_method: "none",
     }),
@@ -28,7 +57,8 @@ export async function authorize(baseUrl) {
       code_challenge_method: "S256",
       scope: "mcp:read mcp:write offline_access",
       resource: "http://127.0.0.1/mcp",
-      passphrase: "correct horse battery staple",
+      email,
+      password,
     }),
     redirect: "manual",
   });

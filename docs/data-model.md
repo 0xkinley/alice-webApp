@@ -6,15 +6,19 @@ This is the conceptual minimum. Exact SQL belongs to the database milestone.
 
 ### Users
 
-Application profile keyed to the external identity provider subject.
+Application identity with a stable internal identifier and normalized unique email. Milestone 03 uses salted scrypt password digests; an external identity provider can later replace the verifier without changing tenant identifiers.
 
 ### Workspaces
 
 One private workspace is automatically created per MVP user.
 
+The user and workspace are inserted transactionally. A unique constraint on `workspaces.user_id` enforces exactly one workspace per user. No membership, team, organization, invitation, sharing, or role table exists.
+
 ### Projects
 
 Projects belong to a private workspace. Every tenant-owned record carries the workspace identifier even when it can be derived through the project.
+
+Composite workspace/project foreign keys prevent a record from naming a project in another workspace.
 
 ## Project intelligence
 

@@ -121,7 +121,7 @@ Implement production-shaped user authentication, one private workspace per user,
 
 Tasks:
 
-- [ ] Implement user authentication and automatic private-workspace creation.
+- [x] Implement user authentication and automatic private-workspace creation.
 - [ ] Implement projects inside the user's private workspace.
 - [ ] Add immutable evidence events and append-only audit events.
 - [ ] Add candidate claims and versioned accepted project state.
@@ -140,6 +140,7 @@ Notes:
 
 - Do not add team or sharing UI.
 - Started on 2026-08-27 after verifying Milestone 02 complete. Merge `04182ac` is present on synchronized local and remote `main`, the starting tree was clean, and GitHub Actions run `33065649076` passed the Milestone 02 merge verification.
+- First-party registration and login now use salted scrypt password digests, opaque hashed web sessions, and transactional creation of exactly one private workspace. MCP OAuth grants resolve the authenticated alice. user rather than a shared spike identity. The shared spike passphrase has been removed from runtime configuration.
 
 ## Milestone 04 — Capture Loop
 

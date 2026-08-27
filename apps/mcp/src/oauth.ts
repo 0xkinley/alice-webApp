@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { authenticateUser } from "@alice/domain";
 import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/server";
 
 const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
@@ -80,7 +81,7 @@ function authenticateClient(database, request) {
   return client;
 }
 
-function issueTokens(database, { clientId, scopes, resource }) {
+function issueTokens(database, { clientId, connectionId, scopes, resource, userId }) {
   const accessToken = secret("alice_access");
   const refreshToken = secret("alice_refresh");
   const now = nowSeconds();
@@ -88,14 +89,34 @@ function issueTokens(database, { clientId, scopes, resource }) {
 
   database
     .prepare(
-      "INSERT INTO oauth_access_tokens (token_hash, client_id, scope, resource, expires_at) VALUES (?, ?, ?, ?, ?)",
+      `INSERT INTO oauth_access_tokens
+        (token_hash, client_id, user_id, connection_id, scope, resource, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(sha256(accessToken), clientId, scope, resource, now + ACCESS_TOKEN_TTL_SECONDS);
+    .run(
+      sha256(accessToken),
+      clientId,
+      userId,
+      connectionId,
+      scope,
+      resource,
+      now + ACCESS_TOKEN_TTL_SECONDS,
+    );
   database
     .prepare(
-      "INSERT INTO oauth_refresh_tokens (token_hash, client_id, scope, resource, expires_at) VALUES (?, ?, ?, ?, ?)",
+      `INSERT INTO oauth_refresh_tokens
+        (token_hash, client_id, user_id, connection_id, scope, resource, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(sha256(refreshToken), clientId, scope, resource, now + REFRESH_TOKEN_TTL_SECONDS);
+    .run(
+      sha256(refreshToken),
+      clientId,
+      userId,
+      connectionId,
+      scope,
+      resource,
+      now + REFRESH_TOKEN_TTL_SECONDS,
+    );
 
   return {
     access_token: accessToken,
@@ -115,7 +136,14 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-export function createOAuth({ database, publicUrl, passphrase }) {
+function clientClassification(name) {
+  const normalized = String(name).toLowerCase();
+  if (normalized.includes("chatgpt") || normalized.includes("openai")) return "chatgpt";
+  if (normalized.includes("claude") || normalized.includes("anthropic")) return "claude";
+  return "unknown_mcp_client";
+}
+
+export function createOAuth({ database, publicUrl }) {
   const resource = new URL("/mcp", publicUrl).href;
   const issuer = new URL(publicUrl).origin;
   const metadata = {
@@ -148,13 +176,25 @@ export function createOAuth({ database, publicUrl, passphrase }) {
           "The access token is for another resource.",
         );
       }
+      const connection = database
+        .prepare(
+          `SELECT id FROM integration_connections
+           WHERE id = ? AND user_id = ? AND revoked_at IS NULL`,
+        )
+        .get(row.connection_id, row.user_id);
+      if (!connection) {
+        throw new OAuthError(OAuthErrorCode.InvalidToken, "The connection is revoked.");
+      }
+      database
+        .prepare("UPDATE integration_connections SET last_used_at = ? WHERE id = ?")
+        .run(new Date().toISOString(), row.connection_id);
       return {
         token,
         clientId: row.client_id,
         scopes: row.scope.split(" ").filter(Boolean),
         expiresAt: row.expires_at,
         resource: new URL(row.resource),
-        extra: { userId: "spike-user" },
+        extra: { connectionId: row.connection_id, userId: row.user_id },
       };
     },
   };
@@ -254,9 +294,9 @@ export function createOAuth({ database, publicUrl, passphrase }) {
     response.type("html").send(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Authorize alice.</title><style>body{font:16px system-ui;max-width:34rem;margin:4rem auto;padding:0 1rem}input,button{font:inherit;padding:.7rem;width:100%;box-sizing:border-box;margin:.4rem 0}small{color:#555}</style></head>
-<body><h1>Authorize alice.</h1><p><strong>${escapeHtml(client.client_name)}</strong> is requesting ${escapeHtml(describeScopes(requestedScopes))} to the Milestone 01 spike workspace.</p>
+<body><h1>Authorize alice.</h1><p><strong>${escapeHtml(client.client_name)}</strong> is requesting ${escapeHtml(describeScopes(requestedScopes))} to your private alice. workspace.</p>
 <p><small>Writes create pending candidates only. They cannot change trusted state.</small></p>
-<form method="post" action="/authorize">${fields}<label>Spike passphrase<input type="password" name="passphrase" required autocomplete="current-password"></label><button type="submit">Authorize</button></form></body></html>`);
+<form method="post" action="/authorize">${fields}<label>Email<input type="email" name="email" required autocomplete="email"></label><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form></body></html>`);
   }
 
   function authorize(request, response) {
@@ -267,11 +307,12 @@ export function createOAuth({ database, publicUrl, passphrase }) {
     if (!client || !redirectUris.includes(request.body.redirect_uri)) {
       return oauthError(response, 400, "invalid_request", "Unknown client or redirect URI.");
     }
-    if (!constantTimeEqual(String(request.body.passphrase || ""), passphrase)) {
+    const user = authenticateUser(database, request.body);
+    if (!user) {
       return response
         .status(403)
         .type("html")
-        .send("Authorization denied: invalid spike passphrase.");
+        .send("Authorization denied: invalid alice. credentials.");
     }
     if (request.body.code_challenge_method !== "S256" || !request.body.code_challenge) {
       return oauthError(response, 400, "invalid_request", "S256 PKCE is required.");
@@ -283,15 +324,37 @@ export function createOAuth({ database, publicUrl, passphrase }) {
 
     const code = secret("alice_code");
     const scopes = parseScope(request.body.scope);
+    const connectionId = secret("connection");
+    const connectedAt = new Date().toISOString();
+    database
+      .prepare(
+        `INSERT INTO integration_connections
+          (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
+           first_connected_at, last_used_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        connectionId,
+        user.id,
+        user.workspace_id,
+        client.client_id,
+        clientClassification(client.client_name),
+        scopes.join(" "),
+        connectedAt,
+        connectedAt,
+      );
     database
       .prepare(
         `INSERT INTO oauth_authorization_codes
-          (code_hash, client_id, redirect_uri, code_challenge, scope, resource, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          (code_hash, client_id, user_id, connection_id, redirect_uri, code_challenge,
+           scope, resource, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         sha256(code),
         client.client_id,
+        user.id,
+        connectionId,
         request.body.redirect_uri,
         request.body.code_challenge,
         scopes.join(" "),
@@ -335,8 +398,10 @@ export function createOAuth({ database, publicUrl, passphrase }) {
       return response.json(
         issueTokens(database, {
           clientId: client.client_id,
+          connectionId: row.connection_id,
           scopes: row.scope.split(" "),
           resource: row.resource,
+          userId: row.user_id,
         }),
       );
     }
@@ -360,8 +425,10 @@ export function createOAuth({ database, publicUrl, passphrase }) {
       return response.json(
         issueTokens(database, {
           clientId: client.client_id,
+          connectionId: row.connection_id,
           scopes: row.scope.split(" "),
           resource: row.resource,
+          userId: row.user_id,
         }),
       );
     }
@@ -385,6 +452,17 @@ export function createOAuth({ database, publicUrl, passphrase }) {
         "UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE token_hash = ? AND client_id = ?",
       )
       .run(revokedAt, tokenHash, client.client_id);
+    const connection = database
+      .prepare(
+        `SELECT connection_id FROM oauth_access_tokens WHERE token_hash = ? AND client_id = ?
+         UNION SELECT connection_id FROM oauth_refresh_tokens WHERE token_hash = ? AND client_id = ?`,
+      )
+      .get(tokenHash, client.client_id, tokenHash, client.client_id);
+    if (connection) {
+      database
+        .prepare("UPDATE integration_connections SET revoked_at = ? WHERE id = ?")
+        .run(revokedAt, connection.connection_id);
+    }
     response.status(200).end();
   }
 

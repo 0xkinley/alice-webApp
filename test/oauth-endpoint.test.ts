@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
 import { createApp } from "../apps/mcp/src/app.ts";
+import { createTestIdentity, TEST_EMAIL, TEST_PASSWORD } from "./helpers.ts";
 
 let baseUrl;
 let server;
@@ -9,9 +10,9 @@ let server;
 before(async () => {
   const created = createApp({
     databaseFilename: ":memory:",
-    passphrase: "correct horse battery staple",
     publicUrl: "http://127.0.0.1",
   });
+  createTestIdentity(created.database);
   server = created.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -91,7 +92,8 @@ test("completes DCR, authorization-code PKCE, authenticated MCP, and revocation"
     code_challenge_method: "S256",
     scope: "mcp:read mcp:write offline_access",
     resource: "http://127.0.0.1/mcp",
-    passphrase: "correct horse battery staple",
+    email: TEST_EMAIL,
+    password: TEST_PASSWORD,
   });
   const authorizationResponse = await fetch(`${baseUrl}/authorize`, {
     method: "POST",

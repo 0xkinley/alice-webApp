@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 
 // Trusted context is assembled only from human-accepted state.
 
-function workspaceIdForUser(userId) {
-  return `workspace_${userId}`;
+function workspaceIdForUser(database, userId) {
+  return database.prepare("SELECT id FROM workspaces WHERE user_id = ?").get(userId)?.id;
 }
 
 function parseJson(value) {
@@ -22,11 +22,11 @@ export function listProjects(database, userId) {
        WHERE workspace_id = ?
        ORDER BY name`,
     )
-    .all(workspaceIdForUser(userId));
+    .all(workspaceIdForUser(database, userId));
 }
 
 export function getProjectContext(database, { userId, projectId, task, contextBudget }) {
-  const workspaceId = workspaceIdForUser(userId);
+  const workspaceId = workspaceIdForUser(database, userId);
   const project = database
     .prepare(
       `SELECT id, name, brief, created_at

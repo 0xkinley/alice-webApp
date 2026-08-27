@@ -77,6 +77,8 @@ Provider adapters translate host capabilities into the same consumption and capt
 
 For the Milestone 01 spike, the minimum control plane is a passphrase-authenticated review page with an explicit accept button per candidate. Acceptance is transactional: it versions accepted state, links the accepted row to its candidate and evidence, marks the candidate accepted, and appends a human-review audit event. The MCP tool list intentionally contains no accept, reject, or trusted-state mutation action.
 
+Milestone 03 replaces the single spike identity with first-party user authentication. Registration atomically creates one private workspace, and both web sessions and MCP OAuth grants resolve the tenant from server-held identity. The original passphrase is no longer runtime configuration. See `docs/authentication-and-tenancy.md`.
+
 ## Repository and deployable boundaries
 
 Milestone 02 establishes an npm workspace with two deployables and three shared packages:
@@ -106,7 +108,7 @@ GitHub Actions is the only CI layer in Milestone 02. It receives read-only repos
 
 ### Configuration boundary
 
-Both deployables load configuration through the server-only `@alice/config` package. Startup rejects missing or simultaneous inline/file passphrase sources, passphrases shorter than 12 characters, invalid ports, URL credentials or paths, and public HTTP origins. Plain HTTP is accepted only for loopback development. No client bundle or browser-public environment namespace exists in this milestone.
+Both deployables load configuration through the server-only `@alice/config` package. Startup rejects invalid ports, URL credentials or paths, and public HTTP origins. Plain HTTP is accepted only for loopback development. User credentials and bearer tokens are hashed in the database; provider secrets remain server-only. No client bundle or browser-public environment namespace exists in this milestone.
 
 ## Round-trip success test
 

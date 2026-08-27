@@ -6,7 +6,7 @@ Decision date: 2026-08-27
 
 ## Purpose
 
-Milestone 02 turns the compatibility spike into a repeatable repository. It does not select production hosting, replace spike authentication, or implement the Milestone 03 database and tenancy foundation.
+Milestone 02 turned the compatibility spike into a repeatable repository. Milestone 03 replaces spike authentication and introduces the tenant-shaped database while retaining the same two-deployable boundary.
 
 ## Clean-checkout contract
 
@@ -62,19 +62,17 @@ Both processes validate configuration at startup and fail before listening when 
 | --- | --- | --- | --- |
 | `ALICE_WEB_URL` | Required outside loopback defaults | Review origin; defaults to MCP origin for spike compatibility | Server-only origin, HTTPS unless loopback |
 | `ALICE_PUBLIC_URL` | Not used | OAuth issuer and MCP origin | Server-only origin, HTTPS unless loopback |
-| `ALICE_AUTH_PASSPHRASE_FILE` | One allowed secret source | One allowed secret source | Preferred mounted-secret path |
-| `ALICE_AUTH_PASSPHRASE` | Alternative secret source | Alternative secret source | Server environment only; never browser-public |
 | `ALICE_DATABASE_PATH` | Persistence location | Persistence location | Server filesystem path |
 | `HOST` | Listen address | Listen address | Defaults to `127.0.0.1` |
 | `PORT` | Listen port | Listen port | Defaults to 8788 for web and 8787 for MCP |
 
-Exactly one passphrase source must be configured. Local `.env` files and `.data/` are ignored, and the committed `.env.example` contains names and non-secret placeholders only. ChatGPT and Claude passwords, session cookies, and bearer tokens are not provider configuration and must never be stored. OAuth access and refresh tokens are hashed before persistence as preserved from Milestone 01.
+Local `.env` files and `.data/` are ignored, and the committed `.env.example` contains names and non-secret placeholders only. alice. passwords are salted and memory-hard hashed. ChatGPT and Claude passwords are never collected. Web session tokens and OAuth access and refresh tokens are hashed before persistence; plaintext bearer values are returned only at issuance and are not logged.
 
 ## Current persistence constraint
 
-Both deployables still use the Milestone 01 SQLite adapter. They may share one database object in tests or one database file when colocated on the same trusted host and durable volume. Do not deploy them to isolated filesystems and assume state will synchronize. Do not horizontally scale this topology.
+Both deployables currently use the versioned SQLite adapter. They may share one database object in tests or one database file when colocated on the same trusted host and durable volume. Do not deploy them to isolated filesystems and assume state will synchronize. Do not horizontally scale this topology.
 
-Milestone 03 must replace this transitional constraint with production-shaped identity, tenant isolation, and shared durable persistence before private-alpha deployment. This deferral does not weaken the current trust invariant: host writes remain candidate-only, evidence remains immutable, accepted context is authenticated and provenance-bearing, and only the web review action changes trusted state.
+Milestone 03 adds production-shaped identity and tenant isolation but intentionally does not choose a hosted database. Before private alpha, hosting must provide one shared durable database or a documented move to a server database with equivalent constraints. Host writes remain candidate-only, evidence remains immutable, accepted context is authenticated and provenance-bearing, and only the web review action changes trusted state.
 
 ## Hosting boundary
 
