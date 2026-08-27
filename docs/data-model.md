@@ -58,6 +58,8 @@ Project references such as URLs and metadata. Binary ingestion and file intellig
 
 Records which authenticated MCP client a user connected, granted capabilities, first and last use, and revocation status. Do not store ChatGPT or Claude passwords. Do not log bearer tokens.
 
+Each authorization grant creates a connection bound by foreign keys to the user, private workspace, and dynamically registered OAuth client. The row stores the bounded scope grant, safe client classification, first-connected timestamp, last-use timestamp, and optional revocation timestamp. Authorization codes, OAuth client secrets, access tokens, and refresh tokens are persisted only as SHA-256 digests in their protocol tables; plaintext values exist only in the immediate protocol request/response path.
+
 ### Audit events
 
 Append-only records of security- and state-relevant actions. Store identifiers, safe metadata, and correlation IDs rather than unsaved conversation content.

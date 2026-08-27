@@ -49,7 +49,7 @@ function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes 
 }
 
 function createProtocolServer(database, publicUrl) {
-  const server = new McpServer({ name: "alice-mcp-compatibility-spike", version: "0.1.0" });
+  const server = new McpServer({ name: "alice-mcp", version: "0.3.0" });
 
   server.registerTool(
     "list_projects",
@@ -168,13 +168,13 @@ export function createApp({
     mcpAuthMetadataRouter({
       oauthMetadata: oauth.metadata,
       resourceServerUrl: new URL(oauth.resource),
-      resourceName: "alice. Milestone 01 spike",
+      resourceName: "alice.",
       scopesSupported: ["mcp:read", "mcp:write"],
     }),
   );
 
   app.get("/health", (_request, response) => {
-    response.json({ service: "alice-mcp-compatibility-spike", status: "ok" });
+    response.json({ service: "alice-mcp", status: "ok" });
   });
   app.post("/register", (request, response) => oauth.register(request, response));
   app.get("/authorize", (request, response) => oauth.authorizeForm(request, response));

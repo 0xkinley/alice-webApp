@@ -93,6 +93,8 @@ Minimum controls:
 - short-lived access tokens and revocable connections
 - no bearer tokens in application tables or analytics
 
+Milestone 03 stores only SHA-256 digests of OAuth authorization codes, confidential client secrets, access tokens, and refresh tokens. Integration records contain tenant ownership, client classification, granted scopes, timestamps, and revocation state only. Revocation invalidates the full connection and both token classes. Tests compare issued secrets with stored digests and inspect safe audit metadata for bearer leakage.
+
 Milestone 02 added repository and startup gates around the former spike-passphrase boundary. Milestone 03 supersedes that shared passphrase. Remote web and MCP origins still require HTTPS. The repository secret check rejects tracked `.env` files, high-confidence credential formats, and secret-like names under common browser-public environment prefixes. This scanner is a fast preventive check, not a substitute for provider-side secret scanning or credential rotation.
 
 Milestone 03 removes the shared passphrase. User passwords are salted and scrypt-hashed; web sessions and OAuth bearer tokens are random, opaque, and stored only as SHA-256 digests. OAuth grants carry a server-resolved user and connection identifier. A dynamically registered client has no tenant authority until a user authenticates and grants access.

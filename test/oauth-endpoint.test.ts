@@ -5,10 +5,11 @@ import { createApp } from "../apps/mcp/src/app.ts";
 import { createTestIdentity, TEST_EMAIL, TEST_PASSWORD } from "./helpers.ts";
 
 let baseUrl;
+let created;
 let server;
 
 before(async () => {
-  const created = createApp({
+  created = createApp({
     databaseFilename: ":memory:",
     publicUrl: "http://127.0.0.1",
   });
@@ -141,7 +142,35 @@ test("completes DCR, authorization-code PKCE, authenticated MCP, and revocation"
     }),
   });
   assert.equal(initializeResponse.status, 200);
-  assert.match(await initializeResponse.text(), /alice-mcp-compatibility-spike/);
+  assert.match(await initializeResponse.text(), /alice-mcp/);
+
+  const connection = created.database
+    .prepare("SELECT * FROM integration_connections WHERE client_id = ?")
+    .get(client.client_id);
+  const user = created.database.prepare("SELECT * FROM users WHERE email = ?").get(TEST_EMAIL);
+  const workspace = created.database
+    .prepare("SELECT * FROM workspaces WHERE user_id = ?")
+    .get(user.id);
+  assert.equal(connection.user_id, user.id);
+  assert.equal(connection.workspace_id, workspace.id);
+  assert.equal(connection.client_classification, "unknown_mcp_client");
+  assert.equal(connection.granted_scopes, "mcp:read mcp:write offline_access");
+  assert.equal(connection.revoked_at, null);
+
+  const accessRow = created.database.prepare("SELECT * FROM oauth_access_tokens").get();
+  const refreshRow = created.database.prepare("SELECT * FROM oauth_refresh_tokens").get();
+  assert.equal(
+    accessRow.token_hash,
+    createHash("sha256").update(tokens.access_token).digest("hex"),
+  );
+  assert.equal(
+    refreshRow.token_hash,
+    createHash("sha256").update(tokens.refresh_token).digest("hex"),
+  );
+  assert.notEqual(accessRow.token_hash, tokens.access_token);
+  assert.notEqual(refreshRow.token_hash, tokens.refresh_token);
+  assert.equal(accessRow.connection_id, connection.id);
+  assert.equal(refreshRow.connection_id, connection.id);
 
   const revokeResponse = await fetch(`${baseUrl}/revoke`, {
     method: "POST",
@@ -152,6 +181,15 @@ test("completes DCR, authorization-code PKCE, authenticated MCP, and revocation"
     }),
   });
   assert.equal(revokeResponse.status, 200);
+  const revoked = created.database
+    .prepare("SELECT revoked_at FROM integration_connections WHERE id = ?")
+    .get(connection.id);
+  assert.ok(revoked.revoked_at);
+  const revokeAudit = created.database
+    .prepare("SELECT safe_metadata_json FROM audit_events WHERE action = ?")
+    .get("integration_connection_revoked");
+  assert.equal(JSON.parse(revokeAudit.safe_metadata_json).connection_id, connection.id);
+  assert.doesNotMatch(revokeAudit.safe_metadata_json, /alice_(access|refresh)_/);
 
   const rejectedResponse = await fetch(`${baseUrl}/mcp`, {
     method: "POST",
@@ -162,4 +200,27 @@ test("completes DCR, authorization-code PKCE, authenticated MCP, and revocation"
     body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" }),
   });
   assert.equal(rejectedResponse.status, 401);
+});
+
+test("stores confidential client credentials only as hashes", async () => {
+  const response = await fetch(`${baseUrl}/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_name: "Confidential MCP client",
+      redirect_uris: ["https://client.alice.example/callback"],
+      token_endpoint_auth_method: "client_secret_post",
+    }),
+  });
+  assert.equal(response.status, 201);
+  const client = await response.json();
+  assert.match(client.client_secret, /^alice_secret_/);
+  const stored = created.database
+    .prepare("SELECT client_secret_hash FROM oauth_clients WHERE client_id = ?")
+    .get(client.client_id);
+  assert.equal(
+    stored.client_secret_hash,
+    createHash("sha256").update(client.client_secret).digest("hex"),
+  );
+  assert.notEqual(stored.client_secret_hash, client.client_secret);
 });

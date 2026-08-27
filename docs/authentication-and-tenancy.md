@@ -30,6 +30,8 @@ The OAuth authorization screen authenticates an existing alice. user and binds t
 
 OAuth dynamic client registration is not tenant membership. A registered host client gains access to no project until an alice. user authenticates and grants scopes through the authorization flow.
 
+Every grant creates a separate integration connection. Revoking either bearer token revokes the complete connection and all of its access and refresh tokens, and appends a safe audit event. Connection metadata records client classification and scopes but never host passwords, host session cookies, conversation history, plaintext OAuth credentials, or bearer values.
+
 ## Database lifecycle
 
 The Milestone 03 tenant schema is version 3 and is created only for an empty database. A Milestone 01/02 scratch database is preserved as historical spike evidence and fails closed with an explicit instruction to use a new `ALICE_DATABASE_PATH`; it is not silently rewritten or mixed with production-shaped tenant records.

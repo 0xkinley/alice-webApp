@@ -68,6 +68,8 @@ Both processes validate configuration at startup and fail before listening when 
 
 Local `.env` files and `.data/` are ignored, and the committed `.env.example` contains names and non-secret placeholders only. alice. passwords are salted and memory-hard hashed. ChatGPT and Claude passwords are never collected. Web session tokens and OAuth access and refresh tokens are hashed before persistence; plaintext bearer values are returned only at issuance and are not logged.
 
+OAuth client secrets and authorization codes are also hash-only at rest. Integration connection rows store ownership, client classification, scope grants, usage timestamps, and revocation state—not bearer values or provider credentials.
+
 ## Current persistence constraint
 
 Both deployables currently use the versioned SQLite adapter. They may share one database object in tests or one database file when colocated on the same trusted host and durable volume. Do not deploy them to isolated filesystems and assume state will synchronize. Do not horizontally scale this topology.
