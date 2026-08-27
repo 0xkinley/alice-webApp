@@ -5,6 +5,7 @@ const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const AUTHORIZATION_CODE_TTL_SECONDS = 5 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const SUPPORTED_SCOPES = new Set(["mcp:read", "mcp:write", "offline_access"]);
+const DEFAULT_CLIENT_SCOPES = [...SUPPORTED_SCOPES];
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -32,10 +33,19 @@ function oauthError(response, status, error, description) {
 }
 
 function parseScope(value) {
-  const scopes = String(value || "mcp:read mcp:write offline_access")
+  const scopes = String(value || DEFAULT_CLIENT_SCOPES.join(" "))
     .split(/\s+/)
     .filter(Boolean);
   return [...new Set(scopes.filter((scope) => SUPPORTED_SCOPES.has(scope)))];
+}
+
+function describeScopes(scopes) {
+  const labels = [];
+  if (scopes.includes("mcp:read")) labels.push("read");
+  if (scopes.includes("mcp:write")) labels.push("candidate-write");
+  if (scopes.includes("offline_access")) labels.push("persistent refresh");
+  if (labels.length === 1) return `${labels[0]} access`;
+  return `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)} access`;
 }
 
 function validateRedirectUri(value) {
@@ -159,6 +169,7 @@ export function createOAuth({ database, publicUrl, passphrase }) {
   function register(request, response) {
     const redirectUris = request.body.redirect_uris;
     const authMethod = request.body.token_endpoint_auth_method || "none";
+    const registeredScopes = parseScope(request.body.scope);
     if (
       !Array.isArray(redirectUris) ||
       redirectUris.length === 0 ||
@@ -196,6 +207,7 @@ export function createOAuth({ database, publicUrl, passphrase }) {
       token_endpoint_auth_method: authMethod,
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
+      scope: registeredScopes.join(" "),
     });
   }
 
@@ -218,6 +230,8 @@ export function createOAuth({ database, publicUrl, passphrase }) {
       return oauthError(response, 400, "invalid_target", "Unknown MCP resource.");
     }
 
+    const requestedScopes = parseScope(request.query.scope);
+
     const fields = [
       "client_id",
       "redirect_uri",
@@ -237,7 +251,7 @@ export function createOAuth({ database, publicUrl, passphrase }) {
     response.type("html").send(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Authorize alice.</title><style>body{font:16px system-ui;max-width:34rem;margin:4rem auto;padding:0 1rem}input,button{font:inherit;padding:.7rem;width:100%;box-sizing:border-box;margin:.4rem 0}small{color:#555}</style></head>
-<body><h1>Authorize alice.</h1><p><strong>${escapeHtml(client.client_name)}</strong> is requesting read and candidate-write access to the Milestone 01 spike workspace.</p>
+<body><h1>Authorize alice.</h1><p><strong>${escapeHtml(client.client_name)}</strong> is requesting ${escapeHtml(describeScopes(requestedScopes))} to the Milestone 01 spike workspace.</p>
 <p><small>Writes create pending candidates only. They cannot change trusted state.</small></p>
 <form method="post" action="/authorize">${fields}<label>Spike passphrase<input type="password" name="passphrase" required autocomplete="current-password"></label><button type="submit">Authorize</button></form></body></html>`);
   }

@@ -60,9 +60,26 @@ test("completes DCR, authorization-code PKCE, authenticated MCP, and revocation"
   });
   assert.equal(registrationResponse.status, 201);
   const client = await registrationResponse.json();
+  assert.equal(client.scope, "mcp:read mcp:write offline_access");
 
   const verifier = "a".repeat(64);
   const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const readOnlyConsentUrl = new URL(`${baseUrl}/authorize`);
+  readOnlyConsentUrl.search = new URLSearchParams({
+    client_id: client.client_id,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    scope: "mcp:read offline_access",
+    resource: "http://127.0.0.1/mcp",
+  });
+  const readOnlyConsentResponse = await fetch(readOnlyConsentUrl);
+  assert.equal(readOnlyConsentResponse.status, 200);
+  const readOnlyConsent = await readOnlyConsentResponse.text();
+  assert.match(readOnlyConsent, /read and persistent refresh access/);
+  assert.doesNotMatch(readOnlyConsent, /candidate-write/);
+
   const authorizationBody = new URLSearchParams({
     client_id: client.client_id,
     redirect_uri: redirectUri,
