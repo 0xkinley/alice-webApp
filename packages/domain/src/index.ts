@@ -7,3 +7,4 @@ export {
   userForSession,
 } from "./authentication.ts";
 export { getProjectContext, listProjects } from "./project-context.ts";
+export { createProject, getProject } from "./projects.ts";

@@ -71,7 +71,7 @@ Projects
   └── Audit History
 ```
 
-The web app is the human control plane for project creation, review, accepted state, and connection management. The remote MCP server is the authenticated consumption and capture interface used by AI hosts.
+The web app is the human control plane for registration, sign-in, private project creation and revisit, review, accepted state, and connection management. The remote MCP server is the authenticated consumption and capture interface used by AI hosts. Project creation never accepts a workspace identifier; the tenant comes from the authenticated web session.
 
 Provider adapters translate host capabilities into the same consumption and capture contracts. They do not own project semantics or alter the trust boundary. Native MCP is preferred because it removes recurring manual transfer while preserving explicit tool use. A bounded, user-controlled copy/paste handoff is the supported fallback. A browser companion is deferred and may be tested only under the constraints in `docs/provider-adapters.md` if native availability or measured friction justifies it.
 

@@ -22,6 +22,8 @@ Registration creates the user and exactly one private workspace in one immediate
 
 Every authenticated request resolves the workspace from the server-side user/session or OAuth subject. Caller-supplied workspace identifiers are never authorization evidence. Teams, organizations, membership tables, invitations, roles, and sharing remain deliberately absent.
 
+Project creation accepts only a bounded name and brief. The server generates the project identifier and resolves the destination workspace from the authenticated user. Project listing and detail reads include the resolved workspace in the query, so a valid but foreign or guessed project identifier returns the same not-found response as an unknown identifier. Project names are unique only within a workspace; separate users may use the same name.
+
 ## MCP identity binding
 
 The OAuth authorization screen authenticates an existing alice. user and binds the authorization code, integration connection, access token, and refresh token to that internal user. Access and refresh bearer values remain one-time response secrets; only SHA-256 token digests are stored. An authenticated MCP request derives its user and connection from the verified token row, not from tool arguments.

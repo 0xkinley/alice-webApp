@@ -1,0 +1,94 @@
+import assert from "node:assert/strict";
+import { after, before, test } from "node:test";
+import { createApp } from "../apps/web/src/app.ts";
+
+let baseUrl;
+let created;
+let ownerCookie;
+let ownerProjectId;
+let server;
+
+const owner = {
+  email: "project-owner@alice.example",
+  password: "project owner private password",
+};
+
+async function register(identity) {
+  const response = await fetch(`${baseUrl}/auth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(identity),
+    redirect: "manual",
+  });
+  assert.equal(response.status, 303);
+  return response.headers.get("set-cookie").split(";")[0];
+}
+
+before(async () => {
+  created = createApp({ databaseFilename: ":memory:", publicUrl: "http://127.0.0.1" });
+  server = created.app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  baseUrl = `http://127.0.0.1:${server.address().port}`;
+  ownerCookie = await register(owner);
+});
+
+after(async () => {
+  await new Promise((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+});
+
+test("creates and revisits a project in the authenticated private workspace", async () => {
+  const createResponse = await fetch(`${baseUrl}/projects`, {
+    method: "POST",
+    headers: {
+      cookie: ownerCookie,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ name: "Launch Plan", brief: "Plan the private alpha." }),
+    redirect: "manual",
+  });
+  assert.equal(createResponse.status, 303);
+  const location = createResponse.headers.get("location");
+  assert.match(location, /^\/projects\/project_/);
+  ownerProjectId = decodeURIComponent(location.split("/").at(-1));
+
+  const detail = await fetch(`${baseUrl}${location}`, { headers: { cookie: ownerCookie } });
+  assert.equal(detail.status, 200);
+  assert.match(await detail.text(), /Plan the private alpha\./);
+
+  const login = await fetch(`${baseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ ...owner, next: "/" }),
+    redirect: "manual",
+  });
+  const revisitingCookie = login.headers.get("set-cookie").split(";")[0];
+  const workspace = await fetch(baseUrl, { headers: { cookie: revisitingCookie } });
+  assert.equal(workspace.status, 200);
+  assert.match(await workspace.text(), new RegExp(ownerProjectId));
+});
+
+test("does not reveal a guessed project identifier to another user", async () => {
+  const otherCookie = await register({
+    email: "other-project-owner@alice.example",
+    password: "other project owner private password",
+  });
+  const guessed = await fetch(`${baseUrl}/projects/${encodeURIComponent(ownerProjectId)}`, {
+    headers: { cookie: otherCookie },
+  });
+  assert.equal(guessed.status, 404);
+  assert.doesNotMatch(await guessed.text(), /Launch Plan|private alpha/);
+
+  const createSameName = await fetch(`${baseUrl}/projects`, {
+    method: "POST",
+    headers: {
+      cookie: otherCookie,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ name: "Launch Plan", brief: "Another private project." }),
+    redirect: "manual",
+  });
+  assert.equal(createSameName.status, 303);
+  assert.equal(created.database.prepare("SELECT COUNT(*) AS count FROM projects").get().count, 2);
+});

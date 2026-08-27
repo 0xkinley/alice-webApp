@@ -20,6 +20,8 @@ Projects belong to a private workspace. Every tenant-owned record carries the wo
 
 Composite workspace/project foreign keys prevent a record from naming a project in another workspace.
 
+Project identifiers are random server-generated UUID-based values. Names are unique within a workspace but not globally. The application exposes create, list, and detail paths scoped to the workspace derived from the authenticated user; project deletion is intentionally absent while immutable history and retention rules are being established.
+
 ## Project intelligence
 
 ### Evidence events
