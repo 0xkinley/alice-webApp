@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
-import { createApp } from "../src/app.js";
+import { createApp } from "../apps/mcp/src/app.ts";
 
 let baseUrl;
 let server;

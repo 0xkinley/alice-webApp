@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+// Shared round-trip helpers exercise the workspace source entry points.
+
 export async function authorize(baseUrl) {
   const redirectUri = "http://127.0.0.1/callback";
   const registrationResponse = await fetch(`${baseUrl}/register`, {

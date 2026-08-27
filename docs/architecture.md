@@ -77,6 +77,24 @@ Provider adapters translate host capabilities into the same consumption and capt
 
 For the Milestone 01 spike, the minimum control plane is a passphrase-authenticated review page with an explicit accept button per candidate. Acceptance is transactional: it versions accepted state, links the accepted row to its candidate and evidence, marks the candidate accepted, and appends a human-review audit event. The MCP tool list intentionally contains no accept, reject, or trusted-state mutation action.
 
+## Repository and deployable boundaries
+
+Milestone 02 establishes an npm workspace with two deployables and three shared packages:
+
+```text
+apps/
+  web/       human review control plane
+  mcp/       OAuth and remote MCP transport
+packages/
+  schemas/   validated cross-boundary payloads
+  domain/    capture and context rules
+  database/  persistence access and schema bootstrap
+```
+
+The web and MCP processes are server-only applications. The MCP deployable can append immutable evidence and pending candidates through the domain package, but it imports no review route and exposes no trusted-state mutation tool. The web deployable owns the explicit human review route. Both currently use the Milestone 01 SQLite persistence adapter; a shared production database and tenant-shaped authentication remain Milestone 03 work.
+
+This split changes endpoint topology, not trust behavior. `ALICE_WEB_URL` supplies the review origin returned by MCP capture results, while `ALICE_PUBLIC_URL` remains the OAuth issuer and MCP resource origin.
+
 ## Round-trip success test
 
 The first spike must prove:

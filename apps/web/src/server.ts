@@ -1,10 +1,10 @@
-import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { createApp } from "./app.js";
+import { resolve } from "node:path";
+import { createApp } from "./app.ts";
 
-const port = Number(process.env.PORT || 8787);
+const port = Number(process.env.PORT || 8788);
 const host = process.env.HOST || "127.0.0.1";
-const publicUrl = process.env.ALICE_PUBLIC_URL || `http://127.0.0.1:${port}`;
+const publicUrl = process.env.ALICE_WEB_URL || `http://127.0.0.1:${port}`;
 const passphrase = process.env.ALICE_AUTH_PASSPHRASE_FILE
   ? readFileSync(resolve(process.env.ALICE_AUTH_PASSPHRASE_FILE), "utf8").trim()
   : process.env.ALICE_AUTH_PASSPHRASE;
@@ -16,6 +16,5 @@ if (!passphrase || passphrase.length < 12) {
 
 const { app } = createApp({ databaseFilename, passphrase, publicUrl });
 app.listen(port, host, () => {
-  console.log(`alice. MCP spike listening on ${host}:${port}`);
-  console.log(`Public MCP URL: ${new URL("/mcp", publicUrl).href}`);
+  console.log(`alice. web listening on ${host}:${port}`);
 });

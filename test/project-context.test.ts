@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { createApp } from "../src/app.js";
-import { authorize, callMcp } from "./helpers.js";
+import { createApp } from "../apps/mcp/src/app.ts";
+import { authorize, callMcp } from "./helpers.ts";
 
 let accessToken;
 let baseUrl;

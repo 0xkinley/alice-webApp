@@ -1,22 +1,22 @@
 {
-  "name": "alice-mcp-compatibility-spike",
+  "name": "alice",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Milestone 01 remote MCP compatibility spike for alice.",
+  "description": "Independent project intelligence for the AI tools users already use.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "start": "node src/server.js",
-    "test": "node --test test/*.test.js",
-    "check": "node --check src/server.js && node --test test/*.test.js"
+    "start": "npm run start:mcp",
+    "start:mcp": "node apps/mcp/src/server.ts",
+    "start:web": "node apps/web/src/server.ts",
+    "test": "node --test test/*.test.ts",
+    "check": "npm test"
   },
   "engines": {
     "node": ">=24"
   },
-  "dependencies": {
-    "@modelcontextprotocol/express": "2.0.0",
-    "@modelcontextprotocol/node": "2.0.0",
-    "@modelcontextprotocol/server": "2.0.0",
-    "express": "5.1.0",
-    "zod": "4.4.3"
-  }
+  "dependencies": {}
 }

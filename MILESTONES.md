@@ -87,7 +87,7 @@ Turn the successful spike into a small, maintainable TypeScript repository with 
 
 Tasks:
 
-- [ ] Establish the workspace layout for web, MCP, shared schemas, domain logic, and database access.
+- [x] Establish the workspace layout for web, MCP, shared schemas, domain logic, and database access.
 - [ ] Add formatting, linting, typechecking, unit tests, and production builds.
 - [ ] Add environment validation and secret-leak checks.
 - [ ] Add CI that runs all required checks from a clean checkout.
@@ -102,6 +102,7 @@ Success criteria:
 Notes:
 
 - Avoid orchestration or infrastructure that two small deployables do not yet require.
+- The npm workspace now separates `apps/web`, `apps/mcp`, `packages/schemas`, `packages/domain`, and `packages/database`. The Milestone 01 review authority remains server-side in the web deployable; MCP capture remains candidate-only.
 
 ## Milestone 03 — Authentication and Data Foundation
 

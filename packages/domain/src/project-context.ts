@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+// Trusted context is assembled only from human-accepted state.
+
 function workspaceIdForUser(userId) {
   return `workspace_${userId}`;
 }

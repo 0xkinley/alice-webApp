@@ -2,6 +2,8 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+// Milestone 02 keeps the spike schema behind a dedicated database package.
+
 export function openDatabase(filename) {
   if (filename !== ":memory:") {
     mkdirSync(dirname(filename), { recursive: true });

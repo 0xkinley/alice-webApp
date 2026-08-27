@@ -1,0 +1,15 @@
+{
+  "name": "@alice/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@alice/database": "0.1.0",
+    "@alice/domain": "0.1.0",
+    "@alice/schemas": "0.1.0",
+    "@modelcontextprotocol/express": "2.0.0",
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "express": "5.1.0"
+  }
+}

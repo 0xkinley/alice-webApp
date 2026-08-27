@@ -1,0 +1,10 @@
+{
+  "name": "@alice/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@alice/database": "0.1.0",
+    "express": "5.1.0"
+  }
+}

@@ -10,12 +10,10 @@ import {
   McpServer,
   verifyBearerToken,
 } from "@modelcontextprotocol/server";
-import { z } from "zod";
-import { saveCandidateUpdate } from "./candidate-updates.js";
-import { openDatabase } from "./database.js";
-import { createOAuth } from "./oauth.js";
-import { getProjectContext, listProjects } from "./project-context.js";
-import { createReviewRouter } from "./review.js";
+import { openDatabase } from "@alice/database";
+import { getProjectContext, listProjects, saveCandidateUpdate } from "@alice/domain";
+import { getProjectContextSchema, saveProjectUpdateSchema } from "@alice/schemas";
+import { createOAuth } from "./oauth.ts";
 
 function authenticatedUserId(context) {
   return context.http?.authInfo?.extra?.userId;
@@ -54,7 +52,7 @@ function createProtocolServer(database, publicUrl) {
     {
       title: "List alice. projects",
       description: "List projects in the authenticated user's private alice. workspace.",
-      inputSchema: z.object({}),
+      inputSchema: {},
       ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
@@ -74,11 +72,7 @@ function createProtocolServer(database, publicUrl) {
       title: "Get trusted alice. project context",
       description:
         "Retrieve bounded project context from human-accepted alice. state. Pending candidate claims are excluded. Use this before continuing work on a saved project.",
-      inputSchema: z.object({
-        project_id: z.string().min(1).max(200).describe("Project identifier returned by list_projects"),
-        task: z.string().min(1).max(2_000).describe("The current task, used to describe the context package"),
-        context_budget: z.number().int().min(256).max(8_000).optional().default(2_000),
-      }),
+      inputSchema: getProjectContextSchema,
       ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
@@ -108,26 +102,7 @@ function createProtocolServer(database, publicUrl) {
       title: "Save a candidate project update to alice.",
       description:
         "Use only after the user explicitly asks to save or record an update in alice. Stores immutable submitted evidence and pending candidate claims for human review. Never changes trusted project state.",
-      inputSchema: z.object({
-        project_id: z.string().min(1).max(200).describe("Project identifier returned by list_projects"),
-        summary: z.string().min(1).max(1_000),
-        candidate_claims: z
-          .array(
-            z.object({
-              state_key: z
-                .string()
-                .min(1)
-                .max(200)
-                .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/),
-              value: z.json(),
-              summary: z.string().min(1).max(500),
-            }),
-          )
-          .min(1)
-          .max(20),
-        source_note: z.string().max(4_000).optional(),
-        idempotency_key: z.string().min(8).max(200),
-      }),
+      inputSchema: saveProjectUpdateSchema,
       ...oauthToolSecurity("mcp:write"),
       annotations: {
         readOnlyHint: false,
@@ -168,8 +143,14 @@ function createProtocolServer(database, publicUrl) {
   return server;
 }
 
-export function createApp({ databaseFilename, passphrase, publicUrl }) {
-  const database = openDatabase(databaseFilename);
+export function createApp({
+  database: suppliedDatabase,
+  databaseFilename,
+  passphrase,
+  publicUrl,
+  reviewUrl = publicUrl,
+}) {
+  const database = suppliedDatabase || openDatabase(databaseFilename);
   const oauth = createOAuth({ database, passphrase, publicUrl });
   const publicHostname = new URL(publicUrl).hostname;
   const app = createMcpExpressApp({
@@ -196,7 +177,6 @@ export function createApp({ databaseFilename, passphrase, publicUrl }) {
   app.post("/authorize", (request, response) => oauth.authorize(request, response));
   app.post("/token", (request, response) => oauth.token(request, response));
   app.post("/revoke", (request, response) => oauth.revoke(request, response));
-  app.use("/review", createReviewRouter({ database, passphrase, publicUrl }));
 
   const authenticate = requireMcpBearerAuth({
     verifier: oauth.verifier,
@@ -205,7 +185,7 @@ export function createApp({ databaseFilename, passphrase, publicUrl }) {
   });
 
   app.all("/mcp", authenticate, async (request, response) => {
-    const protocolServer = createProtocolServer(database, publicUrl);
+    const protocolServer = createProtocolServer(database, reviewUrl);
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.on("close", () => {
       void transport.close();

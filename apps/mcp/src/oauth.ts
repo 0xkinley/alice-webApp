@@ -7,6 +7,8 @@ const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const SUPPORTED_SCOPES = new Set(["mcp:read", "mcp:write", "offline_access"]);
 const DEFAULT_CLIENT_SCOPES = [...SUPPORTED_SCOPES];
 
+// OAuth remains an MCP-server responsibility and is never exposed to browser code.
+
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }

@@ -3,6 +3,8 @@ import express from "express";
 
 const REVIEW_SESSION_TTL_SECONDS = 60 * 60;
 
+// Trusted-state acceptance stays behind the human web control plane.
+
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }

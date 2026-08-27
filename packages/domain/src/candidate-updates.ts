@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
+// Host submissions remain candidate-only domain operations.
+
 function workspaceIdForUser(userId) {
   return `workspace_${userId}`;
 }
