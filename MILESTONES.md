@@ -91,7 +91,7 @@ Tasks:
 - [x] Add formatting, linting, typechecking, unit tests, and production builds.
 - [x] Add environment validation and secret-leak checks.
 - [x] Add CI that runs all required checks from a clean checkout.
-- [ ] Document local setup and deployment boundaries.
+- [x] Document local setup and deployment boundaries.
 
 Success criteria:
 
@@ -106,6 +106,7 @@ Notes:
 - The root scripts are the single verification interface: Prettier formatting, ESLint, TypeScript project-reference typechecking, the 15-test Milestone 01 regression suite plus configuration-policy tests, and production compilation for both deployables.
 - Server configuration now fails closed on missing or ambiguous secrets, weak passphrases, invalid ports, and non-HTTPS public origins. Repository checks reject tracked environment files, high-confidence credential patterns, and secret-like browser-public environment names.
 - GitHub Actions runs on Node.js 24 with read-only repository permissions, installs only from `package-lock.json`, and executes formatting, linting, typechecking, secret scanning, tests, and both production builds as separate gates.
+- Local setup, server-only configuration ownership, two-process startup, build artifacts, and the transitional same-host SQLite constraint are documented in `docs/repository-and-deployment.md`.
 
 ## Milestone 03 — Authentication and Data Foundation
 
