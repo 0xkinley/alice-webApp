@@ -155,7 +155,7 @@ Notes:
 
 ## Milestone 04 — Capture Loop
 
-Status: Not Started
+Status: In Progress
 
 Branch: `milestone-04-capture-loop`
 
@@ -165,7 +165,7 @@ Productionize explicit capture from supported AI hosts into immutable evidence, 
 
 Tasks:
 
-- [ ] Finalize the `save_project_update` contract and validation limits.
+- [x] Finalize the `save_project_update` contract and validation limits.
 - [ ] Make evidence, candidates, provenance, and audit creation transactional and idempotent.
 - [ ] Build the candidate review queue.
 - [ ] Implement accept and reject actions.
@@ -182,6 +182,8 @@ Success criteria:
 Notes:
 
 - Host-generated does not mean alice.-verified.
+- Started on 2026-08-28 after verifying Milestone 03 complete. Merge `e27e546` is present on synchronized local and remote `main`, the starting tree was clean, and GitHub Actions run `33120961142` passed the Milestone 03 merge verification. The complete local `npm run check` contract also passed with 33 tests and both deployable builds before this branch was created.
+- `save_project_update` now exposes a strict, explicit-save-only contract: 1-20 unique state keys, bounded summaries and deliberately supplied source material, safe 8-128 character retry keys, 8 KiB/depth-8/256-node candidate values, and a 32 KiB validated payload ceiling. Unknown fields and attempts to imply acceptance, rejection, or supersession are outside the tool contract; the exact normalized validated payload remains the immutable evidence body.
 
 ## Milestone 05 — Consumption Loop
 

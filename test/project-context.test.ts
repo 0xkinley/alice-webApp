@@ -134,6 +134,28 @@ test("advertises least-privilege OAuth scopes in ChatGPT-compatible tool metadat
   assert.deepEqual(toolsByName.save_project_update._meta.securitySchemes, [
     { type: "oauth2", scopes: ["mcp:write"] },
   ]);
+  assert.match(toolsByName.save_project_update.description, /explicitly asks to save or record/);
+  assert.match(
+    toolsByName.save_project_update.description,
+    /Do not call for ordinary project work/,
+  );
+  assert.match(
+    toolsByName.save_project_update.description,
+    /Never accepts, rejects, supersedes, or otherwise changes trusted project state/,
+  );
+  assert.equal(toolsByName.save_project_update.inputSchema.additionalProperties, false);
+  assert.equal(
+    toolsByName.save_project_update.inputSchema.properties.candidate_claims.maxItems,
+    20,
+  );
+  assert.equal(
+    toolsByName.save_project_update.inputSchema.properties.source_context.maxLength,
+    12_000,
+  );
+  assert.equal(
+    toolsByName.save_project_update.inputSchema.properties.idempotency_key.maxLength,
+    128,
+  );
 });
 
 test("returns accepted context with provenance and excludes pending candidates", async () => {
