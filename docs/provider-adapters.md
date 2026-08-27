@@ -41,6 +41,7 @@ Verified on 2026-08-27 with a personal Claude Pro account and a custom remote MC
 - A reconnect probe showed that Claude derives its authorization request from the MCP resource's `WWW-Authenticate` scope challenge rather than expanding to the DCR response default. The spike therefore advertises the bounded `mcp:read mcp:write` union in the unauthenticated resource challenge.
 - Transport authentication accepts any valid alice. access token. Least privilege remains enforced per tool: read actions require an authenticated connection and `save_project_update` separately requires `mcp:write`, so a read-only token can retrieve context but still fails closed on capture.
 - During the spike, Claude continued using the old challenge scope after the connector was disconnected and recreated at the same server URL. A fresh temporary hostname forced clean discovery. Treat connector discovery caching and recovery behavior as an observed host limitation that needs a stable production reauthorization test.
+- Claude requested confirmation for its initial read and write actions. After one `Allow once` write confirmation, a write in a later fresh conversation completed without another actionable confirmation remaining in the observed page state. alice. therefore cannot treat host confirmation UX as the trust boundary; candidate-only writes and independent human review remain mandatory.
 
 The failed read-only write attempt created no evidence or candidate and is retained as a fail-closed compatibility result.
 

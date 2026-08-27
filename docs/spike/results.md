@@ -74,6 +74,17 @@ Recorded at 2026-08-27 Asia/Dubai:
 
 Run 2 proves authenticated Claude read and write compatibility and preserves fail-closed trusted state, but it fails the D rubric. A further attempt must be a fresh recorded run.
 
+### Claude continuation run 3
+
+Recorded at 2026-08-27 Asia/Dubai:
+
+- A third new conversation used the unchanged fixture prompt with no hint about the hidden canonical value. Claude again retrieved and correctly used A-C.
+- Claude again chose a seven-day activation window, this time requiring both authenticated connections and cross-assistant retrieval of an accepted state key. This is still not semantically equivalent to the precommitted 10-minute criterion.
+- Claude saved pending candidate `candidate_72928e14-0300-44c4-887b-5368f0e0d969` from immutable evidence `evidence_10308f3e-6afd-426f-b4dc-ba1a013a240d`. Database verification found zero accepted D rows.
+- After Run 2's `Allow once`, Run 3's write completed without a new actionable confirmation remaining in the controlled page state. The conversation prompt itself explicitly requested the save, and trusted state still required independent alice. review.
+
+Run 3 fails D correctness. Both non-equivalent D candidates remain pending and must not be approved.
+
 ## ChatGPT Plus eligibility investigation
 
 Recorded at 2026-08-26 Asia/Dubai:
