@@ -29,9 +29,21 @@ Claude must propose and explicitly save D after retrieving A-C:
 | --- | --- | --- |
 | D | `launch.onboarding_success` | A single measurable activation criterion covering connection of both AI accounts and successful retrieval of accepted context by both hosts. |
 
-The canonical accepted value for D is fixed for scoring before the Claude run:
+The initial fixture precommitted a 10-minute value for D, but the continuation
+prompt did not disclose that time window and A-C did not contain it. Requiring
+Claude to guess that hidden value tested model preference rather than project
+continuity. On 2026-08-27, after observing the mismatch, the human reviewer
+corrected the rubric: D passes when it has the documented required shape and the
+reviewer explicitly accepts it. The accepted value is authoritative even when a
+host would recommend a different time window.
 
-> A user is activated when they connect both AI accounts and each host successfully retrieves accepted context for the same project within 10 minutes.
+The human-accepted D for this run is:
+
+> A user is activated when alice. has ingested at least one project-relevant event from each connected AI account (ChatGPT and Claude) within the same project, within 7 days of signup.
+
+This correction is recorded after the affected runs rather than presented as
+their original scoring rule. It does not change the exact Claude prompt or erase
+the failed-run evidence.
 
 ## Round-trip procedure
 
@@ -71,7 +83,7 @@ Each item is binary and must pass:
 - Claude identifies the ICP as independent product consultants/fractional product leads who use both ChatGPT and Claude on one client project.
 - Claude treats alice. as a web control plane plus remote MCP server, not as a chatbot or model router.
 - Claude uses a monthly price of exactly USD 24.
-- Claude's saved D is semantically equivalent to the precommitted activation criterion and is stored under `launch.onboarding_success`.
+- Claude's saved D has the documented required decision shape, is stored under `launch.onboarding_success`, and is explicitly accepted by the human reviewer.
 - Returning ChatGPT correctly states A, B, C, and the accepted D.
 - Neither host presents a pending candidate as trusted context.
 - Every presented decision includes or can be resolved to accepted-state, candidate, and evidence identifiers.

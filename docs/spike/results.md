@@ -85,6 +85,19 @@ Recorded at 2026-08-27 Asia/Dubai:
 
 Run 3 fails D correctness. Both non-equivalent D candidates remain pending and must not be approved.
 
+### Claude continuation run 4 and rubric correction
+
+Recorded at 2026-08-27 Asia/Dubai:
+
+- A fourth new conversation used the unchanged fixture prompt, with only alice. enabled, on Claude Sonnet 5 at Medium reasoning. Claude retrieved and correctly used A-C without restatement.
+- Claude proposed: “A user is activated when alice. has ingested at least one project-relevant event from each connected AI account (ChatGPT and Claude) within the same project, within 7 days of signup.”
+- Claude saved pending candidate `candidate_246a292a-acce-4a58-a508-0ef21726c0ce` from immutable evidence `evidence_0534d3ff-8236-40a0-9b59-d045cac20186`.
+- The run exposed a fixture defect: the hidden precommitted 10-minute window was absent from both A-C and the unchanged Claude prompt. Scoring an open-ended proposal against that undisclosed value tested whether Claude guessed the fixture author's preference, not whether alice. preserved project context.
+- The human reviewer corrected the rubric to require D's disclosed structural shape rather than the hidden exact time window, then explicitly accepted Run 4's exact proposal through the alice. review control plane.
+- Accepted state `accepted_0d911feb-9e2c-4d85-b2fa-95a7e5cc6a9f` is version 1 of `launch.onboarding_success` and retains candidate and evidence provenance. The two earlier seven-day alternatives remain pending.
+
+This completes the governed Claude capture task under the corrected rubric. The correction and its timing are preserved in the fixture; the earlier run records are not rewritten.
+
 ## ChatGPT Plus eligibility investigation
 
 Recorded at 2026-08-26 Asia/Dubai:

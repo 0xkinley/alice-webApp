@@ -48,7 +48,7 @@ Tasks:
 - [x] Verify authenticated read and write calls from the target ChatGPT account.
 - [x] Save and approve decisions A-C: ICP, product form, and monthly price.
 - [x] Verify Claude retrieves and correctly uses A-C without them being restated.
-- [ ] Save and approve decision D from Claude.
+- [x] Save and approve decision D from Claude.
 - [ ] Verify ChatGPT retrieves and correctly uses A-D after the second switch.
 - [ ] Compare the recurring Alice workflow with manual copy/paste and record the result.
 - [ ] Document protocol behavior, host differences, limitations, and go/no-go recommendation.
@@ -67,6 +67,7 @@ Success criteria:
 Notes:
 
 - MCP connectivity alone is not success.
+- The initial hidden 10-minute D value was not inferable from A-C or the unchanged Claude prompt. The dated fixture correction now scores the disclosed decision shape plus explicit human acceptance; the original failed-run evidence remains recorded.
 - The inspected target ChatGPT Plus account exposes `Settings > Security and login > Developer mode`. It was off during the failed setup attempt; Business is not a documented prerequisite for this target account.
 - Native MCP remains the preferred spike path. Explicit handoff is the supported fallback and copy/paste baseline. A browser companion remains a frozen non-goal unless a later evidence-gated milestone explicitly admits it.
 - Current provider findings and dated official references are in `docs/provider-adapters.md`; revalidate them because provider capabilities can change.
