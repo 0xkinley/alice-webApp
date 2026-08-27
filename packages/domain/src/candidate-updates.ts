@@ -1,11 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appendAuditEvent } from "./audit.ts";
+import { tenantScopeForConnection } from "./authorization.ts";
 
 // Host submissions remain candidate-only domain operations.
-
-function workspaceIdForUser(database, userId) {
-  return database.prepare("SELECT id FROM workspaces WHERE user_id = ?").get(userId)?.id;
-}
 
 function clientClassification(database, clientId) {
   const row = database
@@ -19,6 +16,7 @@ function clientClassification(database, clientId) {
 
 function existingSubmission(
   database,
+  workspaceId,
   connectionId,
   projectId,
   idempotencyKey,
@@ -28,16 +26,20 @@ function existingSubmission(
   const evidence = database
     .prepare(
       `SELECT id, payload_hash FROM evidence_events
-       WHERE connection_id = ? AND project_id = ? AND idempotency_key = ?`,
+       WHERE workspace_id = ? AND connection_id = ? AND project_id = ? AND idempotency_key = ?`,
     )
-    .get(connectionId, projectId, idempotencyKey);
+    .get(workspaceId, connectionId, projectId, idempotencyKey);
   if (!evidence) return undefined;
   if (evidence.payload_hash !== payloadHash) {
     return { error: "The idempotency key was already used with a different payload." };
   }
   const candidates = database
-    .prepare("SELECT id FROM candidate_claims WHERE evidence_id = ? ORDER BY created_at, id")
-    .all(evidence.id);
+    .prepare(
+      `SELECT id FROM candidate_claims
+       WHERE workspace_id = ? AND project_id = ? AND evidence_id = ?
+       ORDER BY created_at, id`,
+    )
+    .all(workspaceId, projectId, evidence.id);
   return {
     evidence_id: evidence.id,
     candidate_ids: candidates.map((candidate) => candidate.id),
@@ -52,11 +54,13 @@ export function saveCandidateUpdate(
   database,
   { clientId, connectionId, publicUrl, userId, payload },
 ) {
-  const workspaceId = workspaceIdForUser(database, userId);
-  if (!workspaceId || !connectionId) return { error: "Authenticated tenant context is missing." };
+  const tenant = tenantScopeForConnection(database, { userId, connectionId });
+  if (!tenant || tenant.clientId !== clientId) {
+    return { error: "Authenticated tenant context is missing." };
+  }
   const project = database
     .prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ?")
-    .get(payload.project_id, workspaceId);
+    .get(payload.project_id, tenant.workspaceId);
   if (!project) return { error: "Project not found in the authenticated workspace." };
 
   const reviewUrl = new URL(`/review?project_id=${encodeURIComponent(project.id)}`, publicUrl).href;
@@ -64,6 +68,7 @@ export function saveCandidateUpdate(
   const payloadHash = createHash("sha256").update(exactPayloadJson).digest("hex");
   const duplicate = existingSubmission(
     database,
+    tenant.workspaceId,
     connectionId,
     project.id,
     payload.idempotency_key,
@@ -88,7 +93,7 @@ export function saveCandidateUpdate(
       )
       .run(
         evidenceId,
-        workspaceId,
+        tenant.workspaceId,
         project.id,
         exactPayloadJson,
         "mcp_host",
@@ -109,7 +114,7 @@ export function saveCandidateUpdate(
     payload.candidate_claims.forEach((claim, index) => {
       insertCandidate.run(
         candidateIds[index],
-        workspaceId,
+        tenant.workspaceId,
         project.id,
         evidenceId,
         claim.state_key,
@@ -120,7 +125,7 @@ export function saveCandidateUpdate(
     });
 
     appendAuditEvent(database, {
-      workspaceId,
+      workspaceId: tenant.workspaceId,
       projectId: project.id,
       action: "candidate_update_submitted",
       actorType: "mcp_host",
@@ -133,6 +138,7 @@ export function saveCandidateUpdate(
     database.exec("ROLLBACK");
     const racedDuplicate = existingSubmission(
       database,
+      tenant.workspaceId,
       connectionId,
       project.id,
       payload.idempotency_key,

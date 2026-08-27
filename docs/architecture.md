@@ -83,6 +83,8 @@ Security- and state-relevant operations append audit events in the same transact
 
 Human acceptance is a domain operation imported only by the web review control plane. It adds a new immutable version for a state key and never overwrites the prior accepted row. Candidate/evidence provenance is enforced as an exact composite database reference. The MCP deployable still has no trusted-state tool or acceptance import.
 
+Tenant authorization is centralized in the domain package. Web project operations require a server-derived user/workspace scope. MCP capture requires an active user/workspace/client connection scope derived from the verified bearer token. Every policy fails closed before project lookup, and workspace-aware database constraints provide defense in depth.
+
 ## Repository and deployable boundaries
 
 Milestone 02 establishes an npm workspace with two deployables and three shared packages:

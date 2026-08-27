@@ -24,6 +24,14 @@ Every authenticated request resolves the workspace from the server-side user/ses
 
 Project creation accepts only a bounded name and brief. The server generates the project identifier and resolves the destination workspace from the authenticated user. Project listing and detail reads include the resolved workspace in the query, so a valid but foreign or guessed project identifier returns the same not-found response as an unknown identifier. Project names are unique only within a workspace; separate users may use the same name.
 
+## Deny-by-default authorization policy
+
+All project domain operations begin by resolving an immutable tenant scope from a server-authenticated internal user identifier. A missing, unknown, or malformed identity resolves to no scope. Reads then return no row (or an empty collection), and writes return no result without changing the database.
+
+MCP writes require the stronger connection scope: the connection must be active and its user, workspace, and registered client must all match the verified bearer-token subject. A valid user identifier paired with another user's, another client's, or a revoked connection is denied before project lookup or transaction start.
+
+The web review queue, project detail, project list, project creation, accepted-context read, candidate capture, and human acceptance all use these shared policies. Database composite foreign keys are the second layer: tenant-owned evidence, candidates, accepted state, audit rows, and connections cannot reference an object in another workspace even if application code is faulty.
+
 ## MCP identity binding
 
 The OAuth authorization screen authenticates an existing alice. user and binds the authorization code, integration connection, access token, and refresh token to that internal user. Access and refresh bearer values remain one-time response secrets; only SHA-256 token digests are stored. An authenticated MCP request derives its user and connection from the verified token row, not from tool arguments.

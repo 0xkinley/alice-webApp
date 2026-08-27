@@ -33,6 +33,8 @@ Minimum controls:
 - caller-scoped database access
 - explicit negative tests for every data path
 
+Milestone 03 centralizes these controls in deny-by-default user and MCP-connection scopes. The connection policy requires a simultaneous match on internal user, private workspace, active connection, and registered client. Web and MCP project paths use the shared scopes, and composite foreign keys reject cross-workspace ownership at the database layer. Missing, guessed, mismatched, and revoked principals are policy-tested to produce no data and no write.
+
 ### Confused-deputy writes
 
 An AI host or prompt injection invokes a write tool without the user's real intent.

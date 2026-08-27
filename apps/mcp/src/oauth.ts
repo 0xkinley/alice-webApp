@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { appendAuditEvent, authenticateUser } from "@alice/domain";
+import { appendAuditEvent, authenticateUser, tenantScopeForConnection } from "@alice/domain";
 import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/server";
 
 const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
@@ -176,13 +176,11 @@ export function createOAuth({ database, publicUrl }) {
           "The access token is for another resource.",
         );
       }
-      const connection = database
-        .prepare(
-          `SELECT id FROM integration_connections
-           WHERE id = ? AND user_id = ? AND revoked_at IS NULL`,
-        )
-        .get(row.connection_id, row.user_id);
-      if (!connection) {
+      const connection = tenantScopeForConnection(database, {
+        userId: row.user_id,
+        connectionId: row.connection_id,
+      });
+      if (!connection || connection.clientId !== row.client_id) {
         throw new OAuthError(OAuthErrorCode.InvalidToken, "The connection is revoked.");
       }
       database

@@ -75,3 +75,5 @@ The current action set covers registration, session creation and revocation, pro
 - Trusted state always references the accepted candidate and source evidence.
 - Supersession preserves the prior state record.
 - Cross-workspace references are prevented by database constraints and tested authorization policies.
+
+Milestone 03 implements these rules as two shared deny-by-default scopes: a user scope resolves exactly one private workspace, while an MCP connection scope additionally proves an active connection owned by that user/workspace and registered client. Project operations do not accept a workspace argument from callers. Missing or mismatched scope is handled before any project query or write transaction.

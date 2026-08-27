@@ -1,4 +1,4 @@
-import { acceptCandidate } from "@alice/domain";
+import { acceptCandidate, getReviewQueue } from "@alice/domain";
 import express from "express";
 import { renderPage, requireAuthenticatedUser } from "./auth.ts";
 
@@ -18,26 +18,17 @@ export function createReviewRouter({ database }) {
   router.use(requireAuthenticatedUser(database));
 
   router.get("/", (request, response) => {
-    const workspaceId = request.aliceUser!.workspace_id;
     const requestedProjectId = String(request.query.project_id || "");
-    const project = database
-      .prepare("SELECT * FROM projects WHERE id = ? AND workspace_id = ?")
-      .get(requestedProjectId, workspaceId);
-    if (!project)
+    const queue = getReviewQueue(database, {
+      userId: request.aliceUser!.id,
+      projectId: requestedProjectId,
+    });
+    if (!queue)
       return response
         .status(404)
         .type("html")
         .send(renderPage("Not found", "<h1>Project not found</h1>"));
-    const candidates = database
-      .prepare(
-        `SELECT candidate.*, evidence.client_classification, evidence.created_at AS evidence_created_at
-         FROM candidate_claims candidate
-         JOIN evidence_events evidence ON evidence.id = candidate.evidence_id
-         WHERE candidate.project_id = ? AND candidate.workspace_id = ?
-         ORDER BY candidate.created_at, candidate.id`,
-      )
-      .all(project.id, workspaceId);
-    const cards = candidates
+    const cards = queue.candidates
       .map(
         (candidate) =>
           `<article class="${candidate.status === "accepted" ? "accepted" : ""}"><h2>${escapeHtml(candidate.state_key)}</h2><p><code>${escapeHtml(candidate.value_json)}</code></p><p>${escapeHtml(candidate.summary)}</p><p class="muted">Status: ${escapeHtml(candidate.status)} · Source: ${escapeHtml(candidate.client_classification)} · Evidence: ${escapeHtml(candidate.evidence_id)}</p>${
@@ -51,8 +42,8 @@ export function createReviewRouter({ database }) {
       .type("html")
       .send(
         renderPage(
-          `${project.name} review`,
-          `<h1>${escapeHtml(project.name)} review</h1><p>Only this explicit human action can change trusted state.</p>${cards || "<p>No candidates yet.</p>"}`,
+          `${queue.project.name} review`,
+          `<h1>${escapeHtml(queue.project.name)} review</h1><p>Only this explicit human action can change trusted state.</p>${cards || "<p>No candidates yet.</p>"}`,
         ),
       );
   });

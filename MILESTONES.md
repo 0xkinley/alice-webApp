@@ -126,7 +126,7 @@ Tasks:
 - [x] Add immutable evidence events and append-only audit events.
 - [x] Add candidate claims and versioned accepted project state.
 - [x] Add integration connection records without storing host passwords or bearer tokens.
-- [ ] Add deny-by-default tenant authorization policies.
+- [x] Add deny-by-default tenant authorization policies.
 - [ ] Add cross-tenant negative tests for every project data path.
 
 Success criteria:
@@ -145,7 +145,8 @@ Notes:
 - Evidence capture retains the exact validated payload and content hash, while database triggers reject all evidence updates and deletes. Registration, sessions, projects, integration grants/revocation, candidate submission, and human acceptance append identifier-only audit events; audit updates and deletes are also database-rejected.
 - Candidate content is immutable with a single pending-to-terminal review transition. Explicit web review appends immutable accepted-state versions; database constraints bind every accepted version to the exact candidate/evidence pair, and current context returns only the latest accepted version with provenance while retaining prior history.
 - OAuth grants now create tenant-bound integration connection records with client classification, bounded scopes, usage timestamps, and revocation state. Authorization codes, confidential client secrets, access tokens, and refresh tokens are stored only as hashes; connection audit metadata contains no bearer values or host credentials.
-- Handoff after the integration task: Milestone 03 remains In Progress. Deny-by-default authorization policies and the exhaustive cross-tenant negative matrix are the next tasks; milestone completion and CI verification have not yet been performed.
+- Shared deny-by-default policies now resolve project access only from a server-authenticated user/private-workspace scope. MCP writes additionally require an active connection whose user, workspace, and registered client all match the verified bearer token. Missing, unknown, mismatched, and revoked principals perform no project read or write; composite tenant foreign keys remain the database backstop.
+- The exhaustive cross-tenant negative matrix is the remaining implementation task; milestone completion and CI verification have not yet been performed.
 
 ## Milestone 04 — Capture Loop
 
