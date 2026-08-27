@@ -1,6 +1,6 @@
 # Milestone 01 Spike Results
 
-Status: In progress
+Status: Complete
 
 ## Test environment
 
@@ -92,7 +92,7 @@ Recorded at 2026-08-27 Asia/Dubai:
 - A fourth new conversation used the unchanged fixture prompt, with only alice. enabled, on Claude Sonnet 5 at Medium reasoning. Claude retrieved and correctly used A-C without restatement.
 - Claude proposed: “A user is activated when alice. has ingested at least one project-relevant event from each connected AI account (ChatGPT and Claude) within the same project, within 7 days of signup.”
 - Claude saved pending candidate `candidate_246a292a-acce-4a58-a508-0ef21726c0ce` from immutable evidence `evidence_0534d3ff-8236-40a0-9b59-d045cac20186`.
-- The run exposed a fixture defect: the hidden precommitted 10-minute window was absent from both A-C and the unchanged Claude prompt. Scoring an open-ended proposal against that undisclosed value tested whether Claude guessed the fixture author's preference, not whether alice. preserved project context.
+- The run exposed a fixture defect: the hidden successful-retrieval event and precommitted 10-minute window were absent from both A-C and the unchanged Claude prompt. Scoring an open-ended proposal against those undisclosed details tested whether Claude guessed the fixture author's preference, not whether alice. preserved project context.
 - The human reviewer corrected the rubric to require D's disclosed structural shape rather than the hidden exact time window, then explicitly accepted Run 4's exact proposal through the alice. review control plane.
 - Accepted state `accepted_0d911feb-9e2c-4d85-b2fa-95a7e5cc6a9f` is version 1 of `launch.onboarding_success` and retains candidate and evidence provenance. The two earlier seven-day alternatives remain pending.
 
@@ -142,4 +142,26 @@ This one-run timing sample favors manual paste by roughly 30.6 seconds on the Cl
 
 ## Go/no-go recommendation
 
-Pending the complete two-switch round trip and recurring-workflow comparison. MCP connectivity is not treated as success.
+**Go to Milestone 02, with the production-readiness conditions below. Do not interpret this as authorization to start Milestone 02 in this chat or on this branch.**
+
+Milestone 01 passes every documented success criterion under the corrected disclosed rubric:
+
+- ChatGPT and Claude both completed authenticated reads and explicit candidate writes.
+- Host writes created immutable evidence and pending candidates only; trusted state changed only through the separate authenticated human review action.
+- Claude retrieved and correctly used A-C without restatement, and its human-accepted D retained candidate/evidence provenance.
+- Returning ChatGPT retrieved and correctly used A-D without restatement after the second switch.
+- Accepted-state, candidate, and evidence identifiers survived the complete round trip; pending alternatives were excluded from trusted context.
+- The recurring alice. workflow was preferred over manual copy/paste because it removed seven decision restatements and preserved trust/provenance, despite slower observed responses in the one-run timing sample.
+- Repository verification passes and the milestone evidence is current.
+
+Limitations and conditions for the next milestone:
+
+- Replace the ephemeral Quick Tunnel with a stable HTTPS origin before measuring reconnection, recurring latency, or onboarding. Both hosts cached or expired connector state around hostname changes.
+- Treat ChatGPT Developer mode as a development-only distribution path with elevated-risk disclosure. Revalidate plan, region, role, and workspace availability before cohort expansion.
+- Keep alice.'s candidate-only write boundary and independent review as the trust boundary; host confirmation behavior was not consistent across Claude conversations.
+- Version evaluation fixtures before execution and score only information disclosed in accepted context or the prompt. Model recommendations may differ; human-accepted state is authoritative.
+- Repeat latency measurements over multiple runs. The manual baseline was faster in this single sample, so the go decision rests on lower operator effort, lower stale-copy risk, and preserved provenance—not speed.
+
+Known retained state: two earlier non-accepted Claude D candidates remain pending as failed-run evidence. They were never presented as trusted context and must not be accepted accidentally.
+
+Completion audit on 2026-08-27: `npm run check` passed all 15 tests; the spike database contained four accepted version-1 decisions, two pending failed-run candidates, and zero accepted records with missing candidate or evidence provenance. The temporary public tunnel and local spike server were then stopped, so the development connectors fail closed until a deliberately started future environment exists.

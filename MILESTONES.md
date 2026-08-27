@@ -28,7 +28,7 @@ Frozen non-goals for the spike:
 
 ## Milestone 01 — Round-Trip MCP Compatibility Spike
 
-Status: In Progress
+Status: Complete
 
 Branch: `milestone-01-mcp-compatibility-spike`
 
@@ -51,7 +51,7 @@ Tasks:
 - [x] Save and approve decision D from Claude.
 - [x] Verify ChatGPT retrieves and correctly uses A-D after the second switch.
 - [x] Compare the recurring Alice workflow with manual copy/paste and record the result.
-- [ ] Document protocol behavior, host differences, limitations, and go/no-go recommendation.
+- [x] Document protocol behavior, host differences, limitations, and go/no-go recommendation.
 
 Success criteria:
 
@@ -67,11 +67,13 @@ Success criteria:
 Notes:
 
 - MCP connectivity alone is not success.
-- The initial hidden 10-minute D value was not inferable from A-C or the unchanged Claude prompt. The dated fixture correction now scores the disclosed decision shape plus explicit human acceptance; the original failed-run evidence remains recorded.
+- The initial hidden successful-retrieval and 10-minute D details were not inferable from A-C or the unchanged Claude prompt. The dated fixture correction now scores the disclosed decision shape plus explicit human acceptance; the original failed-run evidence remains recorded.
 - The inspected target ChatGPT Plus account exposes `Settings > Security and login > Developer mode`. It was off during the failed setup attempt; Business is not a documented prerequisite for this target account.
 - Native MCP remains the preferred spike path. Explicit handoff is the supported fallback and copy/paste baseline. A browser companion remains a frozen non-goal unless a later evidence-gated milestone explicitly admits it.
 - Current provider findings and dated official references are in `docs/provider-adapters.md`; revalidate them because provider capabilities can change.
 - If an account cannot complete the required official integration flow, it is ineligible for the first cohort; the spike is testing continuity, not general provider compatibility.
+- Completed on 2026-08-27. The full ChatGPT → alice. → Claude → alice. → ChatGPT round trip passed the corrected disclosed rubric with human-governed trusted state and end-to-end provenance. Milestone 02 was not started.
+- Two earlier Claude D candidates remain pending as preserved failed-run evidence and are excluded from trusted context.
 
 ## Milestone 02 — Repository and CI Scaffold
 

@@ -27,15 +27,16 @@ Claude must propose and explicitly save D after retrieving A-C:
 
 | ID | State key | Required decision shape |
 | --- | --- | --- |
-| D | `launch.onboarding_success` | A single measurable activation criterion covering connection of both AI accounts and successful retrieval of accepted context by both hosts. |
+| D | `launch.onboarding_success` | A single measurable activation criterion that requires both AI accounts. |
 
-The initial fixture precommitted a 10-minute value for D, but the continuation
-prompt did not disclose that time window and A-C did not contain it. Requiring
-Claude to guess that hidden value tested model preference rather than project
-continuity. On 2026-08-27, after observing the mismatch, the human reviewer
-corrected the rubric: D passes when it has the documented required shape and the
-reviewer explicitly accepts it. The accepted value is authoritative even when a
-host would recommend a different time window.
+The initial fixture precommitted a 10-minute, successful-retrieval value for D,
+but the continuation prompt disclosed only that the criterion must be measurable
+and require both accounts; A-C contained neither the hidden event definition nor
+the time window. Requiring Claude to guess those details tested model preference
+rather than project continuity. On 2026-08-27, after observing the mismatch, the
+human reviewer corrected the rubric: D passes when it matches the disclosed
+required shape and the reviewer explicitly accepts it. The accepted value is
+authoritative even when a host would recommend a different event or time window.
 
 The human-accepted D for this run is:
 
