@@ -46,7 +46,7 @@ Tasks:
 - [x] Add the minimum review action required to accept candidates into trusted state.
 - [x] Verify that the target personal ChatGPT Plus account exposes Developer mode and record the provider-adapter fallback decision.
 - [x] Verify authenticated read and write calls from the target ChatGPT account.
-- [ ] Save and approve decisions A-C: ICP, product form, and monthly price.
+- [x] Save and approve decisions A-C: ICP, product form, and monthly price.
 - [ ] Verify Claude retrieves and correctly uses A-C without them being restated.
 - [ ] Save and approve decision D from Claude.
 - [ ] Verify ChatGPT retrieves and correctly uses A-D after the second switch.

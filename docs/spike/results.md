@@ -41,8 +41,10 @@ Recorded at 2026-08-27 Asia/Dubai from the target personal ChatGPT Plus account:
 - ChatGPT required an explicit write confirmation before invoking `save_project_update`.
 - The write created immutable evidence `evidence_3966ba5e-2ae6-4430-8c2f-c963ff265191` and pending candidates `candidate_888018c8-f572-4e1e-9a37-728f2ada95b2`, `candidate_51d36acd-7bf6-4abd-a696-c61bdd1acb17`, and `candidate_b8a32582-659f-46af-a432-5ed01619cdf2`.
 - The write response reported `trusted_state_changed: false`. The post-write trusted-context response still contained no accepted decisions, open questions, or artifacts, and direct database verification found zero accepted-state rows.
+- The separate authenticated alice. review page displayed only the three canonical pending candidates. The human reviewer accepted each exact value individually.
+- Database verification found all three candidates accepted as version-1 trusted state: `accepted_0db05e04-77e9-45dc-ae4d-009651a52f22` for A, `accepted_f60e46fb-28cd-4493-88ed-c2da0692dbf5` for B, and `accepted_25dd65b8-7f16-4ab2-af28-30d5a704e915` for C. Every row retains the original candidate and evidence identifiers.
 
-This verifies authenticated ChatGPT reads and explicit candidate capture. It does not by itself satisfy the round-trip success criteria.
+This verifies authenticated ChatGPT reads, explicit candidate capture, fail-closed trusted state, and human-governed acceptance of A-C. It does not by itself satisfy the complete round-trip success criteria.
 
 ## ChatGPT Plus eligibility investigation
 
