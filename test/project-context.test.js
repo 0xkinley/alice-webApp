@@ -114,6 +114,21 @@ test("lists only projects in the authenticated workspace", async () => {
   ]);
 });
 
+test("advertises least-privilege OAuth scopes in ChatGPT-compatible tool metadata", async () => {
+  const { response, payload } = await callMcp(baseUrl, accessToken, "tools/list");
+  assert.equal(response.status, 200);
+
+  const toolsByName = Object.fromEntries(payload.result.tools.map((tool) => [tool.name, tool]));
+  for (const name of ["list_projects", "get_project_context"]) {
+    assert.deepEqual(toolsByName[name]._meta.securitySchemes, [
+      { type: "oauth2", scopes: ["mcp:read"] },
+    ]);
+  }
+  assert.deepEqual(toolsByName.save_project_update._meta.securitySchemes, [
+    { type: "oauth2", scopes: ["mcp:write"] },
+  ]);
+});
+
 test("returns accepted context with provenance and excludes pending candidates", async () => {
   const { response, payload } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "get_project_context",

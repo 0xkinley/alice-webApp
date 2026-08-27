@@ -45,7 +45,7 @@ Tasks:
 - [x] Store the exact submitted payload as immutable evidence before creating candidate claims.
 - [x] Add the minimum review action required to accept candidates into trusted state.
 - [x] Verify that the target personal ChatGPT Plus account exposes Developer mode and record the provider-adapter fallback decision.
-- [ ] Verify authenticated read and write calls from the target ChatGPT account.
+- [x] Verify authenticated read and write calls from the target ChatGPT account.
 - [ ] Save and approve decisions A-C: ICP, product form, and monthly price.
 - [ ] Verify Claude retrieves and correctly uses A-C without them being restated.
 - [ ] Save and approve decision D from Claude.

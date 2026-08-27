@@ -18,6 +18,12 @@ function authenticatedUserId(context) {
   return context.http?.authInfo?.extra?.userId;
 }
 
+function oauthToolSecurity(scope) {
+  return {
+    _meta: { securitySchemes: [{ type: "oauth2", scopes: [scope] }] },
+  };
+}
+
 function createProtocolServer(database, publicUrl) {
   const server = new McpServer({ name: "alice-mcp-compatibility-spike", version: "0.1.0" });
 
@@ -27,6 +33,7 @@ function createProtocolServer(database, publicUrl) {
       title: "List alice. projects",
       description: "List projects in the authenticated user's private alice. workspace.",
       inputSchema: z.object({}),
+      ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (_input, context) => {
@@ -50,6 +57,7 @@ function createProtocolServer(database, publicUrl) {
         task: z.string().min(1).max(2_000).describe("The current task, used to describe the context package"),
         context_budget: z.number().int().min(256).max(8_000).optional().default(2_000),
       }),
+      ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     async ({ project_id: projectId, task, context_budget: contextBudget }, context) => {
@@ -98,6 +106,7 @@ function createProtocolServer(database, publicUrl) {
         source_note: z.string().max(4_000).optional(),
         idempotency_key: z.string().min(8).max(200),
       }),
+      ...oauthToolSecurity("mcp:write"),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,

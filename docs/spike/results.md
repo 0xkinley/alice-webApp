@@ -29,7 +29,20 @@ Result: 3 tests passed, 0 failed.
 
 ## Round-trip runs
 
-No host run recorded yet.
+### ChatGPT capture leg
+
+Recorded at 2026-08-27 Asia/Dubai from the target personal ChatGPT Plus account:
+
+- Developer mode was enabled deliberately after reviewing its elevated-risk warning.
+- A read-only OAuth authorization requested only `mcp:read`. `list_projects` and `get_project_context` succeeded, while `save_project_update` was rejected because the token lacked `mcp:write`. No evidence, candidates, or trusted state were created.
+- The connection was recreated with `mcp:read` and `mcp:write`. The first run failed before any write because ChatGPT had not yet received the updated action schema; per the fixture protocol, this was recorded as a failed run rather than silently retried.
+- The MCP tool descriptors were updated to advertise per-tool OAuth scopes through the ChatGPT-compatible `_meta.securitySchemes` field. ChatGPT then exposed `list_projects` and `get_project_context` as read actions and `save_project_update` as a write action.
+- In a fresh run, ChatGPT listed the project, retrieved empty trusted context, submitted the exact A-C values as three separate candidate claims in one explicit write, and retrieved trusted context again.
+- ChatGPT required an explicit write confirmation before invoking `save_project_update`.
+- The write created immutable evidence `evidence_3966ba5e-2ae6-4430-8c2f-c963ff265191` and pending candidates `candidate_888018c8-f572-4e1e-9a37-728f2ada95b2`, `candidate_51d36acd-7bf6-4abd-a696-c61bdd1acb17`, and `candidate_b8a32582-659f-46af-a432-5ed01619cdf2`.
+- The write response reported `trusted_state_changed: false`. The post-write trusted-context response still contained no accepted decisions, open questions, or artifacts, and direct database verification found zero accepted-state rows.
+
+This verifies authenticated ChatGPT reads and explicit candidate capture. It does not by itself satisfy the round-trip success criteria.
 
 ## ChatGPT Plus eligibility investigation
 
@@ -45,7 +58,7 @@ Root-cause finding: the failed setup attempt does not establish a Business-plan 
 
 The supported transport comparison and fallback decision are recorded in `docs/provider-adapters.md`. Milestone 01 remains the native MCP round-trip because the actual target Plus account has the required Developer mode gate. Explicit handoff remains the baseline and fallback; a browser companion remains out of scope unless native availability or measured friction fails.
 
-Repository verification after recording this decision: `npm run check` — 14 tests passed, 0 failed.
+Repository verification after recording this decision: `npm run check` — 15 tests passed, 0 failed.
 
 ## Manual copy/paste baseline
 

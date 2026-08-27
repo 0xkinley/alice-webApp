@@ -19,6 +19,17 @@ Developer mode was off during the failed connection attempt. The official develo
 
 Milestone 01 remains the native MCP round-trip spike. It will not add a browser extension or replace the host workflow before the target Plus account has been tested with Developer mode enabled.
 
+## ChatGPT tool authorization compatibility
+
+Verified on 2026-08-27 with ChatGPT Developer mode and `@modelcontextprotocol/server` 2.0.0:
+
+- The connection's OAuth authorization must include both `mcp:read` and `mcp:write`; a read-only token correctly failed closed when ChatGPT attempted candidate capture.
+- ChatGPT classifies and authorizes actions from per-tool OAuth scope metadata. The spike therefore mirrors each tool's least-privilege OAuth scheme in `_meta.securitySchemes`: `mcp:read` for context tools and `mcp:write` for candidate capture.
+- The SDK version used by the spike did not emit a top-level `securitySchemes` field from the registered tool descriptor. The `_meta` compatibility mirror is covered by integration tests, while alice. continues to enforce the bearer-token scope server-side rather than trusting host classification.
+- ChatGPT showed an explicit confirmation before the write action. Candidates still remained pending until alice.'s independent human review.
+
+This is an observed adapter requirement for the recorded versions, not a permanent product assumption. Revalidate it when either host or SDK changes.
+
 ## Adapter comparison
 
 | Path | First-time friction | Recurring friction | Reliability | Security posture | Platform risk | Preserves ChatGPT Plus | Decision |
