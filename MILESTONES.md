@@ -111,7 +111,7 @@ Notes:
 
 ## Milestone 03 — Authentication and Data Foundation
 
-Status: Not Started
+Status: In Progress
 
 Branch: `milestone-03-auth-and-database`
 
@@ -139,6 +139,7 @@ Success criteria:
 Notes:
 
 - Do not add team or sharing UI.
+- Started on 2026-08-27 after verifying Milestone 02 complete. Merge `04182ac` is present on synchronized local and remote `main`, the starting tree was clean, and GitHub Actions run `33065649076` passed the Milestone 02 merge verification.
 
 ## Milestone 04 — Capture Loop
 
