@@ -12,7 +12,14 @@ import {
 } from "@modelcontextprotocol/server";
 import { openDatabase } from "@alice/database";
 import { getProjectContext, listProjects, saveCandidateUpdate } from "@alice/domain";
-import { getProjectContextSchema, saveProjectUpdateSchema } from "@alice/schemas";
+import {
+  consumptionContractVersion,
+  getProjectContextOutputSchema,
+  getProjectContextSchema,
+  listProjectsOutputSchema,
+  listProjectsSchema,
+  saveProjectUpdateSchema,
+} from "@alice/schemas";
 import { createOAuth } from "./oauth.ts";
 
 function authenticatedUserId(context) {
@@ -49,20 +56,22 @@ function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes 
 }
 
 function createProtocolServer(database, publicUrl) {
-  const server = new McpServer({ name: "alice-mcp", version: "0.4.0" });
+  const server = new McpServer({ name: "alice-mcp", version: "0.5.0" });
 
   server.registerTool(
     "list_projects",
     {
       title: "List alice. projects",
-      description: "List projects in the authenticated user's private alice. workspace.",
-      inputSchema: {},
+      description:
+        "List projects in the authenticated user's private alice. workspace, including current accepted-state counts and freshness. This read has no side effects.",
+      inputSchema: listProjectsSchema,
+      outputSchema: listProjectsOutputSchema,
       ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (_input, context) => {
       const projects = listProjects(database, authenticatedUserId(context));
-      const output = { projects };
+      const output = { contract_version: consumptionContractVersion, projects };
       return {
         content: [{ type: "text", text: JSON.stringify(output) }],
         structuredContent: output,
@@ -75,8 +84,9 @@ function createProtocolServer(database, publicUrl) {
     {
       title: "Get trusted alice. project context",
       description:
-        "Retrieve bounded project context from human-accepted alice. state. Pending candidate claims are excluded. Use this before continuing work on a saved project.",
+        "Retrieve a deterministic, budget-bounded project context package from human-accepted alice. state. The package includes explicit freshness, accepted-state/candidate/evidence provenance, and omission reporting. Open questions, artifact references, and unresolved-conflict notices are separately labeled when available; pending and rejected candidate values are never presented as trusted decisions. This read has no side effects.",
       inputSchema: getProjectContextSchema,
+      outputSchema: getProjectContextOutputSchema,
       ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },

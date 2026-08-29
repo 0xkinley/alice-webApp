@@ -15,6 +15,15 @@ export const captureValidationLimits = Object.freeze({
   payloadBytes: 32 * 1_024,
 });
 
+export const consumptionContractVersion = "1.0";
+
+export const consumptionValidationLimits = Object.freeze({
+  taskCharacters: 2_000,
+  contextBudgetMinimumBytes: 2_000,
+  contextBudgetMaximumBytes: 32_000,
+  contextBudgetDefaultBytes: 16_000,
+});
+
 const boundedIdentifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 const stateKeyPattern = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 
@@ -145,12 +154,147 @@ export const saveProjectUpdateSchema = z
     }
   });
 
-export const getProjectContextSchema = z.object({
-  project_id: projectIdSchema,
-  task: z
-    .string()
-    .min(1)
-    .max(2_000)
-    .describe("The current task, used to describe the context package"),
-  context_budget: z.number().int().min(256).max(8_000).optional().default(2_000),
-});
+export const listProjectsSchema = z.object({}).strict();
+
+export const getProjectContextSchema = z
+  .object({
+    project_id: projectIdSchema,
+    task: z
+      .string()
+      .trim()
+      .min(1)
+      .max(consumptionValidationLimits.taskCharacters)
+      .describe("Current task used for deterministic context selection"),
+    context_budget: z
+      .number()
+      .int()
+      .min(consumptionValidationLimits.contextBudgetMinimumBytes)
+      .max(consumptionValidationLimits.contextBudgetMaximumBytes)
+      .optional()
+      .default(consumptionValidationLimits.contextBudgetDefaultBytes)
+      .describe("Maximum UTF-8 bytes in the returned structured context package"),
+  })
+  .strict();
+
+const projectIdentitySchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    brief: z.string(),
+    created_at: z.string(),
+    updated_at: z.string(),
+  })
+  .strict();
+
+const acceptedProvenanceSchema = z
+  .object({
+    accepted_state_id: z.string(),
+    candidate_id: z.string(),
+    evidence_id: z.string(),
+    evidence_payload_hash: z.string(),
+    evidence_captured_at: z.string(),
+  })
+  .strict();
+
+const acceptedContextItemSchema = z
+  .object({
+    state_key: z.string(),
+    summary: z.string(),
+    value: z.json(),
+    version: z.number().int().positive(),
+    accepted_at: z.string(),
+    provenance: acceptedProvenanceSchema,
+  })
+  .strict();
+
+export const listProjectsOutputSchema = z
+  .object({
+    contract_version: z.literal(consumptionContractVersion),
+    projects: z.array(
+      projectIdentitySchema
+        .extend({
+          accepted_state_count: z.number().int().nonnegative(),
+          accepted_state_updated_at: z.string().nullable(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+export const getProjectContextOutputSchema = z
+  .object({
+    contract_version: z.literal(consumptionContractVersion),
+    project: projectIdentitySchema,
+    task: z.string(),
+    accepted_decisions: z.array(acceptedContextItemSchema),
+    open_questions: z.array(
+      acceptedContextItemSchema
+        .extend({
+          status: z.literal("open"),
+        })
+        .strict(),
+    ),
+    artifacts: z.array(
+      acceptedContextItemSchema
+        .extend({
+          handling: z.literal("reference_only"),
+        })
+        .strict(),
+    ),
+    unresolved_conflicts: z.array(
+      z
+        .object({
+          state_key: z.string(),
+          status: z.literal("unresolved"),
+          trusted_current: z
+            .object({
+              version: z.number().int().positive(),
+              provenance: acceptedProvenanceSchema,
+            })
+            .strict(),
+          unreviewed_alternatives: z.array(
+            z
+              .object({
+                candidate_id: z.string(),
+                evidence_id: z.string(),
+                evidence_captured_at: z.string(),
+              })
+              .strict(),
+          ),
+          notice: z.string(),
+        })
+        .strict(),
+    ),
+    package: z
+      .object({
+        version: z.string(),
+        selection_strategy: z.literal("deterministic_full_text_v1"),
+        freshness: z
+          .object({
+            project_updated_at: z.string(),
+            accepted_state_as_of: z.string().nullable(),
+            evidence_as_of: z.string().nullable(),
+            state_as_of: z.string(),
+          })
+          .strict(),
+        budget: z
+          .object({
+            unit: z.literal("utf8_bytes"),
+            limit: z.number().int().positive(),
+            used: z.number().int().nonnegative(),
+          })
+          .strict(),
+        omissions: z
+          .object({
+            total: z.number().int().nonnegative(),
+            accepted_decisions: z.number().int().nonnegative(),
+            open_questions: z.number().int().nonnegative(),
+            artifacts: z.number().int().nonnegative(),
+            unresolved_conflicts: z.number().int().nonnegative(),
+            reason: z.enum(["none", "budget_exhausted"]),
+          })
+          .strict(),
+      })
+      .strict(),
+  })
+  .strict();
