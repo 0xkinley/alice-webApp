@@ -2,14 +2,14 @@
 
 This file is the persistent implementation roadmap for alice. Milestones are evidence-gated: later work should not begin merely because earlier code exists.
 
-## Frozen MVP scope
+## Frozen Milestone 01-05 scope
 
 The first product test is the complete ChatGPT to alice. to Claude to alice. to ChatGPT round trip.
 
 Approved defaults:
 
 - The first cohort contains only users whose ChatGPT and Claude accounts support the required authenticated remote MCP read/write flow. Plan name alone is not the eligibility test; the actual account, region, surface, and applicable policy must expose the required capabilities.
-- Each user receives one private workspace containing projects. Teams, roles, sharing, and organizations are deferred.
+- Each user receives one private workspace containing projects. Teams, roles, sharing, and organizations were deferred through Milestone 05.
 - Host-generated tool arguments are stored as evidence and candidate claims. They never directly mutate trusted state.
 - Success requires meaningful continuation across two AI switches without manually restating saved project context.
 
@@ -25,6 +25,12 @@ Frozen non-goals for the spike:
 - Browser scraping or a browser extension
 - Additional AI providers
 - An alice. chatbot
+
+## Roadmap amendment before private alpha
+
+The completed Milestone 01-05 trust and provenance foundation remains authoritative. Product testing on 2026-08-30 showed that friend testing would otherwise require too much manual connection, project selection, capture, and review work, while the current SQLite topology and single-user tenancy are not suitable for the intended hosted, collaborative alpha.
+
+Milestone 06 therefore adds private-alpha foundations before recruiting participants. It admits PostgreSQL, stable hosting, projects with selectable work contexts, streamlined user-confirmed saving and removal, project sharing, and context permissions. These additions do not relax the central invariant: an AI host can create evidence and candidate claims, but only an explicit authenticated human action on an exact preview can make that content active project context. Collaboration grants access; it does not make host-generated material alice.-verified.
 
 ## Milestone 01 — Round-Trip MCP Compatibility Spike
 
@@ -241,43 +247,96 @@ Notes:
 - A versioned canonical evaluation now seeds the real tenant/evidence/candidate/accepted-state model for the Claude A-C and returning ChatGPT A-D legs. Both disclosed traces retrieve and exactly use the required accepted decisions with zero manual restatement, complete provenance, deterministic budget-compliant packages, and no pending-value leakage. `npm run eval:context` is an offline local and CI gate; it adds no model orchestration and does not replace dated live-host validation.
 - Completed on 2026-08-30. GitHub Actions run `33273541250` passed implementation commit `3a1c32b`. A true fresh local clone installed with `npm ci` with zero reported vulnerabilities, passed formatting, linting, typechecking, secret scanning, all 20 capture evaluations, both canonical cross-host context evaluations, all 48 tests, and production builds for both deployables. Deterministic accepted-state selection, complete provenance and freshness, exact byte budgets and omissions, separately typed questions/artifacts/conflicts, pending/rejected exclusion, read-side project-state immutability, and both-direction tenant isolation are verified. Milestone 06 was not started.
 
-## Milestone 06 — Private Alpha
+## Milestone 06 — Private Alpha Foundations
 
 Status: Not Started
 
-Branch: `milestone-06-private-alpha`
+Branch: `milestone-06-private-alpha-foundations`
 
 Objective:
 
-Test whether real users repeatedly prefer Alice continuity over manual context transfer.
+Make alice. safe and low-friction enough for an invite-only friend alpha without weakening provenance, explicit human authority, tenant isolation, or provider-secret boundaries.
+
+Tasks:
+
+- [ ] Replace production SQLite persistence with PostgreSQL and an async database boundary while preserving the complete accepted-state, evidence, candidate, audit, idempotency, supersession, and tenant-isolation model.
+- [ ] Add versioned PostgreSQL migrations, real PostgreSQL CI coverage, backup/restore verification, and a documented SQLite development-data disposition; keep exact immutable evidence payload bytes in text rather than normalizing them through JSON storage.
+- [ ] Deploy stable HTTPS web and MCP origins backed by the same managed PostgreSQL database, with server-only secrets, encryption in transit and at rest, redacted logs, health checks, migration controls, and no reliance on ephemeral local filesystems or quick tunnels.
+- [ ] Add an invite-only alpha gate and an alice. connection center for ChatGPT and Claude with per-user OAuth connection status, stable setup instructions, recovery, and revocation; never share host credentials or integration bearer tokens between collaborators.
+- [ ] Let each user list and select a project in alice. before working in a host, then select an existing work context or create a new one. Make the active project/context target explicit, visible, and safely scoped per user and connected host so concurrent work cannot silently land in the wrong project.
+- [ ] Add durable project work contexts with project-wide context plus context-scoped entries, context history, and deterministic structured/full-text similarity suggestions. Similar contexts may be suggested or grouped only after human confirmation; do not add embeddings in this milestone.
+- [ ] Update consumption so supported hosts can use the selected project/context without the user repeatedly typing “use alice.”, while retaining an explicit fallback when a host cannot reliably honor an active selection.
+- [ ] Replace the routine two-step capture/review journey with one exact, user-visible save preview naming the destination project and context. A check is an explicit authenticated human acceptance action; a cross cancels. The host tool call alone must still create immutable evidence and candidate claims only and must never activate project context.
+- [ ] Provide a saved-context view using user-facing language such as Saved context, Needs attention, Removed, and History rather than requiring users to understand the internal trusted-state model.
+- [ ] Let authorized users remove an item from active context through an append-only exclusion or superseding version that preserves provenance and audit history. Keep remove-from-context, project archive, and permanent privacy deletion as distinct actions.
+- [ ] Add project archive, export, and policy-governed permanent deletion workflows, including documented retention and backup-deletion timelines and a privileged erasure path outside ordinary application roles; normal roles must remain unable to rewrite immutable evidence or audit history.
+- [ ] Add project invitations and membership lifecycle with Owner, Editor, and Viewer capabilities, including explicit ownership transfer or safe project disposition before the last owner can leave.
+- [ ] Add context-level access for all project members, selected project members, or a personal draft, with Viewer, Editor, and Manager capabilities bounded by the user's project role. Define and display whether project owners can administer restricted contexts.
+- [ ] Extend deny-by-default authorization, database constraints, audits, and negative tests to every membership, invitation, project, context, active-selection, capture, review, export, archive, removal, and deletion path. Denied users must not learn restricted identifiers, names, counts, freshness, conflicts, artifacts, or provenance.
+- [ ] Add privacy-preserving product instrumentation and an in-product access view showing who can access each project/context, which AI connections are active, and when relevant security actions occurred without logging bearer tokens or submitted evidence content.
+- [ ] Publish private-alpha privacy and security disclosures covering collected data, purposes, recipients and AI-provider boundaries, retention, backups, exports, removal and erasure, subprocessors, incident contact, and the prohibition on sensitive, regulated, or client-confidential test data until the corresponding controls are verified.
+- [ ] Add capability and cross-host evaluations for project/context selection, read/fetch, save offer and fallback, one-confirmation activation, cancellation, removal, sharing, revocation, concurrent users, and permission non-disclosure.
+- [ ] Run the clean-checkout contract against both deployables and PostgreSQL: install, format-check, lint, typecheck, scan for secrets, run all evaluations and tests, build, migrate an empty database, exercise backup/restore, and verify the hosted web and MCP paths.
+
+Success criteria:
+
+- Production web and MCP deployables use one managed PostgreSQL database; no production request depends on SQLite or an ephemeral filesystem.
+- PostgreSQL concurrency and constraints preserve transactional idempotent capture, immutable evidence/audit history through normal roles, versioned accepted context, rejection/supersession history, and complete provenance.
+- A friend can accept an invitation, connect each supported host, select a permitted project/context, retrieve context, save an exact preview with one authenticated confirmation, see it under Saved context, and remove it from active context without using a terminal, tunnel, custom endpoint, or repeated “use alice.” phrasing.
+- AI output never becomes active context because the model called a tool, inferred consent, or generated a confirmation. The exact authenticated human check remains the authority boundary and the cross remains a no-write/no-activation path.
+- Pending, rejected, removed, and inaccessible content remains excluded from normal consumption; none is presented as an active decision.
+- Multiple users can collaborate only within explicit project and context permissions, and every user's AI connection remains separately authorized and revocable.
+- Every project and context path remains deny-by-default. Cross-tenant, non-member, insufficient-role, guessed-identifier, revoked-connection, and restricted-context tests disclose neither content nor metadata and perform no mutation.
+- Users can distinguish active-context removal, project archive, export, and permanent deletion, and the implemented behavior matches the published retention and backup policy.
+- Privacy/security copy makes alice. storage, collaborator access, AI-provider transfer, subprocessors, retention, and user controls understandable without making unverified promises about provider training, residency, or deletion.
+- A clean checkout and the hosted environment pass all verification gates, documentation and `MILESTONES.md` are current, CI passes, and the working tree is clean.
+
+Notes:
+
+- This milestone intentionally changes the pre-alpha roadmap based on direct product testing. It does not retroactively alter what Milestones 01-05 proved.
+- PostgreSQL is the production system of record. A local SQLite adapter may remain only if its supported purpose and semantic differences are explicit and it cannot be selected accidentally in production.
+- Vercel is an acceptable target only after both deployables, long-lived protocol behavior, PostgreSQL connectivity, migrations, and stable OAuth origins pass hosted verification. Another platform may be selected if those requirements cannot be satisfied; the decision must be recorded before deployment.
+- Provider surfaces may not support a native post-answer check/cross card. Record a capability matrix and use the smallest explicit alice.-controlled confirmation fallback rather than pretending a host behavior is guaranteed.
+- “Saved context” is product language. Internally, evidence, candidate, accepted-state version, provenance, freshness, budgeting, omissions, conflicts, and audit boundaries remain intact.
+- Complete product, data, permission, deletion, deployment, and privacy decisions are recorded in `docs/private-alpha-foundations.md`.
+
+## Milestone 07 — Private Alpha
+
+Status: Not Started
+
+Branch: `milestone-07-private-alpha`
+
+Objective:
+
+Test whether real users repeatedly prefer Alice continuity over manual context transfer using the verified Milestone 06 foundations.
 
 Tasks:
 
 - [ ] Recruit 5-10 eligible users who already switch between ChatGPT and Claude.
-- [ ] Add privacy-preserving product instrumentation.
-- [ ] Add connection recovery and revocation paths.
 - [ ] Run the full round trip on sustained real projects.
-- [ ] Measure restatement, review behavior, capture quality, switching friction, and repeated use.
+- [ ] Measure restatement, review behavior, capture quality, switching friction, permission comprehension, and repeated use.
+- [ ] Verify participant-facing privacy expectations against actual storage, sharing, provider transfer, removal, export, and deletion behavior.
 - [ ] Record product findings and the next go/pivot/stop decision.
 
 Success criteria:
 
 - At least 8 of 10 participants complete the full loop.
 - At least 70% of continuation tasks need no restatement of accepted decisions.
-- At least 80% of candidates are accepted or need only minor editing.
-- Provenance is available for every trusted assertion.
-- There are zero silent trusted-state mutations and zero cross-workspace disclosures.
-- Users voluntarily repeat the workflow on another session or project.
+- At least 80% of saved proposals are confirmed as-is or need only minor editing.
+- Provenance is available for every active assertion.
+- There are zero silent accepted-state mutations, zero cross-workspace or restricted-context disclosures, and zero shared host credentials.
+- Users voluntarily repeat the workflow in another session, context, or project.
 
 Notes:
 
 - Thresholds are provisional until recruitment begins; any change must be documented before observing results.
+- Recruitment must not begin until Milestone 06 is complete and the participant disclosure accurately describes the verified deployment.
 
-## Milestone 07 — Context Intelligence
+## Milestone 08 — Context Intelligence
 
 Status: Not Started
 
-Branch: `milestone-07-context-intelligence`
+Branch: `milestone-08-context-intelligence`
 
 Objective:
 
@@ -302,11 +361,11 @@ Notes:
 
 - Embeddings are permitted only if deterministic retrieval is shown to be insufficient.
 
-## Milestone 08 — Richer Project Intelligence
+## Milestone 09 — Richer Project Intelligence
 
 Status: Not Started
 
-Branch: `milestone-08-project-intelligence`
+Branch: `milestone-09-project-intelligence`
 
 Objective:
 
@@ -329,29 +388,28 @@ Notes:
 
 - Candidate extensions include decision timelines, contradiction maps, stale-assumption warnings, and richer artifacts. None is pre-approved.
 
-## Milestone 09 — Provider and Collaboration Expansion
+## Milestone 10 — Provider Expansion
 
 Status: Not Started
 
-Branch: `milestone-09-platform-expansion`
+Branch: `milestone-10-provider-expansion`
 
 Objective:
 
-Generalize the proven project intelligence layer to additional official AI integrations and, separately, multi-user workspaces.
+Generalize the proven project intelligence layer to additional official AI integrations without changing canonical project or collaboration semantics.
 
 Tasks:
 
 - [ ] Define provider capabilities independently of project state.
 - [ ] Validate a third provider's official integration and security model.
 - [ ] Add the provider without changing canonical project semantics.
-- [ ] Validate demand for shared workspaces.
-- [ ] Design collaboration permissions only after demand is established.
+- [ ] Verify the provider respects project/context selection, explicit save confirmation, per-user credentials, revocation, and collaboration permissions.
 
 Success criteria:
 
 - A third provider uses the same consumption and capture contracts where its capabilities permit.
 - Provider-specific behavior remains isolated to the integration layer.
-- Collaboration work begins only with evidence of demand.
+- The provider cannot bypass collaboration or context-visibility boundaries.
 
 Notes:
 
