@@ -199,7 +199,7 @@ Notes:
 
 ## Milestone 05 — Consumption Loop
 
-Status: In Progress
+Status: Complete
 
 Branch: `milestone-05-consumption-loop`
 
@@ -217,10 +217,18 @@ Tasks:
 
 Success criteria:
 
-- Context contains accepted state rather than unreviewed candidates by default.
-- Every assertion is traceable.
-- Both target hosts correctly use the required project decisions without manual restatement.
-- The package stays within its declared budget and discloses omissions.
+- [x] Context contains accepted state rather than unreviewed candidates by default.
+- [x] Every accepted assertion is traceable to accepted-state, candidate, and evidence provenance.
+- [x] Context assembly is deterministic for the same authenticated project state and request.
+- [x] Package version and persisted-source freshness are explicit.
+- [x] The complete serialized package stays within its declared budget and reports per-section omissions.
+- [x] Relevant open questions, artifact references, and unresolved conflicts are represented without being presented as trusted decisions.
+- [x] Pending and rejected candidate values remain excluded from trusted context by default.
+- [x] Both target-host evaluations correctly use the required project decisions without manual restatement.
+- [x] Cross-tenant negative tests continue to pass for every consumption path.
+- [x] Ordinary reads and context assembly cannot mutate captured or trusted project state.
+- [x] A clean checkout installs, format-checks, lints, typechecks, scans for secrets, runs evaluations, tests, and builds both deployables.
+- [x] CI passes, documentation is current, and the working tree is clean.
 
 Notes:
 
@@ -231,6 +239,7 @@ Notes:
 - Accepted question- and artifact-prefixed state now appears in separately typed sections with full provenance and reference-only handling. Read-time conflict signals cite the trusted current version plus pending candidate/evidence references while omitting pending values and summaries; rejected and identical-value candidates create no signal, and detection cannot resolve or mutate state.
 - Package versions hash the normalized request, selected output, complete consulted source inventory, freshness, and omissions, so even budget-omitted state changes invalidate the version. Freshness comes only from persisted timestamps; every accepted item carries accepted-state/candidate/evidence identifiers plus the evidence hash and capture time. Exact full-package UTF-8 accounting is enforced before each selection, per-section omissions are explicit, and undersized envelopes fail closed without a project-state write.
 - A versioned canonical evaluation now seeds the real tenant/evidence/candidate/accepted-state model for the Claude A-C and returning ChatGPT A-D legs. Both disclosed traces retrieve and exactly use the required accepted decisions with zero manual restatement, complete provenance, deterministic budget-compliant packages, and no pending-value leakage. `npm run eval:context` is an offline local and CI gate; it adds no model orchestration and does not replace dated live-host validation.
+- Completed on 2026-08-30. GitHub Actions run `33273541250` passed implementation commit `3a1c32b`. A true fresh local clone installed with `npm ci` with zero reported vulnerabilities, passed formatting, linting, typechecking, secret scanning, all 20 capture evaluations, both canonical cross-host context evaluations, all 48 tests, and production builds for both deployables. Deterministic accepted-state selection, complete provenance and freshness, exact byte budgets and omissions, separately typed questions/artifacts/conflicts, pending/rejected exclusion, read-side project-state immutability, and both-direction tenant isolation are verified. Milestone 06 was not started.
 
 ## Milestone 06 — Private Alpha
 

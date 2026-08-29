@@ -1,12 +1,12 @@
 # Repository and Deployment Boundaries
 
-Status: Accepted through Milestone 04
+Status: Accepted through Milestone 05
 
-Decision date: 2026-08-27; updated 2026-08-29
+Decision date: 2026-08-27; updated 2026-08-30
 
 ## Purpose
 
-Milestone 02 turned the compatibility spike into a repeatable repository. Milestone 03 replaced spike authentication and introduced the tenant-shaped database. Milestone 04 productionizes capture and human review while retaining the same two-deployable boundary.
+Milestone 02 turned the compatibility spike into a repeatable repository. Milestone 03 replaced spike authentication and introduced the tenant-shaped database. Milestone 04 productionized capture and human review. Milestone 05 adds deterministic, provenance-bearing, budgeted consumption and cross-host evaluation while retaining the same two-deployable boundary.
 
 ## Clean-checkout contract
 
