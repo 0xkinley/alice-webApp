@@ -59,6 +59,29 @@ The confirmation transaction may create the immutable evidence, candidate, accep
 
 The product UI uses `Saved context`, `Needs attention`, `Removed`, and `History`. These labels reduce conceptual overhead; they do not remove the internal evidence/candidate/accepted-state boundary.
 
+### Project files and host attachments
+
+Users may attach bounded PDFs, PNG/JPEG/WebP images, plain-text files, and Markdown files to project-wide context or a permitted work context. The initial type and size allowlist must be explicit in schemas and UI rather than delegated to browser filenames or caller-supplied MIME types.
+
+PostgreSQL stores file identifiers, original display names, verified media types, byte sizes, content hashes, uploader and source-host provenance, project/context references, permissions, lifecycle status, versions, extraction status, and audit references. File bytes live in private object storage. Downloads and previews use short-lived authorization after rechecking current project/context access; permanent public object URLs are prohibited.
+
+The upload boundary must verify signatures and media types, sanitize display names and response headers, scan malicious content, bound decompression and page/image processing, avoid executable rendering, and prevent artifact URLs or document instructions from driving tools. Identical content may be deduplicated behind the authorization layer, but no hash lookup or deduplication result may disclose another tenant or restricted context.
+
+A direct authenticated-human upload may immediately create an active artifact reference because the user chose its destination and audience. Statements inside the artifact do not become active project assertions. Deterministic bounded extraction produces provenance-bearing candidate suggestions, and every suggestion requires the same exact authenticated confirmation as other saved context. Extraction, preview, reads, OCR when later admitted, and context assembly cannot alter accepted state.
+
+When a user attaches a file during a ChatGPT or Claude conversation, the desired offer is:
+
+1. show the exact filename, verified type/size when available, active project, active context, and access scope;
+2. offer `Save file only`, `Save file and suggest context`, and `Not now`;
+3. require an alice.-controlled or provider-verified authenticated user confirmation before transferring or storing bytes; and
+4. return a receipt linking to the saved artifact and destination.
+
+A model statement that the user approved, a generated `confirmed` argument, or awareness of a host attachment is not transfer authority. alice. must not copy every host attachment automatically. If a provider cannot securely transfer attachment bytes and provenance through its supported integration, the offer opens a minimal alice. upload page with the permitted project/context preselected. It must not claim success until alice. has received, validated, scanned, stored, authorized, and audited the object.
+
+AI-generated files follow the same flow and are labelled with their source host. The integration stores no host password, session cookie, unrelated conversation history, or reusable attachment URL. Provider capabilities and limits are dated and evaluated separately for ChatGPT and Claude.
+
+Normal context packages include bounded, permission-filtered artifact references and omission reporting rather than automatically embedding every file. A separate explicit read retrieves a selected supported file or bounded excerpt when the host capability and context budget allow it. Remove-from-context stops normal retrieval without erasing history; permanent object erasure follows the published project/account retention and backup policy.
+
 ### Removal, archive, export, and erasure
 
 These are distinct controls:
@@ -125,6 +148,28 @@ The alice. web application provides Connect ChatGPT and Connect Claude surfaces 
 
 Vercel may host the deployables only if the built Express applications, MCP request/transport behavior, stable OAuth origins, PostgreSQL connection strategy, migration process, and operational limits pass hosted tests. Platform choice is subordinate to these properties.
 
+## Visual system and copy approval
+
+Keel (`https://keel.framer.ai/`) is the single visual-system reference for the Milestone 06 public site and authenticated product. The choice is based on its calm product-first hierarchy, restrained dark surfaces, real-interface emphasis, legible state presentation, and suitability for connections, projects, context freshness, history, and needs-attention views.
+
+alice. will not copy Keel source, assets, screenshots, identity, claims, or deployment terminology. The implementation derives an original alice. design system with its own wordmark, tokens, components, product screenshots, responsive behavior, and accessibility. The same system covers marketing, authentication, onboarding, project/context selection, saved context, files, collaborators, permissions, connections, history, privacy, and deletion controls.
+
+Functional, database, authorization, file, provider-capability, and deployment foundations precede final presentation work. The product owner reviews and explicitly approves public and in-product copy before the friend-facing UI is complete. Copy must describe shipped behavior and must not position alice. as a chatbot, AI model, router, or agent orchestrator.
+
+The copy review must cover at least:
+
+- the one-sentence product promise and target user;
+- project/context selection and cross-host continuation;
+- exact-preview save/cancel, saved context, and needs-attention language;
+- direct uploads and host-attachment save offers;
+- invitations, roles, context visibility, and personal drafts;
+- what alice. stores and what is sent to ChatGPT or Claude;
+- removal, archive, export, permanent deletion, retention, and backups;
+- connection recovery and revocation; and
+- invite-only alpha limitations and prohibited sensitive data.
+
+No fabricated testimonials, customer logos, accuracy/ROI claims, compliance badges, provider-training promises, residency promises, or deletion promises may appear. The final UI requires keyboard and screen-reader semantics, visible focus, sufficient contrast, reduced-motion behavior, responsive desktop/mobile layouts, and comprehensible loading, empty, error, denied, revoked, upload, scanning, extraction, and deletion states.
+
 ## Privacy and friend-testing boundary
 
 Until Milestone 06 is complete, testers must be told that this is a local/private prototype and must not enter sensitive, regulated, or client-confidential information.
@@ -153,10 +198,14 @@ Milestone 06 is not complete on local happy paths alone. Verification must cover
 - hosted web and MCP OAuth/read/write/revocation flows from both target hosts;
 - project and context selection across multiple projects and concurrent sessions;
 - exact-preview save confirmation and cancel behavior;
+- direct file upload, validation, scanning, preview, versioning, authorized download, removal, export, erasure, and backup-expiry behavior;
+- ChatGPT and Claude attachment-save offers, confirmed transfer where supported, file-only and extraction choices, cancellation, duplicates, failures, generated files, and the pre-targeted alice. upload fallback;
+- malicious file content and prompt-injection attempts that cannot call tools, broaden access, activate context, or mutate evidence/accepted state;
 - removal from active consumption without provenance loss;
 - invitations, role changes, context restrictions, ownership edge cases, and per-user connections;
 - non-disclosure under cross-tenant, non-member, insufficient-role, guessed-ID, revoked-token, and restricted-context requests;
-- deterministic, budgeted, provenance-bearing context after collaboration filtering; and
+- deterministic, budgeted, provenance-bearing context after collaboration filtering;
+- Keel-directed visual consistency, desktop/mobile accessibility, copy approval, and first-time-user comprehension; and
 - agreement between participant-facing privacy statements and actual system behavior.
 
 Private-alpha recruitment begins only after these checks and the full repository verification contract pass.
