@@ -1,8 +1,8 @@
 # Tenant Isolation Verification
 
-Status: Verified for Milestone 03
+Status: Verified through Milestone 04
 
-Verification date: 2026-08-28
+Verification date: 2026-08-29
 
 ## Policy
 
@@ -31,7 +31,7 @@ The integration fixture creates two authenticated users, separate private worksp
 | Database | Accepted-state reference | Foreign candidate/evidence pair is rejected by composite key | No accepted row is inserted |
 | Database | Audit reference | Foreign workspace/project pair is rejected by composite key | No audit row is inserted |
 
-Project update and deletion paths do not exist in Milestone 03. Teams, memberships, invitations, organizations, sharing, and team UI also remain absent, so they introduce no additional tenant path in this milestone.
+Project update and deletion paths do not exist through Milestone 04. Teams, memberships, invitations, organizations, sharing, and team UI also remain absent, so they introduce no additional tenant path in this milestone.
 
 Milestone 04 adds only the authenticated workspace review dashboard and bounded project status/pagination views. Both are covered in both tenant directions; they introduce no caller-supplied workspace scope and no sharing surface.
 

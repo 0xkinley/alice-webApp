@@ -155,7 +155,7 @@ Notes:
 
 ## Milestone 04 — Capture Loop
 
-Status: In Progress
+Status: Complete
 
 Branch: `milestone-04-capture-loop`
 
@@ -175,9 +175,15 @@ Tasks:
 Success criteria:
 
 - Ordinary AI work does not change alice. state.
-- Explicit saves create evidence and candidates exactly once.
-- Only a human review action can change trusted state.
-- Rejection and supersession preserve complete provenance.
+- An explicit save creates immutable evidence and pending candidates exactly once.
+- Idempotent retries cannot duplicate or alter captured state.
+- Only an authenticated human review action can accept or reject candidates.
+- Rejection and supersession preserve complete provenance and history.
+- Candidate creation cannot change trusted state.
+- Cross-tenant negative tests continue to pass for every capture and review path.
+- Capture evaluations cover correct and incorrect tool-selection behavior.
+- A clean checkout installs, format-checks, lints, typechecks, scans for secrets, tests, and builds both deployables.
+- CI passes, documentation is current, and the working tree is clean.
 
 Notes:
 
@@ -189,6 +195,7 @@ Notes:
 - Pending candidates now expose separate accept and reject forms only behind an authenticated alice. web session. Acceptance creates versioned trusted state; rejection creates none. Each terminal transition shares a transaction with an immutable human-review audit event, failed audit insertion restores `pending`, repeat or conflicting decisions fail without mutation, retries only report terminal status, and both review operations remain absent from MCP.
 - Replacing trusted state now requires a separate authenticated supersession form naming the exact current accepted-state identifier; ordinary acceptance fails once a state key exists. The transaction rejects stale, guessed, foreign, project-mismatched, and key-mismatched targets, appends the next accepted version plus an immutable audit link from old to new, and rolls back the new version and candidate transition if audit creation fails. Prior accepted rows remain immutable and current context selects the highest version.
 - A versioned 20-case capture tool-selection fixture now covers ChatGPT, Claude, and provider-neutral traces: ten compliant explicit-save/read/no-op cases and ten correctly rejected false-positive, false-negative, forbidden-review-tool, and duplicate-write cases. `npm run eval:capture` is a standalone local and CI gate and is also exercised by the test suite. This deterministic policy evaluation does not claim live-host invocation rates; the candidate-only runtime boundary remains authoritative.
+- Completed on 2026-08-29. Implementation commit `a515cdf` passed GitHub Actions run `33271672295`. A fresh detached checkout installed with `npm ci`, passed formatting, linting, typechecking, secret scanning, all 20 capture evaluations, all 43 tests, and production builds for both deployables. Explicit capture is atomic and idempotent; review is authenticated and human-only; rejection and supersession retain immutable history and provenance; tenant-negative coverage remains both-directional. Milestone 05 was not started.
 
 ## Milestone 05 — Consumption Loop
 

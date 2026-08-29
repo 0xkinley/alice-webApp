@@ -1,12 +1,12 @@
 # Repository and Deployment Boundaries
 
-Status: Accepted for Milestone 02; updated for Milestone 03
+Status: Accepted through Milestone 04
 
-Decision date: 2026-08-27; updated 2026-08-28
+Decision date: 2026-08-27; updated 2026-08-29
 
 ## Purpose
 
-Milestone 02 turned the compatibility spike into a repeatable repository. Milestone 03 replaces spike authentication and introduces the tenant-shaped database while retaining the same two-deployable boundary.
+Milestone 02 turned the compatibility spike into a repeatable repository. Milestone 03 replaced spike authentication and introduced the tenant-shaped database. Milestone 04 productionizes capture and human review while retaining the same two-deployable boundary.
 
 ## Clean-checkout contract
 
@@ -38,7 +38,7 @@ Responsibilities:
 - register and authenticate users with one private workspace each;
 - create and revisit tenant-scoped projects;
 - render the candidate review interface;
-- execute explicit human candidate acceptance and rejection; and
+- execute explicit human candidate acceptance, rejection, and supersession; and
 - expose `/health` for process checks.
 
 The web process is server-rendered. It creates no browser JavaScript bundle and exposes no configuration or secret through a client-public environment prefix.
@@ -76,7 +76,7 @@ OAuth client secrets and authorization codes are also hash-only at rest. Integra
 
 Both deployables currently use the versioned SQLite adapter. They may share one database object in tests or one database file when colocated on the same trusted host and durable volume. Do not deploy them to isolated filesystems and assume state will synchronize. Do not horizontally scale this topology.
 
-Milestone 03 adds production-shaped identity and tenant isolation but intentionally does not choose a hosted database. Before private alpha, hosting must provide one shared durable database or a documented move to a server database with equivalent constraints. Host writes remain candidate-only, evidence remains immutable, accepted context is authenticated and provenance-bearing, and only the web review action changes trusted state.
+Milestones 03 and 04 add production-shaped identity, tenant isolation, transactional capture, and explicit human review but intentionally do not choose a hosted database. Before private alpha, hosting must provide one shared durable database or a documented move to a server database with equivalent constraints. Host writes remain candidate-only, evidence remains immutable, accepted context is authenticated and provenance-bearing, and only the web review action changes trusted state.
 
 ## Hosting boundary
 
