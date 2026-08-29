@@ -19,11 +19,12 @@ npm run lint
 npm run typecheck
 npm run check:secrets
 npm run eval:capture
+npm run eval:context
 npm test
 npm run build
 ```
 
-`npm run check` is the equivalent aggregate command. GitHub Actions runs these same gates after `npm ci`, including the versioned capture tool-selection evaluation; it receives read-only repository permissions and no application secrets.
+`npm run check` is the equivalent aggregate command. GitHub Actions runs these same gates after `npm ci`, including the versioned capture tool-selection and canonical cross-host context evaluations; it receives read-only repository permissions and no application secrets.
 
 Generated `dist/` directories are deployment artifacts, not source. They and TypeScript build metadata remain ignored. A deployment must run `npm run build` before starting either server.
 
