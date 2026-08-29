@@ -436,11 +436,17 @@ test("explicit human supersession creates a traceable version without rewriting 
     arguments: { project_id: "project_switchboard_launch", task: "Read current price" },
   });
   const [current] = payload.result.structuredContent.accepted_decisions;
+  const currentEvidence = created.database
+    .prepare("SELECT payload_hash, created_at FROM evidence_events WHERE id = ?")
+    .get(secondEvidenceId);
   assert.equal(current.value, 29);
   assert.equal(current.version, 2);
   assert.deepEqual(current.provenance, {
+    accepted_state_id: versions[1].id,
     candidate_id: secondCandidateId,
     evidence_id: secondEvidenceId,
+    evidence_payload_hash: currentEvidence.payload_hash,
+    evidence_captured_at: currentEvidence.created_at,
   });
 
   assert.throws(
