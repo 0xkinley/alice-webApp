@@ -86,6 +86,8 @@ The tool must not accept, reject, supersede, or otherwise mutate trusted state.
 
 The tool description explicitly forbids invocation for ordinary project activity, suggestions, summaries, or inferred intent. An AI host may call it only after an explicit user request to save or record material in alice. The MCP input boundary is capped at 64 KiB for protocol overhead; the validated capture itself must meet the stricter 32 KiB domain limit above.
 
+The versioned tool-selection fixture and deterministic scoring rules are documented in `docs/capture-evaluations.md`. Correct traces include an explicit-save write and non-capture reads/no-ops; incorrect traces include false-positive writes, missed explicit saves, invented review tools, and duplicate logical capture selection.
+
 Milestone 03 enforces this separation structurally: candidate capture and human acceptance are separate domain operations, and only the web review control plane imports acceptance. Accepted rows are append-only versions whose candidate/evidence pair is constraint-verified. The MCP tool list continues to expose only the three tools above.
 
 ## Deferred tools

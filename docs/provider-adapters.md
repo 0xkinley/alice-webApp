@@ -31,6 +31,8 @@ Verified on 2026-08-27 with ChatGPT Developer mode and `@modelcontextprotocol/se
 
 This is an observed adapter requirement for the recorded versions, not a permanent product assumption. Revalidate it when either host or SDK changes.
 
+Milestone 04 adds the provider-neutral capture tool-selection policy fixture described in `docs/capture-evaluations.md`. It is a deterministic repository gate, not a substitute for recorded live ChatGPT and Claude invocation runs; future live observations must remain versioned and must not rewrite the disclosed expected behavior after results are known.
+
 ## Claude OAuth compatibility
 
 Verified on 2026-08-27 with a personal Claude Pro account and a custom remote MCP connector:

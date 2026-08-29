@@ -45,6 +45,9 @@ jobs:
       - name: Check for leaked secrets
         run: npm run check:secrets
 
+      - name: Evaluate capture tool selection
+        run: npm run eval:capture
+
       - name: Test
         run: npm test
 

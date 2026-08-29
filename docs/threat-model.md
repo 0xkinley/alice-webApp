@@ -49,6 +49,8 @@ Minimum controls:
 - human review before trusted-state mutation
 - visible provenance and revocation
 
+The Milestone 04 capture evaluation gate scores disclosed correct and incorrect logical host traces. It requires exactly one capture selection for an explicit alice. save, forbids capture during ordinary, ambiguous, negative, and read-only requests, and rejects invented review or supersession MCP tools. The evaluation detects adapter-policy regressions; candidate-only writes and independent human review remain the runtime backstop when a host selects incorrectly.
+
 ### Silent canonical overwrite
 
 A candidate, extraction process, or retry changes trusted state automatically.
