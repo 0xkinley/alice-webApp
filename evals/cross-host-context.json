@@ -1,0 +1,87 @@
+{
+  "version": "2026-08-30.1",
+  "canonical_fixture": "docs/spike/round-trip-fixture.md",
+  "project": {
+    "id": "project_switchboard_launch",
+    "name": "Switchboard Launch",
+    "brief": "Define the launch position and first onboarding experiment for alice., the independent project intelligence layer for people who use more than one AI on the same project."
+  },
+  "accepted_state": [
+    {
+      "id": "A",
+      "state_key": "launch.icp",
+      "value": "Independent product consultants and fractional product leads who actively use both ChatGPT and Claude on the same client project."
+    },
+    {
+      "id": "B",
+      "state_key": "launch.product_form",
+      "value": "A web control plane plus an authenticated remote MCP server; alice. is not a chatbot and does not route work between models."
+    },
+    {
+      "id": "C",
+      "state_key": "launch.monthly_price_usd",
+      "value": 24
+    },
+    {
+      "id": "D",
+      "state_key": "launch.onboarding_success",
+      "value": "A user is activated when alice. has ingested at least one project-relevant event from each connected AI account (ChatGPT and Claude) within the same project, within 7 days of signup."
+    }
+  ],
+  "pending_candidates": [
+    {
+      "id": "pending_D_1",
+      "state_key": "launch.onboarding_success",
+      "value": "A user is activated when both ChatGPT and Claude retrieve three accepted claims within seven days."
+    },
+    {
+      "id": "pending_D_2",
+      "state_key": "launch.onboarding_success",
+      "value": "A user is activated when both authenticated AI connections retrieve an accepted state key within seven days."
+    }
+  ],
+  "cases": [
+    {
+      "id": "claude_continuation_uses_A_to_C",
+      "host": "claude",
+      "accepted_ids": ["A", "B", "C"],
+      "required_state_keys": ["launch.icp", "launch.product_form", "launch.monthly_price_usd"],
+      "prompt": "Retrieve the accepted Switchboard Launch context from alice. Using the saved ICP, product form, and monthly price, draft a three-bullet onboarding plan. Then propose one measurable activation decision that requires both AI accounts and explicitly save it to alice. as launch.onboarding_success.",
+      "manually_restated_decision_ids": [],
+      "alice_tool_calls": ["list_projects", "get_project_context", "save_project_update"],
+      "response": {
+        "used_project_state": {
+          "launch.icp": "Independent product consultants and fractional product leads who actively use both ChatGPT and Claude on the same client project.",
+          "launch.product_form": "A web control plane plus an authenticated remote MCP server; alice. is not a chatbot and does not route work between models.",
+          "launch.monthly_price_usd": 24
+        },
+        "proposed_candidate": {
+          "state_key": "launch.onboarding_success",
+          "value": "A user is activated when alice. has ingested at least one project-relevant event from each connected AI account (ChatGPT and Claude) within the same project, within 7 days of signup."
+        }
+      }
+    },
+    {
+      "id": "chatgpt_return_uses_A_to_D",
+      "host": "chatgpt",
+      "accepted_ids": ["A", "B", "C", "D"],
+      "required_state_keys": [
+        "launch.icp",
+        "launch.product_form",
+        "launch.monthly_price_usd",
+        "launch.onboarding_success"
+      ],
+      "prompt": "Retrieve the accepted Switchboard Launch context from alice. Write a compact launch card with: target customer, product form, monthly price, and activation criterion. End with one sentence explaining why the activation criterion fits this product.",
+      "manually_restated_decision_ids": [],
+      "alice_tool_calls": ["list_projects", "get_project_context"],
+      "response": {
+        "used_project_state": {
+          "launch.icp": "Independent product consultants and fractional product leads who actively use both ChatGPT and Claude on the same client project.",
+          "launch.product_form": "A web control plane plus an authenticated remote MCP server; alice. is not a chatbot and does not route work between models.",
+          "launch.monthly_price_usd": 24,
+          "launch.onboarding_success": "A user is activated when alice. has ingested at least one project-relevant event from each connected AI account (ChatGPT and Claude) within the same project, within 7 days of signup."
+        }
+      }
+    }
+  ]
+}

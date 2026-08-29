@@ -1,12 +1,12 @@
 # Repository and Deployment Boundaries
 
-Status: Accepted through Milestone 04
+Status: Accepted through Milestone 05
 
-Decision date: 2026-08-27; updated 2026-08-29
+Decision date: 2026-08-27; updated 2026-08-30
 
 ## Purpose
 
-Milestone 02 turned the compatibility spike into a repeatable repository. Milestone 03 replaced spike authentication and introduced the tenant-shaped database. Milestone 04 productionizes capture and human review while retaining the same two-deployable boundary.
+Milestone 02 turned the compatibility spike into a repeatable repository. Milestone 03 replaced spike authentication and introduced the tenant-shaped database. Milestone 04 productionized capture and human review. Milestone 05 adds deterministic, provenance-bearing, budgeted consumption and cross-host evaluation while retaining the same two-deployable boundary.
 
 ## Clean-checkout contract
 
@@ -19,11 +19,12 @@ npm run lint
 npm run typecheck
 npm run check:secrets
 npm run eval:capture
+npm run eval:context
 npm test
 npm run build
 ```
 
-`npm run check` is the equivalent aggregate command. GitHub Actions runs these same gates after `npm ci`, including the versioned capture tool-selection evaluation; it receives read-only repository permissions and no application secrets.
+`npm run check` is the equivalent aggregate command. GitHub Actions runs these same gates after `npm ci`, including the versioned capture tool-selection and canonical cross-host context evaluations; it receives read-only repository permissions and no application secrets.
 
 Generated `dist/` directories are deployment artifacts, not source. They and TypeScript build metadata remain ignored. A deployment must run `npm run build` before starting either server.
 

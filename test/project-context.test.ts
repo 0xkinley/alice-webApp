@@ -6,6 +6,7 @@ import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
 let accessToken;
 let baseUrl;
 let created;
+let fixtureTimestamp;
 let server;
 
 before(async () => {
@@ -22,6 +23,7 @@ before(async () => {
   } = await authorize(baseUrl));
 
   const now = new Date().toISOString();
+  fixtureTimestamp = now;
   const connection = created.database.prepare("SELECT id FROM integration_connections").get();
   created.database
     .prepare(
@@ -115,9 +117,15 @@ test("lists only projects in the authenticated workspace", async () => {
     arguments: {},
   });
   assert.equal(response.status, 200);
+  assert.equal(payload.result.structuredContent.contract_version, "1.0");
   assert.deepEqual(
     payload.result.structuredContent.projects.map((project) => project.id),
     ["project_switchboard_launch"],
+  );
+  assert.equal(payload.result.structuredContent.projects[0].accepted_state_count, 1);
+  assert.equal(
+    payload.result.structuredContent.projects[0].accepted_state_updated_at,
+    fixtureTimestamp,
   );
 });
 
@@ -131,6 +139,20 @@ test("advertises least-privilege OAuth scopes in ChatGPT-compatible tool metadat
       { type: "oauth2", scopes: ["mcp:read"] },
     ]);
   }
+  assert.equal(toolsByName.list_projects.inputSchema.additionalProperties, false);
+  assert.equal(toolsByName.list_projects.outputSchema.additionalProperties, false);
+  assert.equal(toolsByName.get_project_context.inputSchema.additionalProperties, false);
+  assert.equal(
+    toolsByName.get_project_context.inputSchema.properties.context_budget.minimum,
+    2_000,
+  );
+  assert.equal(
+    toolsByName.get_project_context.inputSchema.properties.context_budget.maximum,
+    32_000,
+  );
+  assert.equal(toolsByName.get_project_context.outputSchema.additionalProperties, false);
+  assert.match(toolsByName.get_project_context.description, /deterministic/);
+  assert.match(toolsByName.get_project_context.description, /cannot mutate project/i);
   assert.deepEqual(toolsByName.save_project_update._meta.securitySchemes, [
     { type: "oauth2", scopes: ["mcp:write"] },
   ]);
@@ -159,6 +181,15 @@ test("advertises least-privilege OAuth scopes in ChatGPT-compatible tool metadat
 });
 
 test("returns accepted context with provenance and excludes pending candidates", async () => {
+  const before = created.database
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM evidence_events) AS evidence,
+        (SELECT COUNT(*) FROM candidate_claims) AS candidates,
+        (SELECT COUNT(*) FROM accepted_project_state) AS accepted,
+        (SELECT COUNT(*) FROM audit_events) AS audit`,
+    )
+    .get();
   const { response, payload } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "get_project_context",
     arguments: {
@@ -168,15 +199,37 @@ test("returns accepted context with provenance and excludes pending candidates",
     },
   });
   assert.equal(response.status, 200);
+  assert.ok(payload.result.structuredContent, JSON.stringify(payload.result));
   const context = payload.result.structuredContent;
   assert.equal(context.accepted_decisions.length, 1);
   assert.equal(context.accepted_decisions[0].state_key, "launch.icp");
   assert.deepEqual(context.accepted_decisions[0].provenance, {
+    accepted_state_id: "accepted_A",
     candidate_id: "candidate_A",
     evidence_id: "evidence_A",
+    evidence_payload_hash: "fixture-hash",
+    evidence_captured_at: fixtureTimestamp,
   });
   assert.doesNotMatch(JSON.stringify(context), /must not leak/);
-  assert.equal(context.package.omission_count, 0);
+  assert.equal(context.contract_version, "1.0");
+  assert.equal(context.package.selection_strategy, "deterministic_full_text_v1");
+  assert.equal(context.package.budget.unit, "utf8_bytes");
+  assert.equal(context.package.budget.limit, 2_000);
+  assert.equal(Buffer.byteLength(JSON.stringify(context), "utf8"), context.package.budget.used);
+  assert.ok(context.package.budget.used <= context.package.budget.limit);
+  assert.equal(context.package.omissions.total, 0);
+  assert.deepEqual(
+    created.database
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM evidence_events) AS evidence,
+          (SELECT COUNT(*) FROM candidate_claims) AS candidates,
+          (SELECT COUNT(*) FROM accepted_project_state) AS accepted,
+          (SELECT COUNT(*) FROM audit_events) AS audit`,
+      )
+      .get(),
+    before,
+  );
 });
 
 test("fails closed for a project outside the authenticated workspace", async () => {

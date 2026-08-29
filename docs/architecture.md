@@ -91,6 +91,8 @@ Milestone 04 makes review a workspace dashboard plus tenant-scoped project queue
 
 Tenant authorization is centralized in the domain package. Web project operations require a server-derived user/workspace scope. MCP capture requires an active user/workspace/client connection scope derived from the verified bearer token. Every policy fails closed before project lookup, and workspace-aware database constraints provide defense in depth.
 
+Milestone 05 consumption contract `1.0` makes project discovery and context output strict, authenticated MCP reads. Context assembly selects only the latest accepted version per state key with deterministic structured-key/full-text scoring, returns accepted questions and reference-only artifacts separately, and warns about different pending alternatives without exposing their values. Complete accepted provenance, persisted freshness, content-addressed package versions, exact UTF-8 budgets, and per-section omissions travel with the package. No embeddings, model orchestration, external artifact fetch, or project-state write occurs during assembly.
+
 ## Repository and deployable boundaries
 
 The repository uses an npm workspace with two deployables and four shared packages:
@@ -116,7 +118,7 @@ The repository targets Node.js 24 and compiles with TypeScript project reference
 
 The root package scripts are the canonical developer and CI interface. They deliberately avoid a task runner or deployment orchestrator while the product has only two small server deployables.
 
-GitHub Actions is the repository CI layer. It receives read-only repository permissions, installs with `npm ci` on Node.js 24, and invokes the same root scripts used locally. The workflow receives no application or provider secrets because verification uses in-memory fixtures and loopback integration servers.
+GitHub Actions is the repository CI layer. It receives read-only repository permissions, installs with `npm ci` on Node.js 24, and invokes the same root scripts used locally. The workflow receives no application or provider secrets because verification uses in-memory fixtures and loopback integration servers. The evaluation gates cover explicit capture tool selection and both canonical target-host consumption traces without invoking external models.
 
 ### Configuration boundary
 

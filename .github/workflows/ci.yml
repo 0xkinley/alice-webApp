@@ -48,6 +48,9 @@ jobs:
       - name: Evaluate capture tool selection
         run: npm run eval:capture
 
+      - name: Evaluate cross-host context
+        run: npm run eval:context
+
       - name: Test
         run: npm test
 

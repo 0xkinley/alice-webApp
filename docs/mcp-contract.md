@@ -1,8 +1,8 @@
 # alice. MCP Contract
 
-Status: Capture contract finalized for Milestone 04
+Status: Consumption and capture contracts finalized through Milestone 05
 
-Decision date: 2026-08-28
+Decision date: 2026-08-28; updated 2026-08-30
 
 ## Design principles
 
@@ -19,28 +19,34 @@ Decision date: 2026-08-28
 
 Lists projects available to the authenticated user in their private workspace.
 
-Side effects: none, apart from safe audit telemetry.
+Input is a strict empty object. Output contract `1.0` contains the project identifier, name, brief, creation/update timestamps, current accepted-state count, and latest accepted-state timestamp. Projects are ordered by name and then identifier. Foreign projects are absent rather than disclosed.
+
+Project-state side effects: none. The read does not append audit rows or mutate projects, evidence, candidates, or accepted state. Bearer authentication may update safe connection-usage metadata outside the project-intelligence boundary.
 
 ### `get_project_context`
 
 Builds a bounded, task-specific context package from accepted project state.
 
-Minimum input:
+Version `1.0` input:
 
 - `project_id`
-- `task`
-- optional context budget
+- `task`: 1-2,000 trimmed characters
+- optional `context_budget`: 2,000-32,000 UTF-8 bytes; default 16,000
 
-Minimum output:
+Version `1.0` output:
 
 - project identity
-- accepted decisions and constraints relevant to the task
-- relevant open questions and artifact references when implemented
-- provenance references
-- package version and freshness
-- omission counts
+- accepted decisions and constraints selected for the task
+- separately labeled relevant open questions, artifact references, and unresolved-conflict notices when available
+- accepted-state, candidate, and evidence provenance references for every accepted assertion
+- deterministic package version and explicit source freshness
+- exact UTF-8 byte budget usage and per-section omission counts
 
-Pending candidate claims are excluded by default.
+The input and output objects are strict MCP schemas. The same authenticated project state and normalized request produce the same package, including version and ordering. Package freshness is derived from persisted project, accepted-state, and evidence timestamps; context assembly does not use a wall-clock generation timestamp.
+
+Pending and rejected candidate values are excluded from trusted decisions by default. An unresolved-conflict notice may identify pending candidate/evidence references for the same accepted state key, but it does not expose the proposed value or present the alternative as trusted. Artifact references are returned as references only; alice. does not fetch or execute their content during context assembly.
+
+Project-state side effects: none. Ordinary reads and context assembly cannot mutate evidence, candidates, accepted state, audit history, or projects. Bearer authentication may update safe connection-usage metadata outside the project-intelligence boundary.
 
 ### `save_project_update`
 

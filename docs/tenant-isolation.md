@@ -1,8 +1,8 @@
 # Tenant Isolation Verification
 
-Status: Verified through Milestone 04
+Status: Verified through Milestone 05
 
-Verification date: 2026-08-29
+Verification date: 2026-08-30
 
 ## Policy
 
@@ -34,6 +34,8 @@ The integration fixture creates two authenticated users, separate private worksp
 Project update and deletion paths do not exist through Milestone 04. Teams, memberships, invitations, organizations, sharing, and team UI also remain absent, so they introduce no additional tenant path in this milestone.
 
 Milestone 04 adds only the authenticated workspace review dashboard and bounded project status/pagination views. Both are covered in both tenant directions; they introduce no caller-supplied workspace scope and no sharing surface.
+
+Milestone 05 enriches the existing MCP `list_projects` and `get_project_context` paths rather than adding a new tenant path. Both-direction negative tests continue to compare foreign and guessed identifiers. Project counts/freshness, accepted provenance, question/artifact classification, conflict detection, budgeting, and omissions are all computed only after resolving the authenticated private workspace; conflict joins repeat workspace/project predicates across accepted state, pending candidates, and both evidence rows.
 
 ## Trusted-state controls retained
 

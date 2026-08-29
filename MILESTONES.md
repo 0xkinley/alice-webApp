@@ -199,7 +199,7 @@ Notes:
 
 ## Milestone 05 — Consumption Loop
 
-Status: Not Started
+Status: Complete
 
 Branch: `milestone-05-consumption-loop`
 
@@ -209,22 +209,37 @@ Deliver compact, trustworthy, task-specific project context to ChatGPT and Claud
 
 Tasks:
 
-- [ ] Finalize `list_projects` and `get_project_context` contracts.
-- [ ] Build deterministic context packages from accepted state.
-- [ ] Include relevant open questions, artifact references, and unresolved conflicts when available.
-- [ ] Add package version, freshness, provenance references, budget, and omission reporting.
-- [ ] Add cross-host context evaluations using the canonical fixture.
+- [x] Finalize `list_projects` and `get_project_context` contracts.
+- [x] Build deterministic context packages from accepted state.
+- [x] Include relevant open questions, artifact references, and unresolved conflicts when available.
+- [x] Add package version, freshness, provenance references, budget, and omission reporting.
+- [x] Add cross-host context evaluations using the canonical fixture.
 
 Success criteria:
 
-- Context contains accepted state rather than unreviewed candidates by default.
-- Every assertion is traceable.
-- Both target hosts correctly use the required project decisions without manual restatement.
-- The package stays within its declared budget and discloses omissions.
+- [x] Context contains accepted state rather than unreviewed candidates by default.
+- [x] Every accepted assertion is traceable to accepted-state, candidate, and evidence provenance.
+- [x] Context assembly is deterministic for the same authenticated project state and request.
+- [x] Package version and persisted-source freshness are explicit.
+- [x] The complete serialized package stays within its declared budget and reports per-section omissions.
+- [x] Relevant open questions, artifact references, and unresolved conflicts are represented without being presented as trusted decisions.
+- [x] Pending and rejected candidate values remain excluded from trusted context by default.
+- [x] Both target-host evaluations correctly use the required project decisions without manual restatement.
+- [x] Cross-tenant negative tests continue to pass for every consumption path.
+- [x] Ordinary reads and context assembly cannot mutate captured or trusted project state.
+- [x] A clean checkout installs, format-checks, lints, typechecks, scans for secrets, runs evaluations, tests, and builds both deployables.
+- [x] CI passes, documentation is current, and the working tree is clean.
 
 Notes:
 
 - Begin with deterministic full-text and structured selection. Do not add embeddings in this milestone.
+- Started on 2026-08-30 after verifying Milestone 04 complete. Merge `263e010` is present on synchronized local and remote `main`, the starting tree was clean, and GitHub Actions run `33272229448` passed the Milestone 04 merge verification.
+- Consumption contract `1.0` now gives both read tools strict input/output schemas and side-effect-free semantics. Project discovery exposes current accepted-state count/freshness, while context requests declare a 2,000-32,000 UTF-8 byte package budget and receive separately typed trusted decisions, open questions, artifact references, conflict notices, deterministic package metadata, provenance, freshness, and omissions.
+- Context assembly now selects only the latest accepted version of each key, ranks it with fixed structured-key and full-text weights against a normalized task, and uses state key plus accepted identifier as deterministic tie-breakers. Repeated reads of unchanged state and request are byte-equivalent; pending, rejected, and superseded values remain excluded.
+- Accepted question- and artifact-prefixed state now appears in separately typed sections with full provenance and reference-only handling. Read-time conflict signals cite the trusted current version plus pending candidate/evidence references while omitting pending values and summaries; rejected and identical-value candidates create no signal, and detection cannot resolve or mutate state.
+- Package versions hash the normalized request, selected output, complete consulted source inventory, freshness, and omissions, so even budget-omitted state changes invalidate the version. Freshness comes only from persisted timestamps; every accepted item carries accepted-state/candidate/evidence identifiers plus the evidence hash and capture time. Exact full-package UTF-8 accounting is enforced before each selection, per-section omissions are explicit, and undersized envelopes fail closed without a project-state write.
+- A versioned canonical evaluation now seeds the real tenant/evidence/candidate/accepted-state model for the Claude A-C and returning ChatGPT A-D legs. Both disclosed traces retrieve and exactly use the required accepted decisions with zero manual restatement, complete provenance, deterministic budget-compliant packages, and no pending-value leakage. `npm run eval:context` is an offline local and CI gate; it adds no model orchestration and does not replace dated live-host validation.
+- Completed on 2026-08-30. GitHub Actions run `33273541250` passed implementation commit `3a1c32b`. A true fresh local clone installed with `npm ci` with zero reported vulnerabilities, passed formatting, linting, typechecking, secret scanning, all 20 capture evaluations, both canonical cross-host context evaluations, all 48 tests, and production builds for both deployables. Deterministic accepted-state selection, complete provenance and freshness, exact byte budgets and omissions, separately typed questions/artifacts/conflicts, pending/rejected exclusion, read-side project-state immutability, and both-direction tenant isolation are verified. Milestone 06 was not started.
 
 ## Milestone 06 — Private Alpha
 

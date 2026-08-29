@@ -161,6 +161,8 @@ Minimum controls:
 - candidates are labeled and excluded by default
 - conflicts and supersession remain visible
 
+Milestone 05 keeps accepted decisions, accepted open questions, reference-only artifacts, and unresolved-conflict notices in separate typed sections. Artifact targets are never fetched during assembly. Conflict notices expose no pending value or summary, label pending alternatives unreviewed, and retain both the accepted provenance chain and pending candidate/evidence references. Rejected candidates are excluded. This warns about disagreement without promoting host-generated content or introducing a read-side mutation.
+
 ## Spike security gates
 
 - Candidate tool calls cannot directly change trusted state.
