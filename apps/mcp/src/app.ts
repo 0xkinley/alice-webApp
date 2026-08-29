@@ -11,7 +11,12 @@ import {
   verifyBearerToken,
 } from "@modelcontextprotocol/server";
 import { openDatabase } from "@alice/database";
-import { getProjectContext, listProjects, saveCandidateUpdate } from "@alice/domain";
+import {
+  ContextBudgetError,
+  getProjectContext,
+  listProjects,
+  saveCandidateUpdate,
+} from "@alice/domain";
 import {
   consumptionContractVersion,
   getProjectContextOutputSchema,
@@ -63,7 +68,7 @@ function createProtocolServer(database, publicUrl) {
     {
       title: "List alice. projects",
       description:
-        "List projects in the authenticated user's private alice. workspace, including current accepted-state counts and freshness. This read has no side effects.",
+        "List projects in the authenticated user's private alice. workspace, including current accepted-state counts and freshness. This read cannot mutate project, captured, or trusted state.",
       inputSchema: listProjectsSchema,
       outputSchema: listProjectsOutputSchema,
       ...oauthToolSecurity("mcp:read"),
@@ -84,19 +89,27 @@ function createProtocolServer(database, publicUrl) {
     {
       title: "Get trusted alice. project context",
       description:
-        "Retrieve a deterministic, budget-bounded project context package from human-accepted alice. state. The package includes explicit freshness, accepted-state/candidate/evidence provenance, and omission reporting. Open questions, artifact references, and unresolved-conflict notices are separately labeled when available; pending and rejected candidate values are never presented as trusted decisions. This read has no side effects.",
+        "Retrieve a deterministic, budget-bounded project context package from human-accepted alice. state. The package includes explicit freshness, accepted-state/candidate/evidence provenance, and omission reporting. Open questions, artifact references, and unresolved-conflict notices are separately labeled when available; pending and rejected candidate values are never presented as trusted decisions. This read cannot mutate project, captured, or trusted state.",
       inputSchema: getProjectContextSchema,
       outputSchema: getProjectContextOutputSchema,
       ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     async ({ project_id: projectId, task, context_budget: contextBudget }, context) => {
-      const projectContext = getProjectContext(database, {
-        userId: authenticatedUserId(context),
-        projectId,
-        task,
-        contextBudget,
-      });
+      let projectContext;
+      try {
+        projectContext = getProjectContext(database, {
+          userId: authenticatedUserId(context),
+          projectId,
+          task,
+          contextBudget,
+        });
+      } catch (error) {
+        if (error instanceof ContextBudgetError) {
+          return { content: [{ type: "text", text: error.message }], isError: true };
+        }
+        throw error;
+      }
       if (!projectContext) {
         return {
           content: [{ type: "text", text: "Project not found in the authenticated workspace." }],

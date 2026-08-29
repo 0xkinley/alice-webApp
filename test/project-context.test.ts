@@ -152,7 +152,7 @@ test("advertises least-privilege OAuth scopes in ChatGPT-compatible tool metadat
   );
   assert.equal(toolsByName.get_project_context.outputSchema.additionalProperties, false);
   assert.match(toolsByName.get_project_context.description, /deterministic/);
-  assert.match(toolsByName.get_project_context.description, /no side effects/i);
+  assert.match(toolsByName.get_project_context.description, /cannot mutate project/i);
   assert.deepEqual(toolsByName.save_project_update._meta.securitySchemes, [
     { type: "oauth2", scopes: ["mcp:write"] },
   ]);
@@ -181,6 +181,15 @@ test("advertises least-privilege OAuth scopes in ChatGPT-compatible tool metadat
 });
 
 test("returns accepted context with provenance and excludes pending candidates", async () => {
+  const before = created.database
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM evidence_events) AS evidence,
+        (SELECT COUNT(*) FROM candidate_claims) AS candidates,
+        (SELECT COUNT(*) FROM accepted_project_state) AS accepted,
+        (SELECT COUNT(*) FROM audit_events) AS audit`,
+    )
+    .get();
   const { response, payload } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "get_project_context",
     arguments: {
@@ -206,7 +215,21 @@ test("returns accepted context with provenance and excludes pending candidates",
   assert.equal(context.package.selection_strategy, "deterministic_full_text_v1");
   assert.equal(context.package.budget.unit, "utf8_bytes");
   assert.equal(context.package.budget.limit, 2_000);
+  assert.equal(Buffer.byteLength(JSON.stringify(context), "utf8"), context.package.budget.used);
+  assert.ok(context.package.budget.used <= context.package.budget.limit);
   assert.equal(context.package.omissions.total, 0);
+  assert.deepEqual(
+    created.database
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM evidence_events) AS evidence,
+          (SELECT COUNT(*) FROM candidate_claims) AS candidates,
+          (SELECT COUNT(*) FROM accepted_project_state) AS accepted,
+          (SELECT COUNT(*) FROM audit_events) AS audit`,
+      )
+      .get(),
+    before,
+  );
 });
 
 test("fails closed for a project outside the authenticated workspace", async () => {

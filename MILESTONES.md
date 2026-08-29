@@ -212,7 +212,7 @@ Tasks:
 - [x] Finalize `list_projects` and `get_project_context` contracts.
 - [x] Build deterministic context packages from accepted state.
 - [x] Include relevant open questions, artifact references, and unresolved conflicts when available.
-- [ ] Add package version, freshness, provenance references, budget, and omission reporting.
+- [x] Add package version, freshness, provenance references, budget, and omission reporting.
 - [ ] Add cross-host context evaluations using the canonical fixture.
 
 Success criteria:
@@ -229,6 +229,7 @@ Notes:
 - Consumption contract `1.0` now gives both read tools strict input/output schemas and side-effect-free semantics. Project discovery exposes current accepted-state count/freshness, while context requests declare a 2,000-32,000 UTF-8 byte package budget and receive separately typed trusted decisions, open questions, artifact references, conflict notices, deterministic package metadata, provenance, freshness, and omissions.
 - Context assembly now selects only the latest accepted version of each key, ranks it with fixed structured-key and full-text weights against a normalized task, and uses state key plus accepted identifier as deterministic tie-breakers. Repeated reads of unchanged state and request are byte-equivalent; pending, rejected, and superseded values remain excluded.
 - Accepted question- and artifact-prefixed state now appears in separately typed sections with full provenance and reference-only handling. Read-time conflict signals cite the trusted current version plus pending candidate/evidence references while omitting pending values and summaries; rejected and identical-value candidates create no signal, and detection cannot resolve or mutate state.
+- Package versions hash the normalized request, selected output, complete consulted source inventory, freshness, and omissions, so even budget-omitted state changes invalidate the version. Freshness comes only from persisted timestamps; every accepted item carries accepted-state/candidate/evidence identifiers plus the evidence hash and capture time. Exact full-package UTF-8 accounting is enforced before each selection, per-section omissions are explicit, and undersized envelopes fail closed without a project-state write.
 
 ## Milestone 06 — Private Alpha
 

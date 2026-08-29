@@ -9,7 +9,7 @@ export {
   revokeUserSession,
   userForSession,
 } from "./authentication.ts";
-export { getProjectContext, listProjects } from "./project-context.ts";
+export { ContextBudgetError, getProjectContext, listProjects } from "./project-context.ts";
 export { createProject, getProject } from "./projects.ts";
 export { getReviewQueue, listReviewProjects } from "./review-queue.ts";
 export { acceptCandidate, rejectCandidate, supersedeAcceptedState } from "./trusted-state.ts";

@@ -257,7 +257,9 @@ export const getProjectContextOutputSchema = z
               .object({
                 candidate_id: z.string(),
                 evidence_id: z.string(),
+                evidence_payload_hash: z.string(),
                 evidence_captured_at: z.string(),
+                review_status: z.literal("pending"),
               })
               .strict(),
           ),

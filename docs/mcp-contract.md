@@ -21,7 +21,7 @@ Lists projects available to the authenticated user in their private workspace.
 
 Input is a strict empty object. Output contract `1.0` contains the project identifier, name, brief, creation/update timestamps, current accepted-state count, and latest accepted-state timestamp. Projects are ordered by name and then identifier. Foreign projects are absent rather than disclosed.
 
-Side effects: none. The read does not append audit rows or update integration usage.
+Project-state side effects: none. The read does not append audit rows or mutate projects, evidence, candidates, or accepted state. Bearer authentication may update safe connection-usage metadata outside the project-intelligence boundary.
 
 ### `get_project_context`
 
@@ -46,7 +46,7 @@ The input and output objects are strict MCP schemas. The same authenticated proj
 
 Pending and rejected candidate values are excluded from trusted decisions by default. An unresolved-conflict notice may identify pending candidate/evidence references for the same accepted state key, but it does not expose the proposed value or present the alternative as trusted. Artifact references are returned as references only; alice. does not fetch or execute their content during context assembly.
 
-Side effects: none. Ordinary reads and context assembly cannot mutate evidence, candidates, accepted state, audit history, projects, or connections.
+Project-state side effects: none. Ordinary reads and context assembly cannot mutate evidence, candidates, accepted state, audit history, or projects. Bearer authentication may update safe connection-usage metadata outside the project-intelligence boundary.
 
 ### `save_project_update`
 

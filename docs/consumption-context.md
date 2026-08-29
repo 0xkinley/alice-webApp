@@ -6,7 +6,7 @@ Decision date: 2026-08-30
 
 ## Contract boundary
 
-`list_projects` and `get_project_context` use consumption contract `1.0`. Both are authenticated, tenant-scoped, deny-by-default reads with no state-changing telemetry. Their strict input and output schemas are advertised through MCP, and foreign or guessed project identifiers remain indistinguishable.
+`list_projects` and `get_project_context` use consumption contract `1.0`. Both are authenticated, tenant-scoped, deny-by-default reads with no project-state mutation. Their strict input and output schemas are advertised through MCP, and foreign or guessed project identifiers remain indistinguishable. Bearer authentication may refresh safe integration `last_used_at` telemetry; it cannot change project, evidence, candidate, accepted-state, or audit records.
 
 `list_projects` returns deterministic project discovery metadata: identity, brief, project timestamps, current accepted-state count, and latest acceptance timestamp. `get_project_context` accepts a project identifier, a normalized task, and an optional maximum serialized-package budget measured in UTF-8 bytes.
 
@@ -28,7 +28,7 @@ An unresolved conflict is derived at read time when a pending candidate proposes
 
 ## Determinism and freshness
 
-Package versions are content hashes over the normalized authenticated request, persisted project identity, selected records, and omission result. The same database state and request therefore produce byte-for-byte equivalent structured content. There is no wall-clock `generated_at` value.
+Package versions are content hashes over the normalized authenticated request, persisted project identity, selected records, complete current accepted/conflict-source inventory, freshness, and omission result. A source change therefore changes the version even when the affected item cannot fit the budget. The same database state and request produce byte-for-byte equivalent structured content. There is no wall-clock `generated_at` value.
 
 Selection uses the latest accepted version of each state key and excludes every other candidate status. The task is normalized with Unicode NFKC, lowercased with the fixed `en-US` locale, split into unique alphanumeric terms, and sorted. Each accepted item receives a deterministic relevance score: exact structured state-key terms have weight 8, candidate-summary terms weight 4, and accepted-value terms weight 2. Higher scores sort first; state key and accepted-state identifier are stable ordinal tie-breakers. Budget selection walks that order once. This is explainable lexical selection, not semantic inference, stemming, embeddings, or model orchestration.
 
@@ -36,7 +36,7 @@ Freshness reports the persisted project update timestamp, latest included accept
 
 ## Budget and omission contract
 
-The caller declares a 2,000-32,000 UTF-8 byte limit, defaulting to 16,000. The budget applies to the complete serialized structured package, including metadata and omission reporting. `budget.used` is the exact UTF-8 byte count of that package and may never exceed `budget.limit`.
+The caller declares a 2,000-32,000 UTF-8 byte limit, defaulting to 16,000. The budget applies to the complete serialized structured package, including metadata and omission reporting. Assembly first verifies that the empty required envelope fits, then attempts ranked items one at a time against the fully serialized candidate package. `budget.used` is the exact UTF-8 byte count of the final package and may never exceed `budget.limit`.
 
 Omissions are counted separately for accepted decisions, open questions, artifact references, and unresolved conflicts. The package reports whether nothing was omitted or whether the byte budget was exhausted. Selection must fail closed if the required envelope cannot fit the minimum supported budget; it must never silently return an oversized package.
 

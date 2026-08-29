@@ -47,8 +47,8 @@ function categoryForStateKey(stateKey) {
 }
 
 const categoryPriority = Object.freeze({
-  unresolved_conflicts: 0,
-  accepted_decisions: 1,
+  accepted_decisions: 0,
+  unresolved_conflicts: 1,
   open_questions: 2,
   artifacts: 3,
 });
@@ -78,6 +78,49 @@ function updateBudgetUsed(context) {
   }
   return context;
 }
+
+function omissionCounts(availableCounts, selected) {
+  const counts = Object.fromEntries(
+    Object.entries(availableCounts).map(([category, available]) => [
+      category,
+      Number(available) - selected[category].length,
+    ]),
+  );
+  return {
+    total: Object.values(counts).reduce((total, count) => total + count, 0),
+    ...counts,
+  };
+}
+
+function buildContext({
+  project,
+  task,
+  selected,
+  freshness,
+  contextBudget,
+  availableCounts,
+  version,
+}) {
+  const omissions = omissionCounts(availableCounts, selected);
+  return updateBudgetUsed({
+    contract_version: consumptionContractVersion,
+    project,
+    task,
+    ...selected,
+    package: {
+      version,
+      selection_strategy: "deterministic_full_text_v1",
+      freshness,
+      budget: { unit: "utf8_bytes", limit: contextBudget, used: 0 },
+      omissions: {
+        ...omissions,
+        reason: omissions.total === 0 ? "none" : "budget_exhausted",
+      },
+    },
+  });
+}
+
+export class ContextBudgetError extends Error {}
 
 export function listProjects(database, userId) {
   const tenant = tenantScopeForUser(database, userId);
@@ -167,6 +210,7 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
          accepted_evidence.created_at AS accepted_evidence_captured_at,
          alternative.id AS alternative_candidate_id,
          alternative.evidence_id AS alternative_evidence_id,
+         alternative_evidence.payload_hash AS alternative_evidence_payload_hash,
          alternative_evidence.created_at AS alternative_evidence_captured_at
        FROM candidate_claims alternative
        JOIN accepted_project_state accepted
@@ -250,7 +294,7 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
           notice:
             "Pending alternatives exist for this accepted state key. Their values are excluded and are not alice.-verified.",
         },
-        relevance: relevanceScore(row, taskTerms) + 1,
+        relevance: relevanceScore(row, taskTerms),
         stableId: row.accepted_state_id,
       };
       conflictsByStateKey.set(row.state_key, conflict);
@@ -258,7 +302,9 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
     conflict.item.unreviewed_alternatives.push({
       candidate_id: row.alternative_candidate_id,
       evidence_id: row.alternative_evidence_id,
+      evidence_payload_hash: row.alternative_evidence_payload_hash,
       evidence_captured_at: row.alternative_evidence_captured_at,
+      review_status: "pending",
     });
   }
 
@@ -271,15 +317,18 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
     artifacts: [],
     unresolved_conflicts: [],
   };
-  let usedBytes = serializedBytes({ project, task });
-  for (const entry of rankedEntries) {
-    const itemBytes = serializedBytes(entry.item);
-    if (usedBytes + itemBytes > contextBudget) continue;
-    selected[entry.category].push(entry.item);
-    usedBytes += itemBytes;
-  }
   const acceptedStateAsOf = latestTimestamp(rows.map((row) => row.accepted_at));
-  const evidenceAsOf = latestTimestamp(rows.map((row) => row.evidence_captured_at));
+  const evidenceAsOf = latestTimestamp([
+    ...rows.map((row) => row.evidence_captured_at),
+    ...conflictRows.map((row) => row.alternative_evidence_captured_at),
+  ]);
+  const freshness = {
+    project_updated_at: project.updated_at,
+    accepted_state_as_of: acceptedStateAsOf,
+    evidence_as_of: evidenceAsOf,
+    state_as_of:
+      latestTimestamp([project.updated_at, acceptedStateAsOf, evidenceAsOf]) || project.updated_at,
+  };
   const availableCounts = {
     accepted_decisions: rankedAccepted.filter((entry) => entry.category === "accepted_decisions")
       .length,
@@ -287,13 +336,62 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
     artifacts: rankedAccepted.filter((entry) => entry.category === "artifacts").length,
     unresolved_conflicts: conflictsByStateKey.size,
   };
-  const omittedCounts = Object.fromEntries(
-    Object.entries(availableCounts).map(([category, available]) => [
-      category,
-      available - selected[category].length,
-    ]),
-  );
-  const omissionTotal = Object.values(omittedCounts).reduce((total, count) => total + count, 0);
+
+  const placeholderVersion = `context_${"0".repeat(64)}`;
+  const emptyContext = buildContext({
+    project,
+    task,
+    selected,
+    freshness,
+    contextBudget,
+    availableCounts,
+    version: placeholderVersion,
+  });
+  if (emptyContext.package.budget.used > contextBudget) {
+    throw new ContextBudgetError(
+      "The requested context budget is too small for the required package envelope.",
+    );
+  }
+
+  for (const entry of rankedEntries) {
+    const attempted = {
+      ...selected,
+      [entry.category]: [...selected[entry.category], entry.item],
+    };
+    const attemptedContext = buildContext({
+      project,
+      task,
+      selected: attempted,
+      freshness,
+      contextBudget,
+      availableCounts,
+      version: placeholderVersion,
+    });
+    if (attemptedContext.package.budget.used <= contextBudget) {
+      selected[entry.category] = attempted[entry.category];
+    }
+  }
+
+  const omissions = omissionCounts(availableCounts, selected);
+  const sourceInventory = {
+    accepted_state: rows.map((row) => ({
+      accepted_state_id: row.accepted_state_id,
+      state_key: row.state_key,
+      value_json: row.value_json,
+      version: row.version,
+      accepted_at: row.accepted_at,
+      candidate_id: row.candidate_id,
+      evidence_id: row.evidence_id,
+      evidence_payload_hash: row.evidence_payload_hash,
+      evidence_captured_at: row.evidence_captured_at,
+    })),
+    pending_conflict_alternatives: conflictRows.map((row) => ({
+      candidate_id: row.alternative_candidate_id,
+      evidence_id: row.alternative_evidence_id,
+      evidence_payload_hash: row.alternative_evidence_payload_hash,
+      evidence_captured_at: row.alternative_evidence_captured_at,
+    })),
+  };
   const packageHash = createHash("sha256")
     .update(
       JSON.stringify({
@@ -302,33 +400,20 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
         task,
         contextBudget,
         selected,
+        freshness,
+        omissions,
+        sourceInventory,
       }),
     )
     .digest("hex");
 
-  const context = {
-    contract_version: consumptionContractVersion,
+  return buildContext({
     project,
     task,
-    ...selected,
-    package: {
-      version: `context_${packageHash}`,
-      selection_strategy: "deterministic_full_text_v1",
-      freshness: {
-        project_updated_at: project.updated_at,
-        accepted_state_as_of: acceptedStateAsOf,
-        evidence_as_of: evidenceAsOf,
-        state_as_of:
-          latestTimestamp([project.updated_at, acceptedStateAsOf, evidenceAsOf]) ||
-          project.updated_at,
-      },
-      budget: { unit: "utf8_bytes", limit: contextBudget, used: 0 },
-      omissions: {
-        total: omissionTotal,
-        ...omittedCounts,
-        reason: omissionTotal === 0 ? "none" : "budget_exhausted",
-      },
-    },
-  };
-  return updateBudgetUsed(context);
+    selected,
+    freshness,
+    contextBudget,
+    availableCounts,
+    version: `context_${packageHash}`,
+  });
 }
