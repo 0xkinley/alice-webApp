@@ -28,7 +28,7 @@ function escapeHtml(value) {
 
 export function renderPage(title, body) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)}</title><style>
-body{font:16px system-ui;max-width:58rem;margin:3rem auto;padding:0 1rem;color:#171717}article{border:1px solid #ddd;border-radius:.7rem;padding:1rem;margin:1rem 0}code{overflow-wrap:anywhere}button,input,textarea{font:inherit;padding:.6rem}.muted{color:#666}.accepted{border-color:#9ccca9;background:#f3fff5}label{display:block;margin:.8rem 0}input,textarea{width:100%;box-sizing:border-box}nav{display:flex;gap:1rem;align-items:center}</style></head><body>${body}</body></html>`;
+body{font:16px system-ui;max-width:58rem;margin:3rem auto;padding:0 1rem;color:#171717}article{border:1px solid #ddd;border-radius:.7rem;padding:1rem;margin:1rem 0}code{overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f7f7f7;padding:.8rem;border-radius:.4rem}button,input,textarea{font:inherit;padding:.6rem}.muted{color:#666}.accepted{border-color:#9ccca9;background:#f3fff5}.rejected{border-color:#d5a1a1;background:#fff6f6}label{display:block;margin:.8rem 0}input,textarea{width:100%;box-sizing:border-box}nav,.actions{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}dl{display:grid;grid-template-columns:max-content 1fr;gap:.35rem .8rem}dt{font-weight:700}dd{margin:0}</style></head><body>${body}</body></html>`;
 }
 
 export function parseCookies(header) {

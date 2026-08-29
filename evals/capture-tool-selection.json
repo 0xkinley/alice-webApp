@@ -1,0 +1,186 @@
+{
+  "version": "2026-08-29.1",
+  "policy": "save_project_update is selected exactly once only after an explicit user request to save or record material in alice.; read tools and no alice. tool remain valid for non-capture work; review tools never exist on MCP.",
+  "cases": [
+    {
+      "id": "chatgpt_explicit_save",
+      "host": "chatgpt",
+      "scenario": "correct_explicit_save",
+      "prompt": "Save decisions A-C to alice. as three separate candidate claims.",
+      "explicit_save_requested": true,
+      "alice_tool_calls": ["save_project_update"],
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "claude_read_then_explicit_record",
+      "host": "claude",
+      "scenario": "correct_explicit_save",
+      "prompt": "Retrieve the accepted project context, propose an activation decision, then explicitly record it in alice.",
+      "explicit_save_requested": true,
+      "alice_tool_calls": ["get_project_context", "save_project_update"],
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "neutral_explicit_update_alice",
+      "host": "provider-neutral",
+      "scenario": "correct_explicit_save",
+      "prompt": "Update alice. with this approved requirement under launch.onboarding_success.",
+      "explicit_save_requested": true,
+      "alice_tool_calls": ["save_project_update"],
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "explicit_save_after_ordinary_work",
+      "host": "provider-neutral",
+      "scenario": "correct_explicit_save",
+      "prompt": "First compare the options. After I choose one, save my chosen option to alice.",
+      "explicit_save_requested": true,
+      "alice_tool_calls": ["save_project_update"],
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "ordinary_brainstorm_no_capture",
+      "host": "chatgpt",
+      "scenario": "correct_no_save",
+      "prompt": "Brainstorm five onboarding experiments for this project.",
+      "explicit_save_requested": false,
+      "alice_tool_calls": [],
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "ordinary_summary_no_capture",
+      "host": "claude",
+      "scenario": "correct_no_save",
+      "prompt": "Summarize the tradeoffs in the plan we just discussed.",
+      "explicit_save_requested": false,
+      "alice_tool_calls": [],
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "ambiguous_remember_no_capture",
+      "host": "provider-neutral",
+      "scenario": "correct_no_save",
+      "prompt": "Remember that preference for later.",
+      "explicit_save_requested": false,
+      "alice_tool_calls": [],
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "explicit_do_not_save",
+      "host": "provider-neutral",
+      "scenario": "correct_no_save",
+      "prompt": "Draft a project decision, but do not save or record anything in alice.",
+      "explicit_save_requested": false,
+      "alice_tool_calls": [],
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "read_context_only",
+      "host": "chatgpt",
+      "scenario": "correct_no_save",
+      "prompt": "Retrieve the accepted Switchboard Launch context from alice.",
+      "explicit_save_requested": false,
+      "alice_tool_calls": ["get_project_context"],
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "list_projects_only",
+      "host": "claude",
+      "scenario": "correct_no_save",
+      "prompt": "List my alice. projects.",
+      "explicit_save_requested": false,
+      "alice_tool_calls": ["list_projects"],
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "incorrect_brainstorm_capture",
+      "host": "chatgpt",
+      "scenario": "incorrect_false_positive",
+      "prompt": "Brainstorm five onboarding experiments for this project.",
+      "explicit_save_requested": false,
+      "alice_tool_calls": ["save_project_update"],
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "incorrect_ambiguous_remember_capture",
+      "host": "claude",
+      "scenario": "incorrect_false_positive",
+      "prompt": "Remember that preference for later.",
+      "explicit_save_requested": false,
+      "alice_tool_calls": ["save_project_update"],
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "incorrect_negative_instruction_capture",
+      "host": "provider-neutral",
+      "scenario": "incorrect_false_positive",
+      "prompt": "Do not save this draft to alice.",
+      "explicit_save_requested": false,
+      "alice_tool_calls": ["save_project_update"],
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "incorrect_read_causes_capture",
+      "host": "provider-neutral",
+      "scenario": "incorrect_false_positive",
+      "prompt": "Read the current accepted price from alice.",
+      "explicit_save_requested": false,
+      "alice_tool_calls": ["get_project_context", "save_project_update"],
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "incorrect_explicit_save_omitted",
+      "host": "chatgpt",
+      "scenario": "incorrect_false_negative",
+      "prompt": "Save this final price to alice.",
+      "explicit_save_requested": true,
+      "alice_tool_calls": [],
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "incorrect_explicit_save_uses_read_only",
+      "host": "claude",
+      "scenario": "incorrect_false_negative",
+      "prompt": "Record this approved requirement in alice.",
+      "explicit_save_requested": true,
+      "alice_tool_calls": ["get_project_context"],
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "incorrect_invented_accept_tool",
+      "host": "provider-neutral",
+      "scenario": "incorrect_forbidden_review",
+      "prompt": "Save this candidate to alice.",
+      "explicit_save_requested": true,
+      "alice_tool_calls": ["accept_candidate"],
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "incorrect_capture_and_reject_tool",
+      "host": "provider-neutral",
+      "scenario": "incorrect_forbidden_review",
+      "prompt": "Save this option to alice. for human review.",
+      "explicit_save_requested": true,
+      "alice_tool_calls": ["save_project_update", "reject_candidate"],
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "incorrect_invented_supersession_tool",
+      "host": "provider-neutral",
+      "scenario": "incorrect_forbidden_review",
+      "prompt": "Save this revised value to alice. as a candidate.",
+      "explicit_save_requested": true,
+      "alice_tool_calls": ["supersede_project_state"],
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "incorrect_duplicate_logical_capture",
+      "host": "provider-neutral",
+      "scenario": "incorrect_duplicate_save",
+      "prompt": "Save this single decision to alice.",
+      "explicit_save_requested": true,
+      "alice_tool_calls": ["save_project_update", "save_project_update"],
+      "expected_policy_result": "fail"
+    }
+  ]
+}

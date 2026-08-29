@@ -1,8 +1,8 @@
 # Tenant Isolation Verification
 
-Status: Verified for Milestone 03
+Status: Verified through Milestone 04
 
-Verification date: 2026-08-28
+Verification date: 2026-08-29
 
 ## Policy
 
@@ -19,8 +19,9 @@ The integration fixture creates two authenticated users, separate private worksp
 | Web | Workspace project list | Other project ID, name, and brief are absent | None |
 | Web | Project detail | Foreign and random project IDs return identical 404 pages | None |
 | Web | Project creation | Submitted foreign `workspace_id` is ignored | New project belongs to the authenticated workspace |
-| Web | Review queue | Foreign and random project IDs return identical 404 pages with no candidate, evidence, or value disclosure | None |
-| Web | Candidate acceptance | Foreign and random candidate IDs return identical 409 pages | Candidate stays pending; accepted-state and audit counts do not change |
+| Web | Workspace review dashboard | Other project names, candidate counts, values, and evidence identifiers are absent | None |
+| Web | Project review queue and status filters | Foreign and random project IDs return identical 404 pages with no candidate, evidence, value, accepted-state, or provenance disclosure | None |
+| Web | Candidate acceptance, rejection, and supersession | Foreign and random candidate/accepted-state IDs return identical 409 pages for each decision | Candidate stays pending; current accepted state, version history, and audit counts do not change |
 | MCP | `list_projects` | Other project ID, name, and brief are absent | None |
 | MCP | `get_project_context` | Foreign and random project IDs return the same not-found tool error | No accepted value, pending value, candidate, or evidence leaks |
 | MCP | `save_project_update` | Foreign and random project IDs return the same not-found tool error | Evidence, candidate, accepted-state, and audit counts do not change |
@@ -30,8 +31,10 @@ The integration fixture creates two authenticated users, separate private worksp
 | Database | Accepted-state reference | Foreign candidate/evidence pair is rejected by composite key | No accepted row is inserted |
 | Database | Audit reference | Foreign workspace/project pair is rejected by composite key | No audit row is inserted |
 
-Project update and deletion paths do not exist in Milestone 03. Teams, memberships, invitations, organizations, sharing, and team UI also remain absent, so they introduce no additional tenant path in this milestone.
+Project update and deletion paths do not exist through Milestone 04. Teams, memberships, invitations, organizations, sharing, and team UI also remain absent, so they introduce no additional tenant path in this milestone.
+
+Milestone 04 adds only the authenticated workspace review dashboard and bounded project status/pagination views. Both are covered in both tenant directions; they introduce no caller-supplied workspace scope and no sharing surface.
 
 ## Trusted-state controls retained
 
-The same matrix confirms that MCP capture remains candidate-only, pending candidates remain absent from trusted context, and only the authenticated web acceptance path creates versioned accepted state. Accepted output retains the exact candidate and evidence provenance identifiers.
+The same matrix confirms that MCP capture remains candidate-only, pending and rejected candidates remain absent from trusted context, and only the authenticated web acceptance path creates versioned accepted state. Authenticated rejection creates no trusted row, and accepted output retains the exact candidate and evidence provenance identifiers.

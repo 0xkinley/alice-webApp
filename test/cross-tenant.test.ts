@@ -113,6 +113,9 @@ before(async () => {
       { method: "POST", headers: { cookie: identity.cookie }, redirect: "manual" },
     );
     assert.equal(accepted.status, 303);
+    identity.acceptedStateId = database
+      .prepare("SELECT id FROM accepted_project_state WHERE candidate_id = ?")
+      .get(identity.acceptedCandidateId).id;
   }
 });
 
@@ -138,6 +141,19 @@ test("web project list, detail, creation, and review queue stay tenant-scoped", 
     assert.match(homeHtml, new RegExp(actor.projectName));
     assert.doesNotMatch(homeHtml, new RegExp(target.projectName));
     assert.doesNotMatch(homeHtml, new RegExp(target.projectId));
+
+    const reviewIndex = await fetch(`${webBaseUrl}/review`, {
+      headers: { cookie: actor.cookie },
+    });
+    const reviewIndexHtml = await reviewIndex.text();
+    assert.equal(reviewIndex.status, 200);
+    assert.match(reviewIndexHtml, new RegExp(actor.projectName));
+    assert.doesNotMatch(
+      reviewIndexHtml,
+      new RegExp(
+        `${target.projectName}|${target.acceptedValue}|${target.pendingValue}|${target.evidenceId}`,
+      ),
+    );
 
     const foreignDetail = await fetch(`${webBaseUrl}/projects/${target.projectId}`, {
       headers: { cookie: actor.cookie },
@@ -191,7 +207,7 @@ test("web project list, detail, creation, and review queue stay tenant-scoped", 
   );
 });
 
-test("foreign and guessed candidate acceptance cannot mutate trusted state", async () => {
+test("foreign and guessed candidate review actions cannot mutate trusted state", async () => {
   for (const [actorKey, targetKey] of [
     ["alpha", "beta"],
     ["beta", "alpha"],
@@ -203,16 +219,48 @@ test("foreign and guessed candidate acceptance cannot mutate trusted state", asy
       .get().count;
     const auditBefore = database.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count;
 
-    const foreign = await fetch(
-      `${webBaseUrl}/review/candidates/${target.pendingCandidateId}/accept`,
-      { method: "POST", headers: { cookie: actor.cookie }, redirect: "manual" },
+    for (const decision of ["accept", "reject"]) {
+      const foreign = await fetch(
+        `${webBaseUrl}/review/candidates/${target.pendingCandidateId}/${decision}`,
+        { method: "POST", headers: { cookie: actor.cookie }, redirect: "manual" },
+      );
+      const guessed = await fetch(
+        `${webBaseUrl}/review/candidates/candidate_${crypto.randomUUID()}/${decision}`,
+        { method: "POST", headers: { cookie: actor.cookie }, redirect: "manual" },
+      );
+      assert.equal(foreign.status, 409);
+      assert.equal(await foreign.text(), await guessed.text());
+    }
+    const foreignSupersession = await fetch(
+      `${webBaseUrl}/review/candidates/${target.pendingCandidateId}/supersede`,
+      {
+        method: "POST",
+        headers: {
+          cookie: actor.cookie,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          superseded_accepted_state_id: target.acceptedStateId,
+        }),
+        redirect: "manual",
+      },
     );
-    const guessed = await fetch(
-      `${webBaseUrl}/review/candidates/candidate_${crypto.randomUUID()}/accept`,
-      { method: "POST", headers: { cookie: actor.cookie }, redirect: "manual" },
+    const guessedSupersession = await fetch(
+      `${webBaseUrl}/review/candidates/candidate_${crypto.randomUUID()}/supersede`,
+      {
+        method: "POST",
+        headers: {
+          cookie: actor.cookie,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          superseded_accepted_state_id: `accepted_${crypto.randomUUID()}`,
+        }),
+        redirect: "manual",
+      },
     );
-    assert.equal(foreign.status, 409);
-    assert.equal(await foreign.text(), await guessed.text());
+    assert.equal(foreignSupersession.status, 409);
+    assert.equal(await foreignSupersession.text(), await guessedSupersession.text());
     assert.equal(
       database
         .prepare("SELECT status FROM candidate_claims WHERE id = ?")

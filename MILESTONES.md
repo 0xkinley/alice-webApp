@@ -155,7 +155,7 @@ Notes:
 
 ## Milestone 04 — Capture Loop
 
-Status: Not Started
+Status: Complete
 
 Branch: `milestone-04-capture-loop`
 
@@ -165,23 +165,37 @@ Productionize explicit capture from supported AI hosts into immutable evidence, 
 
 Tasks:
 
-- [ ] Finalize the `save_project_update` contract and validation limits.
-- [ ] Make evidence, candidates, provenance, and audit creation transactional and idempotent.
-- [ ] Build the candidate review queue.
-- [ ] Implement accept and reject actions.
-- [ ] Implement explicit supersession without overwriting history.
-- [ ] Add capture evaluations for correct and incorrect tool selection.
+- [x] Finalize the `save_project_update` contract and validation limits.
+- [x] Make evidence, candidates, provenance, and audit creation transactional and idempotent.
+- [x] Build the candidate review queue.
+- [x] Implement accept and reject actions.
+- [x] Implement explicit supersession without overwriting history.
+- [x] Add capture evaluations for correct and incorrect tool selection.
 
 Success criteria:
 
 - Ordinary AI work does not change alice. state.
-- Explicit saves create evidence and candidates exactly once.
-- Only a human review action can change trusted state.
-- Rejection and supersession preserve complete provenance.
+- An explicit save creates immutable evidence and pending candidates exactly once.
+- Idempotent retries cannot duplicate or alter captured state.
+- Only an authenticated human review action can accept or reject candidates.
+- Rejection and supersession preserve complete provenance and history.
+- Candidate creation cannot change trusted state.
+- Cross-tenant negative tests continue to pass for every capture and review path.
+- Capture evaluations cover correct and incorrect tool-selection behavior.
+- A clean checkout installs, format-checks, lints, typechecks, scans for secrets, tests, and builds both deployables.
+- CI passes, documentation is current, and the working tree is clean.
 
 Notes:
 
 - Host-generated does not mean alice.-verified.
+- Started on 2026-08-28 after verifying Milestone 03 complete. Merge `e27e546` is present on synchronized local and remote `main`, the starting tree was clean, and GitHub Actions run `33120961142` passed the Milestone 03 merge verification. The complete local `npm run check` contract also passed with 33 tests and both deployable builds before this branch was created.
+- `save_project_update` now exposes a strict, explicit-save-only contract: 1-20 unique state keys, bounded summaries and deliberately supplied source material, safe 8-128 character retry keys, 8 KiB/depth-8/256-node candidate values, and a 32 KiB validated payload ceiling. Unknown fields and attempts to imply acceptance, rejection, or supersession are outside the tool contract; the exact normalized validated payload remains the immutable evidence body.
+- Capture idempotency is now resolved inside the same immediate transaction as evidence, candidates, provenance, and one correlated audit event. Commit requires a complete receipt; forced candidate or audit failures roll every capture row back. Identical retries return the original evidence, audit, correlation, provenance, and payload-ordered candidate identifiers without another write, while different-payload key reuse and incomplete receipts fail closed.
+- The authenticated web control plane now provides a private-workspace review dashboard and per-project queues with pending-only defaults, terminal-history filters, counts, bounded pagination, proposed values, deliberately saved source material, accepted-version references, and evidence/client/tool/hash/timestamp provenance. Workspace and project queries remain server-scoped, and both-direction tests keep foreign projects and queue counts undisclosed.
+- Pending candidates now expose separate accept and reject forms only behind an authenticated alice. web session. Acceptance creates versioned trusted state; rejection creates none. Each terminal transition shares a transaction with an immutable human-review audit event, failed audit insertion restores `pending`, repeat or conflicting decisions fail without mutation, retries only report terminal status, and both review operations remain absent from MCP.
+- Replacing trusted state now requires a separate authenticated supersession form naming the exact current accepted-state identifier; ordinary acceptance fails once a state key exists. The transaction rejects stale, guessed, foreign, project-mismatched, and key-mismatched targets, appends the next accepted version plus an immutable audit link from old to new, and rolls back the new version and candidate transition if audit creation fails. Prior accepted rows remain immutable and current context selects the highest version.
+- A versioned 20-case capture tool-selection fixture now covers ChatGPT, Claude, and provider-neutral traces: ten compliant explicit-save/read/no-op cases and ten correctly rejected false-positive, false-negative, forbidden-review-tool, and duplicate-write cases. `npm run eval:capture` is a standalone local and CI gate and is also exercised by the test suite. This deterministic policy evaluation does not claim live-host invocation rates; the candidate-only runtime boundary remains authoritative.
+- Completed on 2026-08-29. Implementation commit `a515cdf` passed GitHub Actions run `33271672295`. A fresh detached checkout installed with `npm ci`, passed formatting, linting, typechecking, secret scanning, all 20 capture evaluations, all 43 tests, and production builds for both deployables. Explicit capture is atomic and idempotent; review is authenticated and human-only; rejection and supersession retain immutable history and provenance; tenant-negative coverage remains both-directional. Milestone 05 was not started.
 
 ## Milestone 05 — Consumption Loop
 

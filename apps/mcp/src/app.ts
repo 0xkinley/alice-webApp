@@ -49,7 +49,7 @@ function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes 
 }
 
 function createProtocolServer(database, publicUrl) {
-  const server = new McpServer({ name: "alice-mcp", version: "0.3.0" });
+  const server = new McpServer({ name: "alice-mcp", version: "0.4.0" });
 
   server.registerTool(
     "list_projects",
@@ -105,7 +105,7 @@ function createProtocolServer(database, publicUrl) {
     {
       title: "Save a candidate project update to alice.",
       description:
-        "Use only after the user explicitly asks to save or record an update in alice. Stores immutable submitted evidence and pending candidate claims for human review. Never changes trusted project state.",
+        "Use only after the user explicitly asks to save or record an update in alice. Do not call for ordinary project work, suggestions, summaries, or inferred save intent. Stores the bounded validated payload as immutable evidence and creates pending candidate claims for human review. Never accepts, rejects, supersedes, or otherwise changes trusted project state.",
       inputSchema: saveProjectUpdateSchema,
       ...oauthToolSecurity("mcp:write"),
       annotations: {
@@ -130,7 +130,7 @@ function createProtocolServer(database, publicUrl) {
         userId: authenticatedUserId(context),
         payload,
       });
-      if (result.error) {
+      if ("error" in result) {
         return { content: [{ type: "text", text: result.error }], isError: true };
       }
       return {

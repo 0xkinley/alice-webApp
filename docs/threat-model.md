@@ -49,6 +49,8 @@ Minimum controls:
 - human review before trusted-state mutation
 - visible provenance and revocation
 
+The Milestone 04 capture evaluation gate scores disclosed correct and incorrect logical host traces. It requires exactly one capture selection for an explicit alice. save, forbids capture during ordinary, ambiguous, negative, and read-only requests, and rejects invented review or supersession MCP tools. The evaluation detects adapter-policy regressions; candidate-only writes and independent human review remain the runtime backstop when a host selects incorrectly.
+
 ### Silent canonical overwrite
 
 A candidate, extraction process, or retry changes trusted state automatically.
@@ -62,6 +64,10 @@ Minimum controls:
 - explicit supersession
 
 Milestone 03 additionally makes accepted-state rows database-immutable, permits only a single pending-to-terminal candidate status transition, and enforces the accepted candidate/evidence pair with a composite foreign key. A later acceptance of the same key creates the next version; current context selects the highest version without deleting history.
+
+Milestone 04 adds explicit accept and reject forms only to the authenticated first-party web control plane. Acceptance versions trusted state; rejection creates no trusted row. Both decisions share a transaction with their immutable human-review audit event, and any audit failure restores the pending candidate. Terminal candidates cannot be accepted, rejected, or switched again. The MCP server imports no review operation and its advertised tool list contains no review action.
+
+Ordinary acceptance cannot replace an established state key. Supersession is a separate authenticated-human route that must name the exact current accepted-state identifier. The transaction rejects stale, guessed, foreign, cross-key, and cross-project targets, then appends rather than updates: a new accepted version plus an immutable audit link to the superseded identifier/version. Audit failure rolls the candidate and new version back, leaving the prior current version intact.
 
 ### Evidence or audit rewriting
 
@@ -84,6 +90,8 @@ Minimum controls:
 - caller-provided idempotency key
 - unique idempotency constraint scoped to connection and project
 - transactional evidence, candidate, and audit creation
+
+Milestone 04 performs the idempotency lookup under the same immediate transaction as creation. Commit requires a complete receipt containing one immutable evidence event, every submitted candidate, and exactly one correlated audit event. Candidate or audit failure rolls all capture rows back. Identical retries return the original evidence, ordered candidate, audit, correlation, and provenance identifiers without another insert; different-payload reuse and partial stored receipts fail closed.
 
 ### Token leakage or misuse
 
