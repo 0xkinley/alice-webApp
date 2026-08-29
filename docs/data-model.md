@@ -46,11 +46,15 @@ The capture receipt returns each candidate identifier with its current review st
 
 Accept and reject are explicit authenticated-human transactions. Acceptance inserts the next immutable accepted-state version, changes the candidate to `accepted`, and appends `candidate_accepted`; rejection changes the candidate to `rejected` and appends `candidate_rejected` without inserting trusted state. The audit event carries the reviewer identifier plus candidate/evidence/state identifiers and a correlation ID. An audit failure rolls the whole review decision back, and a terminal candidate cannot be reviewed again.
 
+For an established state key, acceptance is replaced by an explicit supersession transaction. A stale supersession target or failed audit leaves both the current trusted version and pending candidate unchanged.
+
 ### Accepted project state
 
 Versioned trusted state accepted by a human. Acceptance creates a traceable state record; it never overwrites or detaches prior history.
 
 The web review control plane calls the tenant-scoped acceptance domain operation. In one transaction it verifies a pending candidate in the reviewer's workspace, allocates the next per-project/state-key version, inserts an immutable accepted row, transitions the candidate to `accepted`, and appends the human-review audit event. A composite foreign key requires the accepted row's candidate and evidence identifiers to be the exact pair recorded on the candidate. Database triggers reject accepted-state updates and deletes.
+
+Milestone 04 separates first acceptance from supersession. Ordinary acceptance is valid only when the project/state key has no accepted row. When trusted state already exists, the human must invoke the dedicated supersession operation with the exact currently accepted identifier shown by the review queue. The operation verifies that identifier is still the latest same-tenant, same-project, same-key version, inserts the next immutable accepted row, and appends an immutable `accepted_state_superseded` audit event linking old and new accepted identifiers and versions plus candidate/evidence provenance. The prior accepted row is never marked, rewritten, detached, or deleted; current context remains the highest version.
 
 ### Conflicts
 

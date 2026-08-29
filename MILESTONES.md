@@ -169,7 +169,7 @@ Tasks:
 - [x] Make evidence, candidates, provenance, and audit creation transactional and idempotent.
 - [x] Build the candidate review queue.
 - [x] Implement accept and reject actions.
-- [ ] Implement explicit supersession without overwriting history.
+- [x] Implement explicit supersession without overwriting history.
 - [ ] Add capture evaluations for correct and incorrect tool selection.
 
 Success criteria:
@@ -187,6 +187,7 @@ Notes:
 - Capture idempotency is now resolved inside the same immediate transaction as evidence, candidates, provenance, and one correlated audit event. Commit requires a complete receipt; forced candidate or audit failures roll every capture row back. Identical retries return the original evidence, audit, correlation, provenance, and payload-ordered candidate identifiers without another write, while different-payload key reuse and incomplete receipts fail closed.
 - The authenticated web control plane now provides a private-workspace review dashboard and per-project queues with pending-only defaults, terminal-history filters, counts, bounded pagination, proposed values, deliberately saved source material, accepted-version references, and evidence/client/tool/hash/timestamp provenance. Workspace and project queries remain server-scoped, and both-direction tests keep foreign projects and queue counts undisclosed.
 - Pending candidates now expose separate accept and reject forms only behind an authenticated alice. web session. Acceptance creates versioned trusted state; rejection creates none. Each terminal transition shares a transaction with an immutable human-review audit event, failed audit insertion restores `pending`, repeat or conflicting decisions fail without mutation, retries only report terminal status, and both review operations remain absent from MCP.
+- Replacing trusted state now requires a separate authenticated supersession form naming the exact current accepted-state identifier; ordinary acceptance fails once a state key exists. The transaction rejects stale, guessed, foreign, project-mismatched, and key-mismatched targets, appends the next accepted version plus an immutable audit link from old to new, and rolls back the new version and candidate transition if audit creation fails. Prior accepted rows remain immutable and current context selects the highest version.
 
 ## Milestone 05 — Consumption Loop
 

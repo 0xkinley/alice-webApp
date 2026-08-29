@@ -113,6 +113,9 @@ before(async () => {
       { method: "POST", headers: { cookie: identity.cookie }, redirect: "manual" },
     );
     assert.equal(accepted.status, 303);
+    identity.acceptedStateId = database
+      .prepare("SELECT id FROM accepted_project_state WHERE candidate_id = ?")
+      .get(identity.acceptedCandidateId).id;
   }
 });
 
@@ -228,6 +231,36 @@ test("foreign and guessed candidate review actions cannot mutate trusted state",
       assert.equal(foreign.status, 409);
       assert.equal(await foreign.text(), await guessed.text());
     }
+    const foreignSupersession = await fetch(
+      `${webBaseUrl}/review/candidates/${target.pendingCandidateId}/supersede`,
+      {
+        method: "POST",
+        headers: {
+          cookie: actor.cookie,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          superseded_accepted_state_id: target.acceptedStateId,
+        }),
+        redirect: "manual",
+      },
+    );
+    const guessedSupersession = await fetch(
+      `${webBaseUrl}/review/candidates/candidate_${crypto.randomUUID()}/supersede`,
+      {
+        method: "POST",
+        headers: {
+          cookie: actor.cookie,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          superseded_accepted_state_id: `accepted_${crypto.randomUUID()}`,
+        }),
+        redirect: "manual",
+      },
+    );
+    assert.equal(foreignSupersession.status, 409);
+    assert.equal(await foreignSupersession.text(), await guessedSupersession.text());
     assert.equal(
       database
         .prepare("SELECT status FROM candidate_claims WHERE id = ?")

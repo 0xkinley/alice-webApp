@@ -3,6 +3,7 @@ import {
   getReviewQueue,
   listReviewProjects,
   rejectCandidate,
+  supersedeAcceptedState,
 } from "@alice/domain";
 import express from "express";
 import { renderPage, requireAuthenticatedUser } from "./auth.ts";
@@ -57,11 +58,18 @@ function candidateCard(candidate) {
   const reviewAudit = candidate.review_audit_id
     ? `<p class="muted">Human decision audit: <code>${escapeHtml(candidate.review_audit_id)}</code> · ${escapeHtml(candidate.reviewed_at)}</p>`
     : "";
+  const currentTrusted =
+    candidate.status === "pending" && candidate.current_accepted_state_id
+      ? `<aside><h3>Current trusted state</h3><p>Version ${candidate.current_accepted_version} · <code>${escapeHtml(candidate.current_accepted_state_id)}</code></p><pre>${renderJson(candidate.current_accepted_value_json)}</pre><p>Accepting this candidate requires an explicit supersession action; the current version will remain immutable history.</p></aside>`
+      : "";
+  const acceptAction = candidate.current_accepted_state_id
+    ? `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/supersede"><input type="hidden" name="superseded_accepted_state_id" value="${escapeHtml(candidate.current_accepted_state_id)}"><button type="submit">Supersede trusted version ${candidate.current_accepted_version}</button></form>`
+    : `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/accept"><button type="submit">Accept into trusted state</button></form>`;
   const actions =
     candidate.status === "pending"
-      ? `<div class="actions"><form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/accept"><button type="submit">Accept into trusted state</button></form><form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/reject"><button type="submit">Reject candidate</button></form></div>`
+      ? `<div class="actions">${acceptAction}<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/reject"><button type="submit">Reject candidate</button></form></div>`
       : "";
-  return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p><p class="muted">Status: ${escapeHtml(candidate.status)} · Candidate: <code>${escapeHtml(candidate.id)}</code></p>${accepted}${reviewAudit}${evidenceDetails(candidate)}${actions}</article>`;
+  return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p><p class="muted">Status: ${escapeHtml(candidate.status)} · Candidate: <code>${escapeHtml(candidate.id)}</code></p>${accepted}${reviewAudit}${currentTrusted}${evidenceDetails(candidate)}${actions}</article>`;
 }
 
 function paginationLinks(queue) {
@@ -152,6 +160,25 @@ export function createReviewRouter({ database }) {
         .status(409)
         .type("html")
         .send(renderPage("Not rejected", "<h1>Candidate is not pending or accessible.</h1>"));
+    response.redirect(303, `/review?project_id=${encodeURIComponent(result.projectId)}`);
+  });
+
+  router.post("/candidates/:candidateId/supersede", (request, response) => {
+    const result = supersedeAcceptedState(database, {
+      candidateId: request.params.candidateId,
+      supersededAcceptedStateId: String(request.body.superseded_accepted_state_id || ""),
+      userId: request.aliceUser!.id,
+    });
+    if (!result)
+      return response
+        .status(409)
+        .type("html")
+        .send(
+          renderPage(
+            "Not superseded",
+            "<h1>Candidate or current trusted version is not pending or accessible.</h1>",
+          ),
+        );
     response.redirect(303, `/review?project_id=${encodeURIComponent(result.projectId)}`);
   });
 

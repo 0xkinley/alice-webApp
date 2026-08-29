@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { createApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
-import { getReviewQueue, listReviewProjects, rejectCandidate } from "@alice/domain";
+import {
+  getReviewQueue,
+  listReviewProjects,
+  rejectCandidate,
+  supersedeAcceptedState,
+} from "@alice/domain";
 import { authorize, callMcp, createTestIdentity, TEST_EMAIL, TEST_PASSWORD } from "./helpers.ts";
 
 let accessToken;
@@ -313,7 +318,7 @@ test("a failed rejection audit rolls the candidate status back to pending", asyn
   );
 });
 
-test("a later human acceptance creates a traceable version without rewriting history", async () => {
+test("explicit human supersession creates a traceable version without rewriting history", async () => {
   const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "save_project_update",
     arguments: {
@@ -327,12 +332,73 @@ test("a later human acceptance creates a traceable version without rewriting his
   });
   const secondCandidateId = capture.result.structuredContent.candidate_ids[0];
   const secondEvidenceId = capture.result.structuredContent.evidence_id;
-  const accept = await fetch(`${webUrl}/review/candidates/${secondCandidateId}/accept`, {
+  const firstAccepted = created.database
+    .prepare(
+      `SELECT * FROM accepted_project_state
+       WHERE state_key = 'launch.monthly_price_usd' AND version = 1`,
+    )
+    .get();
+  const pendingReview = await fetch(`${webUrl}/review?project_id=project_switchboard_launch`, {
+    headers: { cookie: reviewCookie },
+  });
+  const pendingReviewHtml = await pendingReview.text();
+  assert.match(pendingReviewHtml, new RegExp(firstAccepted.id));
+  assert.match(pendingReviewHtml, /Current trusted state/);
+  assert.match(pendingReviewHtml, /Supersede trusted version 1/);
+  assert.doesNotMatch(
+    pendingReviewHtml,
+    new RegExp(`/review/candidates/${secondCandidateId}/accept`),
+  );
+
+  const acceptedCountBefore = created.database
+    .prepare("SELECT COUNT(*) AS count FROM accepted_project_state")
+    .get().count;
+  const auditCountBefore = created.database
+    .prepare("SELECT COUNT(*) AS count FROM audit_events")
+    .get().count;
+  const implicitAccept = await fetch(`${webUrl}/review/candidates/${secondCandidateId}/accept`, {
     method: "POST",
     headers: { cookie: reviewCookie },
     redirect: "manual",
   });
-  assert.equal(accept.status, 303);
+  assert.equal(implicitAccept.status, 409);
+  const staleTarget = await fetch(`${webUrl}/review/candidates/${secondCandidateId}/supersede`, {
+    method: "POST",
+    headers: {
+      cookie: reviewCookie,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      superseded_accepted_state_id: `accepted_${crypto.randomUUID()}`,
+    }),
+    redirect: "manual",
+  });
+  assert.equal(staleTarget.status, 409);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
+    acceptedCountBefore,
+  );
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count,
+    auditCountBefore,
+  );
+  assert.equal(
+    created.database
+      .prepare("SELECT status FROM candidate_claims WHERE id = ?")
+      .get(secondCandidateId).status,
+    "pending",
+  );
+
+  const supersede = await fetch(`${webUrl}/review/candidates/${secondCandidateId}/supersede`, {
+    method: "POST",
+    headers: {
+      cookie: reviewCookie,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ superseded_accepted_state_id: firstAccepted.id }),
+    redirect: "manual",
+  });
+  assert.equal(supersede.status, 303);
 
   const versions = created.database
     .prepare(
@@ -351,6 +417,19 @@ test("a later human acceptance creates a traceable version without rewriting his
   assert.equal(JSON.parse(versions[1].value_json), 29);
   assert.equal(versions[1].candidate_id, secondCandidateId);
   assert.equal(versions[1].evidence_id, secondEvidenceId);
+  const supersessionAudit = created.database
+    .prepare("SELECT * FROM audit_events WHERE action = 'accepted_state_superseded'")
+    .get();
+  assert.equal(supersessionAudit.actor_type, "human_reviewer");
+  assert.deepEqual(JSON.parse(supersessionAudit.safe_metadata_json), {
+    accepted_state_id: versions[1].id,
+    candidate_id: secondCandidateId,
+    evidence_id: secondEvidenceId,
+    state_key: "launch.monthly_price_usd",
+    version: 2,
+    superseded_accepted_state_id: firstAccepted.id,
+    superseded_version: 1,
+  });
 
   const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "get_project_context",
@@ -376,6 +455,99 @@ test("a later human acceptance creates a traceable version without rewriting his
     () => created.database.prepare("DELETE FROM candidate_claims").run(),
     /preserve history/,
   );
+
+  const repeat = await fetch(`${webUrl}/review/candidates/${secondCandidateId}/supersede`, {
+    method: "POST",
+    headers: {
+      cookie: reviewCookie,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ superseded_accepted_state_id: firstAccepted.id }),
+    redirect: "manual",
+  });
+  assert.equal(repeat.status, 409);
+});
+
+test("a failed supersession audit preserves the current trusted version and pending candidate", async () => {
+  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "save_project_update",
+    arguments: {
+      project_id: "project_switchboard_launch",
+      summary: "Supersession rollback fixture",
+      candidate_claims: [
+        {
+          state_key: "launch.monthly_price_usd",
+          value: 35,
+          summary: "Must not supersede without audit",
+        },
+      ],
+      idempotency_key: "review-supersession-rollback",
+    },
+  });
+  const candidateId = capture.result.structuredContent.candidate_ids[0];
+  const current = created.database
+    .prepare(
+      `SELECT * FROM accepted_project_state
+       WHERE state_key = 'launch.monthly_price_usd'
+       ORDER BY version DESC LIMIT 1`,
+    )
+    .get();
+  const userId = created.database
+    .prepare("SELECT id FROM users WHERE email = ?")
+    .get(TEST_EMAIL).id;
+  const countsBefore = created.database
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM accepted_project_state) AS accepted,
+        (SELECT COUNT(*) FROM audit_events) AS audit`,
+    )
+    .get();
+  created.database.exec(`
+    CREATE TRIGGER force_supersession_audit_failure
+    BEFORE INSERT ON audit_events
+    WHEN NEW.action = 'accepted_state_superseded'
+    BEGIN
+      SELECT RAISE(ABORT, 'forced supersession audit failure');
+    END;
+  `);
+  try {
+    assert.throws(
+      () =>
+        supersedeAcceptedState(created.database, {
+          candidateId,
+          supersededAcceptedStateId: current.id,
+          userId,
+        }),
+      /forced supersession audit failure/,
+    );
+  } finally {
+    created.database.exec("DROP TRIGGER force_supersession_audit_failure");
+  }
+  assert.deepEqual(
+    created.database
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM accepted_project_state) AS accepted,
+          (SELECT COUNT(*) FROM audit_events) AS audit`,
+      )
+      .get(),
+    countsBefore,
+  );
+  assert.equal(
+    created.database.prepare("SELECT status FROM candidate_claims WHERE id = ?").get(candidateId)
+      .status,
+    "pending",
+  );
+  const stillCurrent = created.database
+    .prepare(
+      `SELECT id, value_json, version FROM accepted_project_state
+       WHERE state_key = 'launch.monthly_price_usd'
+       ORDER BY version DESC LIMIT 1`,
+    )
+    .get();
+  assert.equal(stillCurrent.id, current.id);
+  assert.equal(stillCurrent.value_json, "29");
+  assert.equal(stillCurrent.version, 2);
 });
 
 test("MCP exposes no trusted-state review action", async () => {

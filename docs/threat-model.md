@@ -65,6 +65,8 @@ Milestone 03 additionally makes accepted-state rows database-immutable, permits 
 
 Milestone 04 adds explicit accept and reject forms only to the authenticated first-party web control plane. Acceptance versions trusted state; rejection creates no trusted row. Both decisions share a transaction with their immutable human-review audit event, and any audit failure restores the pending candidate. Terminal candidates cannot be accepted, rejected, or switched again. The MCP server imports no review operation and its advertised tool list contains no review action.
 
+Ordinary acceptance cannot replace an established state key. Supersession is a separate authenticated-human route that must name the exact current accepted-state identifier. The transaction rejects stale, guessed, foreign, cross-key, and cross-project targets, then appends rather than updates: a new accepted version plus an immutable audit link to the superseded identifier/version. Audit failure rolls the candidate and new version back, leaving the prior current version intact.
+
 ### Evidence or audit rewriting
 
 A compromised application path attempts to update or delete the source material or security history after the fact.
