@@ -8,6 +8,36 @@ function parseJson(value) {
   return JSON.parse(value);
 }
 
+function normalizedTerms(value) {
+  return [
+    ...new Set(
+      String(value)
+        .normalize("NFKC")
+        .toLocaleLowerCase("en-US")
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter(Boolean),
+    ),
+  ].sort();
+}
+
+function relevanceScore(row, taskTerms) {
+  const stateKeyTerms = new Set(normalizedTerms(row.state_key));
+  const summaryTerms = new Set(normalizedTerms(row.summary));
+  const valueTerms = new Set(normalizedTerms(row.value_json));
+  return taskTerms.reduce(
+    (score, term) =>
+      score +
+      (stateKeyTerms.has(term) ? 8 : 0) +
+      (summaryTerms.has(term) ? 4 : 0) +
+      (valueTerms.has(term) ? 2 : 0),
+    0,
+  );
+}
+
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function serializedBytes(value) {
   return Buffer.byteLength(JSON.stringify(value), "utf8");
 }
@@ -98,20 +128,35 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
     )
     .all(projectId, tenant.workspaceId);
 
-  const decisions = rows.map((row) => ({
-    state_key: row.state_key,
-    summary: row.summary,
-    value: parseJson(row.value_json),
-    version: row.version,
-    accepted_at: row.accepted_at,
-    provenance: {
-      accepted_state_id: row.accepted_state_id,
-      candidate_id: row.candidate_id,
-      evidence_id: row.evidence_id,
-      evidence_payload_hash: row.evidence_payload_hash,
-      evidence_captured_at: row.evidence_captured_at,
-    },
-  }));
+  const taskTerms = normalizedTerms(task);
+  const decisions = rows
+    .map((row) => ({
+      item: {
+        state_key: row.state_key,
+        summary: row.summary,
+        value: parseJson(row.value_json),
+        version: row.version,
+        accepted_at: row.accepted_at,
+        provenance: {
+          accepted_state_id: row.accepted_state_id,
+          candidate_id: row.candidate_id,
+          evidence_id: row.evidence_id,
+          evidence_payload_hash: row.evidence_payload_hash,
+          evidence_captured_at: row.evidence_captured_at,
+        },
+      },
+      relevance: relevanceScore(row, taskTerms),
+    }))
+    .sort(
+      (left, right) =>
+        right.relevance - left.relevance ||
+        compareText(left.item.state_key, right.item.state_key) ||
+        compareText(
+          left.item.provenance.accepted_state_id,
+          right.item.provenance.accepted_state_id,
+        ),
+    )
+    .map(({ item }) => item);
 
   const acceptedDecisions: typeof decisions = [];
   let usedBytes = serializedBytes({ project, task });

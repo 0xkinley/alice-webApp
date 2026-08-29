@@ -26,6 +26,8 @@ Artifact values are references only. Context assembly must not fetch a URL, inge
 
 Package versions are content hashes over the normalized authenticated request, persisted project identity, selected records, and omission result. The same database state and request therefore produce byte-for-byte equivalent structured content. There is no wall-clock `generated_at` value.
 
+Selection uses the latest accepted version of each state key and excludes every other candidate status. The task is normalized with Unicode NFKC, lowercased with the fixed `en-US` locale, split into unique alphanumeric terms, and sorted. Each accepted item receives a deterministic relevance score: exact structured state-key terms have weight 8, candidate-summary terms weight 4, and accepted-value terms weight 2. Higher scores sort first; state key and accepted-state identifier are stable ordinal tie-breakers. Budget selection walks that order once. This is explainable lexical selection, not semantic inference, stemming, embeddings, or model orchestration.
+
 Freshness reports the persisted project update timestamp, latest included accepted-state timestamp, latest included evidence-capture timestamp, and their maximum as `state_as_of`. These values describe source freshness; they do not claim that the underlying project assertion is still true outside alice.
 
 ## Budget and omission contract
