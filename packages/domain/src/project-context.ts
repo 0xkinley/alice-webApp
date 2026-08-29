@@ -38,6 +38,30 @@ function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+function categoryForStateKey(stateKey) {
+  if (/^(?:question|questions|open_question|open_questions)[._-]/.test(stateKey)) {
+    return "open_questions";
+  }
+  if (/^(?:artifact|artifacts)[._-]/.test(stateKey)) return "artifacts";
+  return "accepted_decisions";
+}
+
+const categoryPriority = Object.freeze({
+  unresolved_conflicts: 0,
+  accepted_decisions: 1,
+  open_questions: 2,
+  artifacts: 3,
+});
+
+function compareRankedEntries(left, right) {
+  return (
+    right.relevance - left.relevance ||
+    categoryPriority[left.category] - categoryPriority[right.category] ||
+    compareText(left.item.state_key, right.item.state_key) ||
+    compareText(left.stableId, right.stableId)
+  );
+}
+
 function serializedBytes(value) {
   return Buffer.byteLength(JSON.stringify(value), "utf8");
 }
@@ -128,9 +152,60 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
     )
     .all(projectId, tenant.workspaceId);
 
+  const conflictRows = database
+    .prepare(
+      `SELECT
+         accepted.id AS accepted_state_id,
+         accepted.state_key,
+         accepted.value_json,
+         accepted.version,
+         accepted.accepted_at,
+         accepted.candidate_id AS accepted_candidate_id,
+         accepted.evidence_id AS accepted_evidence_id,
+         accepted_candidate.summary,
+         accepted_evidence.payload_hash AS accepted_evidence_payload_hash,
+         accepted_evidence.created_at AS accepted_evidence_captured_at,
+         alternative.id AS alternative_candidate_id,
+         alternative.evidence_id AS alternative_evidence_id,
+         alternative_evidence.created_at AS alternative_evidence_captured_at
+       FROM candidate_claims alternative
+       JOIN accepted_project_state accepted
+         ON accepted.workspace_id = alternative.workspace_id
+        AND accepted.project_id = alternative.project_id
+        AND accepted.state_key = alternative.state_key
+        AND NOT EXISTS (
+          SELECT 1 FROM accepted_project_state newer
+          WHERE newer.workspace_id = accepted.workspace_id
+            AND newer.project_id = accepted.project_id
+            AND newer.state_key = accepted.state_key
+            AND newer.version > accepted.version
+        )
+       JOIN candidate_claims accepted_candidate
+         ON accepted_candidate.workspace_id = accepted.workspace_id
+        AND accepted_candidate.project_id = accepted.project_id
+        AND accepted_candidate.id = accepted.candidate_id
+        AND accepted_candidate.evidence_id = accepted.evidence_id
+       JOIN evidence_events accepted_evidence
+         ON accepted_evidence.workspace_id = accepted.workspace_id
+        AND accepted_evidence.project_id = accepted.project_id
+        AND accepted_evidence.id = accepted.evidence_id
+       JOIN evidence_events alternative_evidence
+         ON alternative_evidence.workspace_id = alternative.workspace_id
+        AND alternative_evidence.project_id = alternative.project_id
+        AND alternative_evidence.id = alternative.evidence_id
+       WHERE alternative.workspace_id = ?
+         AND alternative.project_id = ?
+         AND alternative.status = 'pending'
+         AND alternative.value_json <> accepted.value_json
+       ORDER BY accepted.state_key, alternative.id`,
+    )
+    .all(tenant.workspaceId, projectId);
+
   const taskTerms = normalizedTerms(task);
-  const decisions = rows
-    .map((row) => ({
+  const rankedAccepted = rows.map((row) => {
+    const category = categoryForStateKey(row.state_key);
+    return {
+      category,
       item: {
         state_key: row.state_key,
         summary: row.summary,
@@ -144,30 +219,81 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
           evidence_payload_hash: row.evidence_payload_hash,
           evidence_captured_at: row.evidence_captured_at,
         },
+        ...(category === "open_questions" ? { status: "open" } : {}),
+        ...(category === "artifacts" ? { handling: "reference_only" } : {}),
       },
       relevance: relevanceScore(row, taskTerms),
-    }))
-    .sort(
-      (left, right) =>
-        right.relevance - left.relevance ||
-        compareText(left.item.state_key, right.item.state_key) ||
-        compareText(
-          left.item.provenance.accepted_state_id,
-          right.item.provenance.accepted_state_id,
-        ),
-    )
-    .map(({ item }) => item);
+      stableId: row.accepted_state_id,
+    };
+  });
 
-  const acceptedDecisions: typeof decisions = [];
+  const conflictsByStateKey = new Map();
+  for (const row of conflictRows) {
+    let conflict = conflictsByStateKey.get(row.state_key);
+    if (!conflict) {
+      conflict = {
+        category: "unresolved_conflicts",
+        item: {
+          state_key: row.state_key,
+          status: "unresolved",
+          trusted_current: {
+            version: row.version,
+            provenance: {
+              accepted_state_id: row.accepted_state_id,
+              candidate_id: row.accepted_candidate_id,
+              evidence_id: row.accepted_evidence_id,
+              evidence_payload_hash: row.accepted_evidence_payload_hash,
+              evidence_captured_at: row.accepted_evidence_captured_at,
+            },
+          },
+          unreviewed_alternatives: [],
+          notice:
+            "Pending alternatives exist for this accepted state key. Their values are excluded and are not alice.-verified.",
+        },
+        relevance: relevanceScore(row, taskTerms) + 1,
+        stableId: row.accepted_state_id,
+      };
+      conflictsByStateKey.set(row.state_key, conflict);
+    }
+    conflict.item.unreviewed_alternatives.push({
+      candidate_id: row.alternative_candidate_id,
+      evidence_id: row.alternative_evidence_id,
+      evidence_captured_at: row.alternative_evidence_captured_at,
+    });
+  }
+
+  const rankedEntries = [...rankedAccepted, ...conflictsByStateKey.values()].sort(
+    compareRankedEntries,
+  );
+  const selected = {
+    accepted_decisions: [],
+    open_questions: [],
+    artifacts: [],
+    unresolved_conflicts: [],
+  };
   let usedBytes = serializedBytes({ project, task });
-  for (const decision of decisions) {
-    const decisionBytes = serializedBytes(decision);
-    if (usedBytes + decisionBytes > contextBudget) continue;
-    acceptedDecisions.push(decision);
-    usedBytes += decisionBytes;
+  for (const entry of rankedEntries) {
+    const itemBytes = serializedBytes(entry.item);
+    if (usedBytes + itemBytes > contextBudget) continue;
+    selected[entry.category].push(entry.item);
+    usedBytes += itemBytes;
   }
   const acceptedStateAsOf = latestTimestamp(rows.map((row) => row.accepted_at));
   const evidenceAsOf = latestTimestamp(rows.map((row) => row.evidence_captured_at));
+  const availableCounts = {
+    accepted_decisions: rankedAccepted.filter((entry) => entry.category === "accepted_decisions")
+      .length,
+    open_questions: rankedAccepted.filter((entry) => entry.category === "open_questions").length,
+    artifacts: rankedAccepted.filter((entry) => entry.category === "artifacts").length,
+    unresolved_conflicts: conflictsByStateKey.size,
+  };
+  const omittedCounts = Object.fromEntries(
+    Object.entries(availableCounts).map(([category, available]) => [
+      category,
+      available - selected[category].length,
+    ]),
+  );
+  const omissionTotal = Object.values(omittedCounts).reduce((total, count) => total + count, 0);
   const packageHash = createHash("sha256")
     .update(
       JSON.stringify({
@@ -175,7 +301,7 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
         project,
         task,
         contextBudget,
-        acceptedDecisions,
+        selected,
       }),
     )
     .digest("hex");
@@ -184,10 +310,7 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
     contract_version: consumptionContractVersion,
     project,
     task,
-    accepted_decisions: acceptedDecisions,
-    open_questions: [],
-    artifacts: [],
-    unresolved_conflicts: [],
+    ...selected,
     package: {
       version: `context_${packageHash}`,
       selection_strategy: "deterministic_full_text_v1",
@@ -201,12 +324,9 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
       },
       budget: { unit: "utf8_bytes", limit: contextBudget, used: 0 },
       omissions: {
-        total: decisions.length - acceptedDecisions.length,
-        accepted_decisions: decisions.length - acceptedDecisions.length,
-        open_questions: 0,
-        artifacts: 0,
-        unresolved_conflicts: 0,
-        reason: decisions.length === acceptedDecisions.length ? "none" : "budget_exhausted",
+        total: omissionTotal,
+        ...omittedCounts,
+        reason: omissionTotal === 0 ? "none" : "budget_exhausted",
       },
     },
   };

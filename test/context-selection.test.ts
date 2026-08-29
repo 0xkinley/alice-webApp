@@ -108,6 +108,30 @@ function createContextFixture() {
     version: 1,
   });
   addClaim({
+    id: "question",
+    stateKey: "open_questions.launch_copy",
+    value: "Which launch message should lead the onboarding page?",
+    version: 1,
+  });
+  addClaim({
+    id: "artifact",
+    stateKey: "artifacts.launch_brief",
+    value: { title: "Launch brief", url: "https://example.invalid/launch-brief" },
+    version: 1,
+  });
+  addClaim({
+    id: "price_alternative",
+    stateKey: "launch.monthly_price_usd",
+    value: 30,
+    status: "pending",
+  });
+  addClaim({
+    id: "price_rejected",
+    stateKey: "launch.monthly_price_usd",
+    value: 99,
+    status: "rejected",
+  });
+  addClaim({
     id: "pending",
     stateKey: "launch.pending_secret",
     value: "pending must not appear",
@@ -146,4 +170,36 @@ test("deterministically prioritizes task-relevant latest accepted state", () => 
     /accepted_price_v1|pending must not appear|rejected must not appear/,
   );
   assert.equal(first.package.version, second.package.version);
+});
+
+test("separates accepted questions, artifact references, and unresolved conflict notices", () => {
+  const { database, identity } = createContextFixture();
+  const context = getProjectContext(database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    task: "Review launch price, launch copy question, and launch brief artifact",
+    contextBudget: 16_000,
+  });
+
+  assert.deepEqual(
+    context.open_questions.map((item) => [item.state_key, item.status]),
+    [["open_questions.launch_copy", "open"]],
+  );
+  assert.deepEqual(
+    context.artifacts.map((item) => [item.state_key, item.handling]),
+    [["artifacts.launch_brief", "reference_only"]],
+  );
+  assert.equal(context.unresolved_conflicts.length, 1);
+  assert.equal(context.unresolved_conflicts[0].state_key, "launch.monthly_price_usd");
+  assert.equal(context.unresolved_conflicts[0].trusted_current.version, 2);
+  assert.deepEqual(context.unresolved_conflicts[0].unreviewed_alternatives, [
+    {
+      candidate_id: "candidate_price_alternative",
+      evidence_id: "evidence_price_alternative",
+      evidence_captured_at: "2026-08-30T08:00:00.000Z",
+    },
+  ]);
+  const conflictJson = JSON.stringify(context.unresolved_conflicts);
+  assert.doesNotMatch(conflictJson, /candidate_price_rejected|"value":(?:30|99)/);
+  assert.match(context.unresolved_conflicts[0].notice, /not alice\.-verified/);
 });

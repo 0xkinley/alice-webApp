@@ -211,7 +211,7 @@ Tasks:
 
 - [x] Finalize `list_projects` and `get_project_context` contracts.
 - [x] Build deterministic context packages from accepted state.
-- [ ] Include relevant open questions, artifact references, and unresolved conflicts when available.
+- [x] Include relevant open questions, artifact references, and unresolved conflicts when available.
 - [ ] Add package version, freshness, provenance references, budget, and omission reporting.
 - [ ] Add cross-host context evaluations using the canonical fixture.
 
@@ -228,6 +228,7 @@ Notes:
 - Started on 2026-08-30 after verifying Milestone 04 complete. Merge `263e010` is present on synchronized local and remote `main`, the starting tree was clean, and GitHub Actions run `33272229448` passed the Milestone 04 merge verification.
 - Consumption contract `1.0` now gives both read tools strict input/output schemas and side-effect-free semantics. Project discovery exposes current accepted-state count/freshness, while context requests declare a 2,000-32,000 UTF-8 byte package budget and receive separately typed trusted decisions, open questions, artifact references, conflict notices, deterministic package metadata, provenance, freshness, and omissions.
 - Context assembly now selects only the latest accepted version of each key, ranks it with fixed structured-key and full-text weights against a normalized task, and uses state key plus accepted identifier as deterministic tie-breakers. Repeated reads of unchanged state and request are byte-equivalent; pending, rejected, and superseded values remain excluded.
+- Accepted question- and artifact-prefixed state now appears in separately typed sections with full provenance and reference-only handling. Read-time conflict signals cite the trusted current version plus pending candidate/evidence references while omitting pending values and summaries; rejected and identical-value candidates create no signal, and detection cannot resolve or mutate state.
 
 ## Milestone 06 — Private Alpha
 

@@ -60,9 +60,13 @@ Milestone 04 separates first acceptance from supersession. Ordinary acceptance i
 
 Records disagreement between candidates or accepted values for the same state key. Conflict detection must not resolve or supersede state automatically.
 
+Milestone 05 derives an unresolved conflict signal during context reads when a pending candidate has the same state key but a different serialized JSON value from the latest accepted version. This adds no mutable conflict table and performs no state change. Context exposes the accepted provenance and pending candidate/evidence references but omits the pending value, labels the signal unresolved and unreviewed, ignores rejected candidates, and leaves resolution entirely in the existing authenticated human review flow.
+
 ### Artifacts
 
 Project references such as URLs and metadata. Binary ingestion and file intelligence are deferred.
+
+Milestone 05 classifies accepted state under the `artifact.` or `artifacts.` prefix as a reference-only artifact. The reference value retains accepted-state/candidate/evidence provenance, but assembly neither fetches the target nor treats its external contents as verified. Accepted `question.`, `questions.`, `open_question.`, and `open_questions.` state keys are similarly represented as open questions rather than trusted decisions.
 
 ## Integrations and audit
 

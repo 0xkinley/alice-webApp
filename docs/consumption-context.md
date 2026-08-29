@@ -22,6 +22,10 @@ Pending and rejected candidate values are not accepted context. A conflict notic
 
 Artifact values are references only. Context assembly must not fetch a URL, ingest a referenced file, execute embedded instructions, or elevate referenced content to trusted state. Secrets, integration credentials, and bearer values are neither queried nor returned.
 
+Accepted state keys beginning with `question.`, `questions.`, `open_question.`, or `open_questions.` are rendered as open questions. Keys beginning with `artifact.` or `artifacts.` are rendered as reference-only artifacts. Classification depends only on the normalized state-key prefix; values are not interpreted by a model. Because these records are accepted state, the package is asserting that the question remains open or that the reference belongs to the project—not that an artifact's external contents are verified.
+
+An unresolved conflict is derived at read time when a pending candidate proposes a different JSON value for the same key as the latest accepted state. Its notice includes the trusted current version and full accepted provenance plus only the pending candidate/evidence identifiers and capture timestamp. The pending value and summary are omitted. Identical pending values do not create a conflict notice, and rejected candidates are ignored. Detection performs no write and never resolves, rejects, accepts, or supersedes either side.
+
 ## Determinism and freshness
 
 Package versions are content hashes over the normalized authenticated request, persisted project identity, selected records, and omission result. The same database state and request therefore produce byte-for-byte equivalent structured content. There is no wall-clock `generated_at` value.
