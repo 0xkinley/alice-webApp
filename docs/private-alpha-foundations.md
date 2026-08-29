@@ -43,6 +43,8 @@ After connection and target selection, supported hosts should retrieve the activ
 
 Read/fetch operations remain side-effect free. They cannot alter active selection, freshness, evidence, candidates, accepted state, membership, or permissions.
 
+alice. cannot force a host model to invoke an MCP tool. Active selection, tool descriptions, and server instructions can reduce friction, but they do not prove that a particular conversation consulted alice. The product therefore exposes both a deterministic package preview and a last-read receipt containing the host, surface, project, context, package version, and time. A skipped or failed invocation must be distinguishable from a successful read, and copy must not imply otherwise.
+
 ### Saving with one human confirmation
 
 The desired routine flow is:
@@ -148,6 +150,51 @@ The alice. web application provides Connect ChatGPT and Connect Claude surfaces 
 
 Vercel may host the deployables only if the built Express applications, MCP request/transport behavior, stable OAuth origins, PostgreSQL connection strategy, migration process, and operational limits pass hosted tests. Platform choice is subordinate to these properties.
 
+## Host-surface compatibility
+
+Remote MCP is the integration architecture, but capability claims are made per host surface rather than per provider brand. A successful result on one client does not establish support on another client, even when they use the same account or server URL.
+
+Milestone 06 records live, dated results for this matrix:
+
+| Provider | Surface | OAuth connect, reconnect, revoke | Project list and active selection | Accepted-context read | Candidate save, exact confirm, cancel | File reference and attachment fallback | Permission denial/non-disclosure | Milestone 06 status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Anthropic | Claude web | Required | Required | Required | Required | Required | Required | Planned |
+| Anthropic | Claude Desktop | Required | Required | Required | Required | Required | Required | Planned |
+| Anthropic | Claude iOS | Required | Required | Required | Required | Required | Required | Planned |
+| Anthropic | Claude Android | Required | Required | Required | Required | Required | Required | Planned |
+| Anthropic | Claude Code | Required | Required | Required | Required | Required | Required | Planned |
+| OpenAI | ChatGPT web | Required | Required | Required | Required | Required | Required | Planned |
+| OpenAI | ChatGPT desktop | Required | Required | Required | Required | Required | Required | Planned |
+| OpenAI | Codex desktop | Required | Required | Required | Required | Required | Required | Planned |
+| OpenAI | Codex CLI | Required | Required | Required | Required | Required | Required | Planned |
+| OpenAI | Codex IDE extension | Required | Required | Required | Required | Required | Required | Planned |
+
+Each result records the date, provider/client version, account type, region, transport, authorization scopes, tool exposure, observed confirmation behavior, and durable evidence location. `Pass`, `Fail`, `Provider-blocked`, and `Not tested` are distinct states. Only passing capabilities may appear in onboarding or marketing copy. Provider-blocked or failed native save and file-transfer paths use an alice.-controlled confirmation or pre-targeted upload fallback; they are not reported as native support.
+
+ChatGPT mobile is outside the initial advertised matrix because current support has not been established for alice.'s custom remote integration path. It may be added only through a dated documentation review and separate live run; generic “ChatGPT support” must not imply mobile support.
+
+Official capability references must be revalidated at implementation time because provider behavior changes:
+
+- OpenAI, [Model Context Protocol for ChatGPT and Codex](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
+- OpenAI, [Connect and test a plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt)
+- Anthropic, [When to use desktop and web connectors](https://support.claude.com/en/articles/11725091-when-to-use-desktop-and-web-connectors)
+- Anthropic, [Get started with custom connectors using remote MCP](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
+
+## Product-risk gates from external critique
+
+The 2026-08-30 product critique supplied by the product owner is advisory evidence, not an authority over repository invariants or approved scope. Milestone 06 adopts these durable risk controls from it:
+
+- Position alice. first as a user-governed, versioned, provenance-bearing project record. Cross-tool memory is a benefit, not the trust claim.
+- Treat confirmation effort as a measurable product cost. Instrument the number of proposed entries, confirmations, edits, cancellations, deferred reviews, and time-to-clear without recording their content.
+- Do not depend exclusively on a host voluntarily offering `Save this to alice.?`. Keep an alice.-controlled Needs attention queue and smallest confirmation link as a dependable fallback.
+- Give the user a visible receipt when alice. was read and a visible failure state when it was not. Do not attribute an answer to alice. without a recorded read.
+- Make the deterministic context-package preview, including byte budget, freshness, omissions, and per-item provenance, a primary project-screen proof rather than a hidden diagnostic.
+- Include repair for wrong, stale, contradicted, and superseded context. Saving is not complete lifecycle management.
+- Verify whether each host surface can transfer attachment bytes through a supported interface. If it cannot, say so and open a pre-targeted alice. upload; awareness of an attachment is not possession of its bytes.
+- Measure first-project value and cross-host reuse. The primary continuity signal is the same project being read from at least two supported host surfaces within seven days, supplemented by repeat use and review-burden evidence.
+
+The critique recommends deferring collaboration and work contexts. The product owner has explicitly retained both for the pre-friend-testing foundation, so the recommendation is recorded as a scope-risk warning rather than silently changing the roadmap. Implementation should still sequence and verify the single-user project/read/save/repair loop before layering collaboration and final presentation work.
+
 ## Visual system and copy approval
 
 Keel (`https://keel.framer.ai/`) is the single visual-system reference for the Milestone 06 public site and authenticated product. The choice is based on its calm product-first hierarchy, restrained dark surfaces, real-interface emphasis, legible state presentation, and suitability for connections, projects, context freshness, history, and needs-attention views.
@@ -196,6 +243,8 @@ Milestone 06 is not complete on local happy paths alone. Verification must cover
 
 - a clean PostgreSQL migration and restored backup;
 - hosted web and MCP OAuth/read/write/revocation flows from both target hosts;
+- dated surface-by-surface OAuth, project selection, accepted-context read, save/confirm/cancel, file reference/transfer fallback, and permission-denial runs for Claude web, Desktop, iOS, Android, and Claude Code; ChatGPT web and desktop; and Codex desktop, CLI, and IDE;
+- a visible deterministic package preview plus last-read receipts and skipped/failed-invocation states that do not mutate project state;
 - project and context selection across multiple projects and concurrent sessions;
 - exact-preview save confirmation and cancel behavior;
 - direct file upload, validation, scanning, preview, versioning, authorized download, removal, export, erasure, and backup-expiry behavior;

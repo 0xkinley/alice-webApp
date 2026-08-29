@@ -97,10 +97,28 @@ These constraints follow Chrome's documented guidance that `activeTab` grants te
 ## Current official references
 
 - OpenAI, [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt): Developer mode, public HTTPS/Secure MCP Tunnel connection, tool evaluation, and write-action testing.
+- OpenAI, [Model Context Protocol for ChatGPT and Codex](https://learn.chatgpt.com/docs/extend/mcp?surface=cli): ChatGPT web remote MCP-backed plugins; direct streamable-HTTP/OAuth MCP configuration for desktop and local Codex clients; and shared configuration behavior where documented.
 - OpenAI, [Plugin architecture](https://developers.openai.com/plugins/concepts/plugins): plugins may package skills, MCP servers, and optional UI across ChatGPT and Codex.
 - OpenAI, [Plugins in ChatGPT and Codex](https://help.openai.com/en/articles/20001256-plugins-in-chatgpt-and-codex): the directory is visible across plans, while installation and invocation can depend on plan, role, region, surface, and included capabilities.
 - OpenAI, [Apps in ChatGPT](https://help.openai.com/en/articles/11487775-connectors-in): personal-account app permissions, write-action confirmations, custom MCP apps, and public plugin discovery.
 - OpenAI, [Creating and editing GPTs](https://help.openai.com/en/articles/8554397): personal Free, Go, Plus, and Pro accounts cannot create or publish new GPTs.
+- Anthropic, [When to use desktop and web connectors](https://support.claude.com/en/articles/11725091-when-to-use-desktop-and-web-connectors): remote connectors are described as available across Claude web, mobile, Cowork, Desktop, and Claude Code.
+- Anthropic, [Custom connectors using remote MCP](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp): remote connections originate from Anthropic's cloud across Claude clients and require a publicly reachable server.
 - Chrome, [The activeTab permission](https://developer.chrome.com/docs/extensions/develop/concepts/activeTab) and [Protect user privacy](https://developer.chrome.com/docs/extensions/develop/security-privacy/user-privacy): temporary user-gesture access and least-privilege guidance.
 
 Because provider capabilities change, repository claims about current plan behavior must include a verification date and should be rechecked before release or cohort expansion.
+
+## Milestone 06 surface-evaluation contract
+
+The planned support target is a matrix, not a blanket provider label. Live evaluation covers Claude web, Claude Desktop, Claude iOS, Claude Android, Claude Code, ChatGPT web, ChatGPT desktop, Codex desktop, Codex CLI, and the Codex IDE extension.
+
+Every surface receives the same minimum evaluation categories:
+
+1. OAuth discovery, scoped authorization, reconnect, and revoke.
+2. Permitted project discovery and explicit active project/context selection.
+3. Side-effect-free accepted-context retrieval with provenance, freshness, budget, and omission reporting.
+4. Candidate capture followed by an exact authenticated human confirmation, plus cancellation that performs no activation.
+5. Authorized file-reference retrieval and either verified host attachment transfer or an honest pre-targeted alice. upload fallback.
+6. Cross-tenant, non-member, insufficient-role, restricted-context, guessed-identifier, and revoked-connection denial without content or metadata disclosure and without mutation.
+
+Results are recorded separately as `Pass`, `Fail`, `Provider-blocked`, or `Not tested`, together with date, client version, account type, region, transport, scopes, and evidence. No result may be copied from another surface. ChatGPT mobile remains outside the initial advertised set until its custom remote integration path is documented and independently live-tested.
