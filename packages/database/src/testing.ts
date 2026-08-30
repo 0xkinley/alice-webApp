@@ -562,6 +562,48 @@ function createSchema(database: DatabaseSync) {
       FOREIGN KEY (removed_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
     ) STRICT;
 
+    CREATE TABLE file_upload_intents (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      initiated_by_user_id TEXT NOT NULL,
+      display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 180),
+      claimed_media_type TEXT NOT NULL CHECK (claimed_media_type IN (
+        'application/pdf', 'image/png', 'image/jpeg', 'image/webp',
+        'text/plain', 'text/markdown'
+      )),
+      declared_byte_size INTEGER NOT NULL CHECK (declared_byte_size BETWEEN 1 AND 26214400),
+      declared_sha256 TEXT NOT NULL CHECK (length(declared_sha256) = 64),
+      staging_storage_key TEXT NOT NULL UNIQUE,
+      replaces_reference_id TEXT,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      FOREIGN KEY (initiated_by_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+      FOREIGN KEY (workspace_id, project_id, context_id, replaces_reference_id)
+        REFERENCES file_context_references(workspace_id, project_id, context_id, id),
+      UNIQUE (workspace_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id)
+    ) STRICT;
+
+    CREATE TABLE file_upload_completions (
+      intent_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      staging_storage_version_id TEXT NOT NULL CHECK (
+        length(staging_storage_version_id) BETWEEN 1 AND 1024
+      ),
+      file_reference_id TEXT NOT NULL UNIQUE,
+      completed_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id, intent_id)
+        REFERENCES file_upload_intents(workspace_id, project_id, context_id, id),
+      FOREIGN KEY (workspace_id, project_id, context_id, file_reference_id)
+        REFERENCES file_context_references(workspace_id, project_id, context_id, id)
+    ) STRICT;
+
     CREATE TABLE evidence_file_sources (
       evidence_id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
@@ -593,6 +635,9 @@ function createSchema(database: DatabaseSync) {
 
     CREATE INDEX file_reference_exclusions_lookup
       ON file_reference_exclusions (workspace_id, project_id, context_id, removed_at, id);
+
+    CREATE INDEX file_upload_intents_expiry
+      ON file_upload_intents (workspace_id, initiated_by_user_id, expires_at, id);
 
     CREATE INDEX file_objects_scan_queue
       ON file_objects (workspace_id, scan_status, scan_updated_at, id);
@@ -1007,6 +1052,30 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON file_reference_exclusions
     BEGIN
       SELECT RAISE(ABORT, 'file reference exclusions are immutable');
+    END;
+
+    CREATE TRIGGER file_upload_intents_no_update
+    BEFORE UPDATE ON file_upload_intents
+    BEGIN
+      SELECT RAISE(ABORT, 'file upload intents are immutable');
+    END;
+
+    CREATE TRIGGER file_upload_intents_no_delete
+    BEFORE DELETE ON file_upload_intents
+    BEGIN
+      SELECT RAISE(ABORT, 'file upload intents are immutable');
+    END;
+
+    CREATE TRIGGER file_upload_completions_no_update
+    BEFORE UPDATE ON file_upload_completions
+    BEGIN
+      SELECT RAISE(ABORT, 'file upload completions are immutable');
+    END;
+
+    CREATE TRIGGER file_upload_completions_no_delete
+    BEFORE DELETE ON file_upload_completions
+    BEGIN
+      SELECT RAISE(ABORT, 'file upload completions are immutable');
     END;
 
     CREATE TRIGGER evidence_file_sources_no_update

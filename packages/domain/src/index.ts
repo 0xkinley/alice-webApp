@@ -86,18 +86,23 @@ export {
 export type { ProjectInvitationRole, ProjectMembershipRole } from "./project-memberships.ts";
 export {
   FILE_UPLOAD_LIMIT_BYTES,
+  FILE_UPLOAD_INTENT_LIFETIME_MS,
+  FILE_UPLOAD_URL_LIFETIME_SECONDS,
   ProjectFileUserError,
+  createProjectFileUploadIntent,
   exportProjectFileMetadata,
   getProjectFileDownload,
   getProjectFilePreview,
   getProjectFileRemovalPreview,
   getProjectFileView,
   listProjectFiles,
+  finalizeProjectFileUpload,
   readProjectFilePdfText,
   readProjectFileText,
   refreshProjectFileScan,
   removeProjectFileReference,
   uploadProjectFile,
+  validateProjectFileUploadDeclaration,
   validateProjectFile,
 } from "./project-files.ts";
 export type {

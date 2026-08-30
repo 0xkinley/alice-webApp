@@ -26,6 +26,29 @@ export function createS3PrivateFileStore({
 }): PrivateFileStore {
   const client = new S3Client({ region });
   return {
+    async createSignedUpload({ key, mediaType, sha256, expiresInSeconds }) {
+      const checksum = Buffer.from(sha256, "hex").toString("base64");
+      const headers = {
+        "content-type": mediaType,
+        "x-amz-checksum-sha256": checksum,
+        "x-amz-meta-alice-sha256": sha256,
+        "x-amz-server-side-encryption": "AES256",
+      };
+      const url = await getSignedUrl(
+        client,
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          ChecksumSHA256: checksum,
+          ContentType: mediaType,
+          Metadata: { "alice-sha256": sha256 },
+          ServerSideEncryption: "AES256",
+        }),
+        { expiresIn: expiresInSeconds },
+      );
+      return { url, headers, expiresInSeconds };
+    },
+
     async putObject({ key, bytes, mediaType, sha256 }) {
       const result = await client.send(
         new PutObjectCommand({

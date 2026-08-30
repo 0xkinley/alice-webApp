@@ -6,6 +6,8 @@ import { appendAuditEvent } from "./audit.ts";
 import { contextScopeForUser, type ContextCapability } from "./authorization.ts";
 
 export const FILE_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
+export const FILE_UPLOAD_INTENT_LIFETIME_MS = 24 * 60 * 60 * 1000;
+export const FILE_UPLOAD_URL_LIFETIME_SECONDS = 10 * 60;
 
 export class ProjectFileUserError extends Error {}
 
@@ -45,6 +47,17 @@ export interface PrivateFileStore {
     mediaType: VerifiedFileMediaType;
     expiresInSeconds: number;
   }): Promise<string>;
+  createSignedUpload?(input: {
+    key: string;
+    byteSize: number;
+    mediaType: VerifiedFileMediaType;
+    sha256: string;
+    expiresInSeconds: number;
+  }): Promise<{
+    url: string;
+    headers: Record<string, string>;
+    expiresInSeconds: number;
+  }>;
 }
 
 type ValidatedFile = {
@@ -145,6 +158,60 @@ function normalizeClaimedMediaType(value: string): string {
   return normalized === "image/jpg" ? "image/jpeg" : normalized;
 }
 
+function declaredMediaType(fileName: string, claimedMediaType: string): VerifiedFileMediaType {
+  const extension = extensionFor(fileName);
+  const byExtension: Record<string, VerifiedFileMediaType> = {
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".md": "text/markdown",
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".txt": "text/plain",
+    ".webp": "image/webp",
+  };
+  const expected = byExtension[extension];
+  if (!expected) {
+    throw new ProjectFileUserError(
+      "Only PDF, PNG, JPEG, WebP, plain-text, and Markdown files are accepted.",
+    );
+  }
+  const claimed = normalizeClaimedMediaType(claimedMediaType);
+  if (
+    claimed &&
+    claimed !== "application/octet-stream" &&
+    claimed !== expected &&
+    !(expected === "text/markdown" && claimed === "text/plain")
+  ) {
+    throw new ProjectFileUserError("The supplied media type does not match the file extension.");
+  }
+  return expected;
+}
+
+export function validateProjectFileUploadDeclaration(input: {
+  fileName: string;
+  claimedMediaType?: string;
+  byteSize: number;
+  sha256: string;
+}) {
+  const displayName = sanitizeDisplayName(input.fileName);
+  const mediaType = declaredMediaType(displayName, input.claimedMediaType || "");
+  if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 1) {
+    throw new ProjectFileUserError("The declared file size must be a positive integer.");
+  }
+  if (input.byteSize > MEDIA_LIMITS[mediaType]) {
+    throw new ProjectFileUserError(
+      `This ${mediaType} file exceeds its ${MEDIA_LIMITS[mediaType]} byte limit.`,
+    );
+  }
+  const sha256 = String(input.sha256 || "")
+    .trim()
+    .toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(sha256)) {
+    throw new ProjectFileUserError("The declared file SHA-256 is invalid.");
+  }
+  return { byteSize: input.byteSize, displayName, mediaType, sha256 };
+}
+
 export function validateProjectFile(input: {
   bytes: Buffer | Uint8Array;
   fileName: string;
@@ -205,6 +272,246 @@ async function authorizedContext(
     workspaceId: access.projectWorkspaceId,
     contextRole: access.contextRole,
     projectRole: access.projectRole,
+  };
+}
+
+async function completedUploadReceipt(database, intentId: string) {
+  const row = await database
+    .prepare(
+      `SELECT completion.file_reference_id, object.scan_status
+       FROM file_upload_completions completion
+       JOIN file_context_references reference
+         ON reference.workspace_id = completion.workspace_id
+        AND reference.project_id = completion.project_id
+        AND reference.context_id = completion.context_id
+        AND reference.id = completion.file_reference_id
+       JOIN file_objects object
+         ON object.workspace_id = reference.workspace_id AND object.id = reference.file_object_id
+       WHERE completion.intent_id = ?`,
+    )
+    .get(intentId);
+  return row
+    ? {
+        status: "completed" as const,
+        file_reference_id: row.file_reference_id,
+        scan_status: row.scan_status as FileScanStatus,
+      }
+    : undefined;
+}
+
+export async function createProjectFileUploadIntent(
+  database,
+  store: PrivateFileStore,
+  input: {
+    userId: string;
+    projectId: string;
+    contextId: string;
+    fileName: string;
+    claimedMediaType?: string;
+    byteSize: number;
+    sha256: string;
+    replacesReferenceId?: string;
+  },
+) {
+  if (!store.createSignedUpload) {
+    throw new ProjectFileUserError("Direct private file upload is not available.");
+  }
+  const file = validateProjectFileUploadDeclaration(input);
+  const context = await authorizedContext(
+    database,
+    input.userId,
+    input.projectId,
+    input.contextId,
+    "write",
+  );
+  if (!context) return undefined;
+
+  if (input.replacesReferenceId) {
+    const replaceable = await database
+      .prepare(
+        `SELECT reference.id
+         FROM file_context_references reference
+         JOIN file_objects object
+           ON object.workspace_id = reference.workspace_id
+          AND object.id = reference.file_object_id
+         WHERE reference.workspace_id = ? AND reference.project_id = ?
+           AND reference.context_id = ? AND reference.id = ?
+           AND object.scan_status = 'clean'
+           AND NOT EXISTS (
+             SELECT 1 FROM file_context_references newer
+             WHERE newer.workspace_id = reference.workspace_id
+               AND newer.project_id = reference.project_id
+               AND newer.context_id = reference.context_id
+               AND newer.logical_file_id = reference.logical_file_id
+               AND newer.version > reference.version
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM file_context_references grouped
+             JOIN file_reference_exclusions exclusion
+               ON exclusion.workspace_id = grouped.workspace_id
+              AND exclusion.project_id = grouped.project_id
+              AND exclusion.context_id = grouped.context_id
+              AND exclusion.file_reference_id = grouped.id
+             WHERE grouped.workspace_id = reference.workspace_id
+               AND grouped.project_id = reference.project_id
+               AND grouped.context_id = reference.context_id
+               AND grouped.logical_file_id = reference.logical_file_id
+           )`,
+      )
+      .get(context.workspaceId, input.projectId, input.contextId, input.replacesReferenceId);
+    if (!replaceable) {
+      throw new ProjectFileUserError(
+        "The file version changed, is still processing, or is no longer active.",
+      );
+    }
+  }
+
+  const intentId = `file_upload_${randomUUID()}`;
+  const stagingKey = `staging/${randomUUID()}`;
+  const createdAt = new Date().toISOString();
+  const expiresAt = Date.now() + FILE_UPLOAD_INTENT_LIFETIME_MS;
+  await database
+    .prepare(
+      `INSERT INTO file_upload_intents
+       (id, workspace_id, project_id, context_id, initiated_by_user_id, display_name,
+        claimed_media_type, declared_byte_size, declared_sha256, staging_storage_key,
+        replaces_reference_id, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      intentId,
+      context.workspaceId,
+      input.projectId,
+      input.contextId,
+      input.userId,
+      file.displayName,
+      file.mediaType,
+      file.byteSize,
+      file.sha256,
+      stagingKey,
+      input.replacesReferenceId || null,
+      expiresAt,
+      createdAt,
+    );
+
+  const signed = await store.createSignedUpload({
+    key: stagingKey,
+    byteSize: file.byteSize,
+    mediaType: file.mediaType,
+    sha256: file.sha256,
+    expiresInSeconds: FILE_UPLOAD_URL_LIFETIME_SECONDS,
+  });
+  return {
+    intent_id: intentId,
+    upload_url: signed.url,
+    upload_headers: signed.headers,
+    upload_expires_in_seconds: signed.expiresInSeconds,
+    intent_expires_at: new Date(expiresAt).toISOString(),
+  };
+}
+
+export async function finalizeProjectFileUpload(
+  database,
+  store: PrivateFileStore,
+  input: {
+    userId: string;
+    projectId: string;
+    intentId: string;
+    storageVersionId: string;
+  },
+) {
+  const intent = await database
+    .prepare(
+      `SELECT id, workspace_id, project_id, context_id, initiated_by_user_id, display_name,
+              claimed_media_type, declared_byte_size, declared_sha256, staging_storage_key,
+              replaces_reference_id, expires_at, created_at
+       FROM file_upload_intents WHERE id = ? AND project_id = ?`,
+    )
+    .get(input.intentId, input.projectId);
+  if (!intent || intent.initiated_by_user_id !== input.userId) return undefined;
+  const context = await authorizedContext(
+    database,
+    input.userId,
+    input.projectId,
+    intent.context_id,
+    "write",
+  );
+  if (!context || context.workspaceId !== intent.workspace_id) return undefined;
+
+  const completed = await completedUploadReceipt(database, intent.id);
+  if (completed) return completed;
+  if (Number(intent.expires_at) <= Date.now()) {
+    throw new ProjectFileUserError("The upload intent expired. Start the upload again.");
+  }
+  const storageVersionId = String(input.storageVersionId || "").trim();
+  if (!storageVersionId || storageVersionId.length > 1024) {
+    throw new ProjectFileUserError("The uploaded object version is invalid.");
+  }
+
+  const scanResult = await store.getScanResult({
+    key: intent.staging_storage_key,
+    versionId: storageVersionId,
+  });
+  if (scanResult === "pending") return { status: "pending" as const };
+  if (scanResult !== "clean") {
+    throw new ProjectFileUserError("This staged file could not be accepted.");
+  }
+
+  const bytes = await store.getObject({
+    key: intent.staging_storage_key,
+    versionId: storageVersionId,
+  });
+  const verified = validateProjectFile({
+    bytes,
+    fileName: intent.display_name,
+    claimedMediaType: intent.claimed_media_type,
+  });
+  if (
+    verified.bytes.length !== Number(intent.declared_byte_size) ||
+    verified.sha256 !== intent.declared_sha256 ||
+    verified.mediaType !== intent.claimed_media_type
+  ) {
+    throw new ProjectFileUserError("The staged file does not match its immutable upload intent.");
+  }
+
+  const uploaded = await uploadProjectFile(database, store, {
+    userId: input.userId,
+    projectId: input.projectId,
+    contextId: intent.context_id,
+    fileName: intent.display_name,
+    claimedMediaType: intent.claimed_media_type,
+    bytes: verified.bytes,
+    sourceHost: "alice_web_direct",
+    ...(intent.replaces_reference_id ? { replacesReferenceId: intent.replaces_reference_id } : {}),
+  });
+  if (!uploaded) return undefined;
+
+  try {
+    await database
+      .prepare(
+        `INSERT INTO file_upload_completions
+         (intent_id, workspace_id, project_id, context_id, staging_storage_version_id,
+          file_reference_id, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        intent.id,
+        intent.workspace_id,
+        intent.project_id,
+        intent.context_id,
+        storageVersionId,
+        uploaded.id,
+        new Date().toISOString(),
+      );
+  } catch (error) {
+    const raced = await completedUploadReceipt(database, intent.id);
+    if (raced) return raced;
+    throw error;
+  }
+  return {
+    status: "completed" as const,
+    file_reference_id: uploaded.id,
+    scan_status: uploaded.scan_status as FileScanStatus,
   };
 }
 

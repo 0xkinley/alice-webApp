@@ -178,12 +178,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 12, filename: "012_context_read_events.sql" },
     { version: 13, filename: "013_project_lifecycle.sql" },
     { version: 14, filename: "014_pdf_evidence_sources.sql" },
+    { version: 15, filename: "015_file_upload_intents.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    14,
+    15,
   );
   await reopened.close();
 });
@@ -726,6 +727,57 @@ test("PostgreSQL file lifecycle is fail-closed and immutable through the applica
       owner.id,
       now,
     );
+
+  const uploadIntentId = `file_upload_${randomUUID()}`;
+  await database
+    .prepare(
+      `INSERT INTO file_upload_intents
+       (id, workspace_id, project_id, context_id, initiated_by_user_id, display_name,
+        claimed_media_type, declared_byte_size, declared_sha256, staging_storage_key,
+        expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, 'fixture.txt', 'text/plain', 12, ?, ?, ?, ?)`,
+    )
+    .run(
+      uploadIntentId,
+      owner.workspace_id,
+      owner.project_id,
+      context.id,
+      owner.id,
+      "a".repeat(64),
+      `staging/${randomUUID()}`,
+      Date.now() + 60_000,
+      now,
+    );
+  await database
+    .prepare(
+      `INSERT INTO file_upload_completions
+       (intent_id, workspace_id, project_id, context_id, staging_storage_version_id,
+        file_reference_id, completed_at)
+       VALUES (?, ?, ?, ?, 'staging-version-1', ?, ?)`,
+    )
+    .run(uploadIntentId, owner.workspace_id, owner.project_id, context.id, referenceId, now);
+  await assert.rejects(
+    database
+      .prepare("UPDATE file_upload_intents SET display_name = 'rewritten.txt' WHERE id = ?")
+      .run(uploadIntentId),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database.prepare("DELETE FROM file_upload_intents WHERE id = ?").run(uploadIntentId),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database
+      .prepare(
+        "UPDATE file_upload_completions SET staging_storage_version_id = 'rewritten' WHERE intent_id = ?",
+      )
+      .run(uploadIntentId),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database.prepare("DELETE FROM file_upload_completions WHERE intent_id = ?").run(uploadIntentId),
+    /permission denied|immutable/i,
+  );
 
   await assert.rejects(
     database.prepare("UPDATE file_objects SET scan_status = 'clean' WHERE id = ?").run(objectId),

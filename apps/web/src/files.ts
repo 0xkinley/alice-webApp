@@ -2,7 +2,9 @@ import express from "express";
 import {
   FILE_UPLOAD_LIMIT_BYTES,
   ProjectFileUserError,
+  createProjectFileUploadIntent,
   exportProjectFileMetadata,
+  finalizeProjectFileUpload,
   getProjectFileDownload,
   getProjectFilePreview,
   getProjectFileRemovalPreview,
@@ -45,6 +47,38 @@ function statusCopy(status: string): string {
   );
 }
 
+function directUploadScript({
+  projectId,
+  contextId,
+  replacesReferenceId,
+  successLocation,
+}: {
+  projectId: string;
+  contextId: string;
+  replacesReferenceId?: string;
+  successLocation: "reload" | "receipt";
+}): string {
+  const configuration = JSON.stringify({
+    projectId,
+    contextId,
+    replacesReferenceId: replacesReferenceId || null,
+    successLocation,
+  }).replaceAll("<", "\\u003c");
+  return `<script>
+const config=${configuration},form=document.getElementById("file-upload"),input=document.getElementById("file"),progress=document.getElementById("progress"),status=document.getElementById("upload-status");
+const fail=message=>{status.textContent=message||"Upload failed.";progress.hidden=true};
+const sha256=async file=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",await file.arrayBuffer()))).map(byte=>byte.toString(16).padStart(2,"0")).join("");
+const finalize=async(intentId,versionId)=>{const response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files/direct/intents/"+encodeURIComponent(intentId)+"/finalize",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({storage_version_id:versionId})});if(response.status===202){status.textContent="Security scan in progress…";setTimeout(()=>finalize(intentId,versionId).catch(error=>fail(error.message)),3000);return}if(!response.ok)throw new Error(await response.text());const receipt=await response.json();if(config.successLocation==="receipt")location.href="/projects/"+encodeURIComponent(config.projectId)+"/files/"+encodeURIComponent(receipt.file_reference_id);else location.reload()};
+form.addEventListener("submit",async event=>{event.preventDefault();const file=input.files[0];if(!file)return;progress.hidden=false;progress.value=0;status.textContent="Preparing secure upload…";try{const digest=await sha256(file);const response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files/direct/intents",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({context_id:config.contextId,file_name:file.name,claimed_media_type:file.type||"application/octet-stream",byte_size:file.size,sha256:digest,replace_reference_id:config.replacesReferenceId})});if(!response.ok)throw new Error(await response.text());const intent=await response.json();const xhr=new XMLHttpRequest();xhr.open("PUT",intent.upload_url);for(const [name,value] of Object.entries(intent.upload_headers))xhr.setRequestHeader(name,value);xhr.upload.onprogress=e=>{if(e.lengthComputable)progress.value=e.loaded/e.total*100};xhr.onerror=()=>fail("The private storage upload failed.");xhr.onload=()=>{if(xhr.status<200||xhr.status>=300)return fail("The private storage upload failed.");const versionId=xhr.getResponseHeader("x-amz-version-id");if(!versionId)return fail("Private storage did not expose the immutable object version.");status.textContent="Upload received. Waiting for security scan…";finalize(intent.intent_id,versionId).catch(error=>fail(error.message))};status.textContent="Uploading directly to private storage…";xhr.send(file)}catch(error){fail(error.message)}});
+</script>`;
+}
+
+function legacyUploadScript(action: string, successLocation: "reload" | "receipt"): string {
+  return `<script>
+const form=document.getElementById("file-upload"),input=document.getElementById("file"),progress=document.getElementById("progress"),status=document.getElementById("upload-status");form.addEventListener("submit",event=>{event.preventDefault();const file=input.files[0];if(!file)return;const xhr=new XMLHttpRequest();xhr.open("POST",${JSON.stringify(action)});xhr.setRequestHeader("Content-Type",file.type||"application/octet-stream");xhr.setRequestHeader("X-Alice-File-Name",encodeURIComponent(file.name));progress.hidden=false;status.textContent="Uploading…";xhr.upload.onprogress=e=>{if(e.lengthComputable)progress.value=e.loaded/e.total*100};xhr.onload=()=>{if(xhr.status===201){${successLocation === "receipt" ? 'const receipt=JSON.parse(xhr.responseText);location.href="/projects/"+encodeURIComponent(receipt.project_id||"")+"/files/"+encodeURIComponent(receipt.file_reference_id)' : "location.reload()"}}else{status.textContent=xhr.responseText||"Upload failed."}};xhr.onerror=()=>{status.textContent="Upload failed."};xhr.send(file)});
+</script>`;
+}
+
 export function createFilesRouter({
   database,
   fileStore,
@@ -78,10 +112,7 @@ export function createFilesRouter({
       )
       .join("");
     const uploadSection = view.access.can_write
-      ? `<h2>Upload a file</h2><p>PDF up to 25 MiB; PNG, JPEG, or WebP up to 10 MiB; UTF-8 text or Markdown up to 2 MiB.</p><form id="file-upload"><input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md" required><button type="submit">Upload and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form><script>
-const form=document.getElementById("file-upload"),input=document.getElementById("file"),progress=document.getElementById("progress"),status=document.getElementById("upload-status");
-form.addEventListener("submit",event=>{event.preventDefault();const file=input.files[0];if(!file)return;const xhr=new XMLHttpRequest();xhr.open("POST",location.pathname+location.search);xhr.setRequestHeader("Content-Type",file.type||"application/octet-stream");xhr.setRequestHeader("X-Alice-File-Name",encodeURIComponent(file.name));progress.hidden=false;status.textContent="Uploading…";xhr.upload.onprogress=e=>{if(e.lengthComputable)progress.value=e.loaded/e.total*100};xhr.onload=()=>{if(xhr.status===201){location.reload()}else{status.textContent=xhr.responseText||"Upload failed."}};xhr.onerror=()=>{status.textContent="Upload failed."};xhr.send(file)});
-</script>`
+      ? `<h2>Upload a file</h2><p>PDF up to 25 MiB; PNG, JPEG, or WebP up to 10 MiB; UTF-8 text or Markdown up to 2 MiB.</p><form id="file-upload"><input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md" required><button type="submit">Upload and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form>${fileStore.createSignedUpload ? directUploadScript({ projectId: request.params.projectId, contextId: view.context.context_id, successLocation: "reload" }) : legacyUploadScript(`${request.path}?${new URLSearchParams({ context_id: view.context.context_id })}`, "reload")}`
       : "";
     response
       .type("html")
@@ -93,15 +124,79 @@ form.addEventListener("submit",event=>{event.preventDefault();const file=input.f
       );
   });
 
+  const exactOrigin = (request, response, next) => {
+    if (request.get("origin") !== publicUrl) {
+      return response.status(403).send("Upload origin denied.");
+    }
+    next();
+  };
+
+  router.post(
+    "/:projectId/files/direct/intents",
+    authenticated,
+    exactOrigin,
+    express.json({ limit: "8kb" }),
+    async (request, response) => {
+      try {
+        const intent = await createProjectFileUploadIntent(database, fileStore, {
+          userId: request.aliceUser!.id,
+          projectId: request.params.projectId,
+          contextId: String(request.body.context_id || ""),
+          fileName: String(request.body.file_name || ""),
+          claimedMediaType: String(request.body.claimed_media_type || ""),
+          byteSize: Number(request.body.byte_size),
+          sha256: String(request.body.sha256 || ""),
+          ...(request.body.replace_reference_id
+            ? { replacesReferenceId: String(request.body.replace_reference_id) }
+            : {}),
+        });
+        if (!intent) return notFound(response);
+        response.set("Cache-Control", "no-store").status(201).json(intent);
+      } catch (error) {
+        response
+          .status(error instanceof ProjectFileUserError ? 400 : 500)
+          .send(
+            error instanceof ProjectFileUserError
+              ? error.message
+              : "The secure upload could not be started.",
+          );
+      }
+    },
+  );
+
+  router.post(
+    "/:projectId/files/direct/intents/:intentId/finalize",
+    authenticated,
+    exactOrigin,
+    express.json({ limit: "4kb" }),
+    async (request, response) => {
+      try {
+        const result = await finalizeProjectFileUpload(database, fileStore, {
+          userId: request.aliceUser!.id,
+          projectId: request.params.projectId,
+          intentId: request.params.intentId,
+          storageVersionId: String(request.body.storage_version_id || ""),
+        });
+        if (!result) return notFound(response);
+        response.set("Cache-Control", "no-store");
+        if (result.status === "pending") return response.status(202).json(result);
+        return response.status(201).json(result);
+      } catch (error) {
+        response
+          .status(error instanceof ProjectFileUserError ? 400 : 500)
+          .send(
+            error instanceof ProjectFileUserError
+              ? error.message
+              : "The secure upload could not be finalized.",
+          );
+      }
+    },
+  );
+
   router.post(
     "/:projectId/files",
     authenticated,
-    (request, response, next) => {
-      if (request.get("origin") !== publicUrl) {
-        return response.status(403).send("Upload origin denied.");
-      }
-      next();
-    },
+    exactOrigin,
     express.raw({ limit: FILE_UPLOAD_LIMIT_BYTES, type: () => true }),
     async (request, response) => {
       try {
@@ -128,6 +223,7 @@ form.addEventListener("submit",event=>{event.preventDefault();const file=input.f
         const uploaded = await uploadProjectFile(database, fileStore, uploadInput);
         if (!uploaded) return notFound(response);
         response.status(201).json({
+          project_id: request.params.projectId,
           file_reference_id: uploaded.id,
           scan_status: uploaded.scan_status,
         });
@@ -182,14 +278,14 @@ form.addEventListener("submit",event=>{event.preventDefault();const file=input.f
     if (!file) return notFound(response);
     if (!file.access.can_write) return notFound(response);
     if (!file.can_replace) return response.status(409).send("This file cannot be replaced now.");
-    response.type("html").send(
-      renderPage(
-        "Upload replacement",
-        `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}">Back to file</a></nav><h1>Upload a replacement for ${escapeHtml(file.display_name)}</h1><p>The old clean version remains current while the changed replacement is scanned. A failed replacement never replaces the current clean version.</p><form id="file-upload"><input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md" required><p id="selection" role="status">Choose the exact replacement file.</p><button type="submit">Upload replacement and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form><script>
-const form=document.getElementById("file-upload"),input=document.getElementById("file"),progress=document.getElementById("progress"),status=document.getElementById("upload-status"),selection=document.getElementById("selection");input.addEventListener("change",()=>{const file=input.files[0];selection.textContent=file?file.name+" · "+file.type+" · "+file.size+" bytes":"Choose the exact replacement file."});form.addEventListener("submit",event=>{event.preventDefault();const file=input.files[0];if(!file)return;const xhr=new XMLHttpRequest();xhr.open("POST","/projects/${encodeURIComponent(request.params.projectId)}/files?context_id=${encodeURIComponent(file.context_id)}&replace_reference_id=${encodeURIComponent(file.id)}");xhr.setRequestHeader("Content-Type",file.type||"application/octet-stream");xhr.setRequestHeader("X-Alice-File-Name",encodeURIComponent(file.name));progress.hidden=false;status.textContent="Uploading replacement…";xhr.upload.onprogress=e=>{if(e.lengthComputable)progress.value=e.loaded/e.total*100};xhr.onload=()=>{if(xhr.status===201){const receipt=JSON.parse(xhr.responseText);location.href="/projects/${encodeURIComponent(request.params.projectId)}/files/"+encodeURIComponent(receipt.file_reference_id)}else{status.textContent=xhr.responseText||"Upload failed."}};xhr.onerror=()=>{status.textContent="Upload failed."};xhr.send(file)});
-</script>`,
-      ),
-    );
+    response
+      .type("html")
+      .send(
+        renderPage(
+          "Upload replacement",
+          `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}">Back to file</a></nav><h1>Upload a replacement for ${escapeHtml(file.display_name)}</h1><p>The old clean version remains current while the changed replacement is scanned. A failed replacement never replaces the current clean version.</p><form id="file-upload"><input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md" required><p id="selection" role="status">Choose the exact replacement file.</p><button type="submit">Upload replacement and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form><script>document.getElementById("file").addEventListener("change",event=>{const selected=event.target.files[0];document.getElementById("selection").textContent=selected?selected.name+" · "+selected.type+" · "+selected.size+" bytes":"Choose the exact replacement file."})</script>${fileStore.createSignedUpload ? directUploadScript({ projectId: request.params.projectId, contextId: file.context_id, replacesReferenceId: file.id, successLocation: "receipt" }) : legacyUploadScript(`/projects/${encodeURIComponent(request.params.projectId)}/files?context_id=${encodeURIComponent(file.context_id)}&replace_reference_id=${encodeURIComponent(file.id)}`, "receipt")}`,
+        ),
+      );
   });
 
   router.get("/:projectId/files/:referenceId/preview", authenticated, async (request, response) => {

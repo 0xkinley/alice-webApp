@@ -73,7 +73,7 @@ Both processes validate configuration at startup and fail before listening when 
 | `ALICE_DATABASE_URL` | Required PostgreSQL application connection | Required PostgreSQL application connection | Server-only URL; TLS required outside loopback |
 | `ALICE_MIGRATION_DATABASE_URL` | Migration command only | Migration command only | Separate owner/migrator URL; never supplied to a deployable |
 | `ALICE_APPLICATION_DATABASE_ROLE` | Migration command only | Migration command only | Constrained runtime role receiving schema/table grants |
-| `ALICE_FILE_STORAGE` | Optional `aws_s3`; enables private file routes | Optional `aws_s3`; enables exact text/Markdown reads, bounded PDF embedded-text reads, and explicit PDF-backed candidate capture | Shared server-only provider selection; partial configuration fails startup |
+| `ALICE_FILE_STORAGE` | Optional `aws_s3`; enables direct-to-S3 intent/finalize file routes | Optional `aws_s3`; enables exact text/Markdown reads, bounded PDF embedded-text reads, and explicit PDF-backed candidate capture | Shared server-only provider selection; partial configuration fails startup |
 | `ALICE_S3_BUCKET` | Required with file storage | Required with file storage | Private, blocked-public-access, versioned bucket name |
 | `ALICE_S3_REGION` | Required with file storage | Required with file storage | AWS region containing both the bucket and GuardDuty scan plan |
 | `HOST` | Listen address | Listen address | Defaults to `127.0.0.1` |
@@ -93,7 +93,7 @@ Both deployables use one versioned PostgreSQL database through a pooled asynchro
 
 The constrained runtime role cannot create schema, manage migrations, truncate tables, or rewrite immutable evidence, accepted history, and audit events. Host writes remain candidate-only, evidence remains immutable, accepted context is authenticated and provenance-bearing, and only the web review action changes trusted state.
 
-File objects, context references, and PDF evidence-source links are likewise immutable through the runtime role. Only storage-version and scan-lifecycle columns may advance through database-enforced transitions. Remove-from-context appends an immutable file-reference exclusion; it does not grant the runtime role object/reference deletion or permanent erasure authority.
+File objects, context references, direct-upload intents/completions, and PDF evidence-source links are likewise immutable through the runtime role. Only storage-version and scan-lifecycle columns may advance through database-enforced transitions. Remove-from-context appends an immutable file-reference exclusion; it does not grant the runtime role object/reference deletion or permanent erasure authority.
 
 Project membership and invitation history is also non-deletable through the runtime role. The role may update only bounded membership role/end columns and one invitation terminal outcome; database triggers reject identity rewrites, terminal-history rewrites, ended-membership rewrites, and removal or demotion of the final active Owner. Migration grants must be refreshed after adding these tables.
 

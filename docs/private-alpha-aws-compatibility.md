@@ -27,7 +27,7 @@ AWS officially recommends ECS Express Mode as the successor to App Runner. It re
 The unmodified production image was built and exercised locally on 2026-08-31 without contacting AWS:
 
 - the locked multi-stage Node.js 24 image built successfully with zero reported dependency vulnerabilities;
-- PostgreSQL 17 started with an empty disposable database and all 14 migrations applied;
+- PostgreSQL 17 started with an empty disposable database and all 14 then-current migrations applied;
 - the constrained `alice_app` role connected successfully;
 - the web image started as the non-root `node` user and `/health` returned HTTP 200 with PostgreSQL reachable;
 - the MCP image started as the non-root `node` user, `/health` returned HTTP 200, and `/.well-known/oauth-protected-resource/mcp` returned the expected resource and authorization-server metadata; and
@@ -67,7 +67,9 @@ Lambda synchronous requests are limited to 6 MB. The current server-mediated upl
 
 Function URLs attached to VPC-enabled Lambdas do not provide response streaming. The MCP server must therefore pass a real buffered Function URL test; local Express success cannot substitute for that evidence. Failure returns the compute decision to ECS Express Mode or another approved host.
 
-The first item is complete locally: the production image pins Lambda Web Adapter `1.0.1` by its multi-architecture manifest digest, keeps the non-root `node` runtime, and remains an ordinary container when it is not running inside Lambda. The remaining direct-upload and live protocol items still block provisioning.
+Items 1-4 and 6-7 are complete in the repository. The production image pins Lambda Web Adapter `1.0.1` by its multi-architecture manifest digest, keeps the non-root `node` runtime, and remains an ordinary container when it is not running inside Lambda. Migration `015_file_upload_intents.sql` records immutable, user/project/context-bound declarations and one immutable completion receipt. The browser computes SHA-256, obtains a ten-minute checksum/encryption-bound S3 PUT, uploads without an AWS credential, and submits the exact S3 version for finalization. Finalization returns pending without reading bytes until GuardDuty reports `NO_THREATS_FOUND`; it then reauthorizes the initiating user and exact context, reads that version, verifies signature, type, extension, size, and hash, and only then uses the existing immutable reference path. Foreign, expired, threat-marked, unsupported, failed, and mismatched uploads create no reference. Tests cover the domain boundary, exact-origin HTTP routes, S3 signing contract, migration 15, and constrained-role immutability.
+
+Provisioning remains blocked on item 5's privileged staging cleanup/lifecycle rule, exact bucket CORS exposing only the required version header to the web origin, execution-role replacement of the old IAM-user template, a current account-plan eligibility check, the full rebuilt container gate, and the separately approved live protocol rounds.
 
 ## Cost checkpoint
 
