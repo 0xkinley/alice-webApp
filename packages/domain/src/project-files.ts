@@ -34,6 +34,7 @@ export interface PrivateFileStore {
     sha256: string;
   }): Promise<{ versionId: string; etag: string | null }>;
   getScanResult(input: { key: string; versionId: string }): Promise<ProviderScanResult>;
+  getObject(input: { key: string; versionId: string }): Promise<Buffer>;
   createSignedDownload(input: {
     key: string;
     versionId: string;
@@ -204,6 +205,7 @@ export async function uploadProjectFile(
     claimedMediaType?: string;
     bytes: Buffer | Uint8Array;
     sourceHost?: string;
+    replacesReferenceId?: string;
   },
 ) {
   const file = validateProjectFile(input);
@@ -213,116 +215,192 @@ export async function uploadProjectFile(
   const correlationId = `file_upload_${randomUUID()}`;
   let object;
   let reference;
+  let logicalFileId;
+  let referenceVersion = 1;
   let shouldUpload = false;
-  await database.transaction(async () => {
-    await database
-      .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
-      .get(`${context.workspaceId}:file:${file.sha256}`);
-    object = await database
-      .prepare(
-        `SELECT id, byte_size, verified_media_type, storage_key, storage_version_id, scan_status
-         FROM file_objects WHERE workspace_id = ? AND content_sha256 = ? FOR UPDATE`,
-      )
-      .get(context.workspaceId, file.sha256);
-    if (!object) {
-      const id = `file_${randomUUID()}`;
-      object = {
-        byte_size: file.bytes.length,
-        id,
-        storage_key: `objects/${randomUUID()}`,
-        storage_version_id: null,
-        scan_status: "pending_upload",
-        verified_media_type: file.mediaType,
-      };
-      const now = new Date().toISOString();
+  await database.transaction(
+    async () => {
+      if (input.replacesReferenceId) {
+        const replacementSeed = await database
+          .prepare(
+            `SELECT logical_file_id FROM file_context_references
+           WHERE workspace_id = ? AND project_id = ? AND context_id = ? AND id = ?`,
+          )
+          .get(context.workspaceId, input.projectId, input.contextId, input.replacesReferenceId);
+        if (!replacementSeed) {
+          throw new ProjectFileUserError(
+            "The file version changed, is still processing, or is no longer active.",
+          );
+        }
+        await database
+          .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
+          .get(`${context.workspaceId}:logical-file:${replacementSeed.logical_file_id}`);
+        const replaced = await database
+          .prepare(
+            `SELECT r.logical_file_id, r.version, o.scan_status
+           FROM file_context_references r
+           JOIN file_objects o ON o.workspace_id = r.workspace_id AND o.id = r.file_object_id
+           WHERE r.workspace_id = ? AND r.project_id = ? AND r.context_id = ? AND r.id = ?
+             AND o.scan_status IN ('clean', 'threats_found', 'unsupported', 'scan_failed')
+             AND NOT EXISTS (
+               SELECT 1 FROM file_context_references newer
+               WHERE newer.workspace_id = r.workspace_id AND newer.project_id = r.project_id
+                 AND newer.context_id = r.context_id
+                 AND newer.logical_file_id = r.logical_file_id AND newer.version > r.version
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM file_context_references grouped
+               JOIN file_reference_exclusions exclusion
+                 ON exclusion.workspace_id = grouped.workspace_id
+                AND exclusion.project_id = grouped.project_id
+                AND exclusion.context_id = grouped.context_id
+                AND exclusion.file_reference_id = grouped.id
+               WHERE grouped.workspace_id = r.workspace_id
+                 AND grouped.project_id = r.project_id AND grouped.context_id = r.context_id
+                 AND grouped.logical_file_id = r.logical_file_id
+             )`,
+          )
+          .get(context.workspaceId, input.projectId, input.contextId, input.replacesReferenceId);
+        if (!replaced) {
+          throw new ProjectFileUserError(
+            "The file version changed, is still processing, or is no longer active.",
+          );
+        }
+        logicalFileId = replaced.logical_file_id;
+        referenceVersion = Number(replaced.version) + 1;
+      }
       await database
+        .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
+        .get(`${context.workspaceId}:file:${file.sha256}`);
+      object = await database
         .prepare(
-          `INSERT INTO file_objects
+          `SELECT id, byte_size, verified_media_type, storage_key, storage_version_id, scan_status
+         FROM file_objects WHERE workspace_id = ? AND content_sha256 = ? FOR UPDATE`,
+        )
+        .get(context.workspaceId, file.sha256);
+      if (!object) {
+        const id = `file_${randomUUID()}`;
+        object = {
+          byte_size: file.bytes.length,
+          id,
+          storage_key: `objects/${randomUUID()}`,
+          storage_version_id: null,
+          scan_status: "pending_upload",
+          verified_media_type: file.mediaType,
+        };
+        const now = new Date().toISOString();
+        await database
+          .prepare(
+            `INSERT INTO file_objects
             (id, workspace_id, content_sha256, byte_size, verified_media_type, storage_key,
              scan_provider, scan_status, scan_updated_at, created_at)
            VALUES (?, ?, ?, ?, ?, ?, 'aws_guardduty_s3', 'pending_upload', ?, ?)`,
-        )
-        .run(
-          id,
-          context.workspaceId,
-          file.sha256,
-          file.bytes.length,
-          file.mediaType,
-          object.storage_key,
-          now,
-          now,
+          )
+          .run(
+            id,
+            context.workspaceId,
+            file.sha256,
+            file.bytes.length,
+            file.mediaType,
+            object.storage_key,
+            now,
+            now,
+          );
+        shouldUpload = true;
+      } else if (object.verified_media_type !== file.mediaType) {
+        throw new ProjectFileUserError(
+          "The file type conflicts with an existing exact-byte object.",
         );
-      shouldUpload = true;
-    } else if (object.verified_media_type !== file.mediaType) {
-      throw new ProjectFileUserError("The file type conflicts with an existing exact-byte object.");
-    } else if (object.scan_status === "storage_failed") {
-      await database
-        .prepare(
-          `UPDATE file_objects SET scan_status = 'pending_upload', scan_updated_at = ?
+      } else if (object.scan_status === "storage_failed") {
+        await database
+          .prepare(
+            `UPDATE file_objects SET scan_status = 'pending_upload', scan_updated_at = ?
            WHERE workspace_id = ? AND id = ? AND scan_status = 'storage_failed'`,
-        )
-        .run(new Date().toISOString(), context.workspaceId, object.id);
-      object.scan_status = "pending_upload";
-      shouldUpload = true;
-    } else if (["threats_found", "unsupported", "scan_failed"].includes(object.scan_status)) {
-      throw new ProjectFileUserError("This file could not be accepted.");
-    }
+          )
+          .run(new Date().toISOString(), context.workspaceId, object.id);
+        object.scan_status = "pending_upload";
+        shouldUpload = true;
+      } else if (["threats_found", "unsupported", "scan_failed"].includes(object.scan_status)) {
+        throw new ProjectFileUserError("This file could not be accepted.");
+      }
 
-    reference = await database
-      .prepare(
-        `SELECT r.id, r.display_name, r.referenced_at, e.id AS exclusion_id
+      reference = await database
+        .prepare(
+          `SELECT r.id, r.logical_file_id, r.version, r.display_name, r.referenced_at,
+                e.id AS exclusion_id
          FROM file_context_references r
          LEFT JOIN file_reference_exclusions e
            ON e.workspace_id = r.workspace_id AND e.project_id = r.project_id
-          AND e.context_id = r.context_id AND e.file_reference_id = r.id
+          AND e.context_id = r.context_id
+          AND EXISTS (
+            SELECT 1 FROM file_context_references excluded_reference
+            WHERE excluded_reference.workspace_id = r.workspace_id
+              AND excluded_reference.project_id = r.project_id
+              AND excluded_reference.context_id = r.context_id
+              AND excluded_reference.logical_file_id = r.logical_file_id
+              AND excluded_reference.id = e.file_reference_id
+          )
          WHERE r.workspace_id = ? AND r.project_id = ?
            AND r.context_id = ? AND r.file_object_id = ?`,
-      )
-      .get(context.workspaceId, input.projectId, input.contextId, object.id);
-    if (!reference) {
-      reference = {
-        id: `file_ref_${randomUUID()}`,
-        display_name: file.displayName,
-        referenced_at: new Date().toISOString(),
-      };
-      await database
-        .prepare(
-          `INSERT INTO file_context_references
-            (id, workspace_id, project_id, context_id, file_object_id, display_name,
-             source_host, uploader_user_id, access_scope, referenced_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'inherit_context', ?)`,
         )
-        .run(
-          reference.id,
-          context.workspaceId,
-          input.projectId,
-          input.contextId,
-          object.id,
-          file.displayName,
-          String(input.sourceHost || "alice_web").slice(0, 80),
-          input.userId,
-          reference.referenced_at,
+        .get(context.workspaceId, input.projectId, input.contextId, object.id);
+      if (input.replacesReferenceId && reference) {
+        throw new ProjectFileUserError("A replacement must contain changed file bytes.");
+      }
+      if (!reference) {
+        reference = {
+          id: `file_ref_${randomUUID()}`,
+          display_name: file.displayName,
+          logical_file_id: logicalFileId,
+          referenced_at: new Date().toISOString(),
+          version: referenceVersion,
+        };
+        logicalFileId ||= reference.id;
+        reference.logical_file_id = logicalFileId;
+        await database
+          .prepare(
+            `INSERT INTO file_context_references
+            (id, workspace_id, project_id, context_id, file_object_id, logical_file_id,
+             version, display_name, source_host, uploader_user_id, access_scope, referenced_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inherit_context', ?)`,
+          )
+          .run(
+            reference.id,
+            context.workspaceId,
+            input.projectId,
+            input.contextId,
+            object.id,
+            logicalFileId,
+            referenceVersion,
+            file.displayName,
+            String(input.sourceHost || "alice_web").slice(0, 80),
+            input.userId,
+            reference.referenced_at,
+          );
+        await appendAuditEvent(database, {
+          workspaceId: context.workspaceId,
+          projectId: input.projectId,
+          action: "file_reference_created",
+          actorType: "human_user",
+          actorId: input.userId,
+          correlationId,
+          metadata: {
+            context_id: input.contextId,
+            file_object_id: object.id,
+            file_reference_id: reference.id,
+            logical_file_id: logicalFileId,
+            version: referenceVersion,
+            source_host: String(input.sourceHost || "alice_web").slice(0, 80),
+          },
+        });
+      } else if (reference.exclusion_id) {
+        throw new ProjectFileUserError(
+          "This exact file was removed from this context. Upload a changed version to add it again.",
         );
-      await appendAuditEvent(database, {
-        workspaceId: context.workspaceId,
-        projectId: input.projectId,
-        action: "file_reference_created",
-        actorType: "human_user",
-        actorId: input.userId,
-        correlationId,
-        metadata: {
-          context_id: input.contextId,
-          file_object_id: object.id,
-          file_reference_id: reference.id,
-          source_host: String(input.sourceHost || "alice_web").slice(0, 80),
-        },
-      });
-    } else if (reference.exclusion_id) {
-      throw new ProjectFileUserError(
-        "This exact file was removed from this context. Upload a changed version to add it again.",
-      );
-    }
-  });
+      }
+    },
+    { isolation: "READ COMMITTED" },
+  );
 
   if (shouldUpload) {
     try {
@@ -397,6 +475,8 @@ export async function uploadProjectFile(
     id: reference.id,
     object_id: object.id,
     display_name: reference.display_name,
+    logical_file_id: reference.logical_file_id,
+    version: reference.version,
     media_type: object.verified_media_type,
     byte_size: object.byte_size,
     scan_status: object.scan_status as FileScanStatus,
@@ -415,24 +495,63 @@ export async function listProjectFiles(
   if (!context) return undefined;
   const rows = await database
     .prepare(
-      `SELECT r.id, r.display_name, r.source_host, r.access_scope, r.referenced_at,
+      `SELECT r.id, r.logical_file_id, r.version, r.display_name, r.source_host,
+              r.access_scope, r.referenced_at,
               o.id AS object_id, o.byte_size, o.verified_media_type AS media_type,
-              o.scan_status, o.scan_updated_at,
+              o.content_sha256, o.scan_status, o.scan_updated_at,
               e.id AS exclusion_id, e.reason AS removal_reason,
               e.removed_by_user_id, e.removed_at
        FROM file_context_references r
        JOIN file_objects o ON o.workspace_id = r.workspace_id AND o.id = r.file_object_id
        LEFT JOIN file_reference_exclusions e
          ON e.workspace_id = r.workspace_id AND e.project_id = r.project_id
-        AND e.context_id = r.context_id AND e.file_reference_id = r.id
+        AND e.context_id = r.context_id
+        AND EXISTS (
+          SELECT 1 FROM file_context_references excluded_reference
+          WHERE excluded_reference.workspace_id = r.workspace_id
+            AND excluded_reference.project_id = r.project_id
+            AND excluded_reference.context_id = r.context_id
+            AND excluded_reference.logical_file_id = r.logical_file_id
+            AND excluded_reference.id = e.file_reference_id
+        )
        WHERE r.workspace_id = ? AND r.project_id = ? AND r.context_id = ?
        ORDER BY r.referenced_at DESC, r.id DESC`,
     )
     .all(context.workspaceId, input.projectId, input.contextId);
+  const activeGroups = new Map<string, any[]>();
+  for (const row of rows) {
+    if (
+      rows.some(
+        (candidate) => candidate.logical_file_id === row.logical_file_id && candidate.exclusion_id,
+      )
+    ) {
+      continue;
+    }
+    const versions = activeGroups.get(row.logical_file_id) || [];
+    versions.push(row);
+    activeGroups.set(row.logical_file_id, versions);
+  }
+  const files = [...activeGroups.values()].map(
+    (versions) =>
+      [...versions].sort((left, right) => {
+        const cleanDifference =
+          Number(right.scan_status === "clean") - Number(left.scan_status === "clean");
+        return cleanDifference || Number(right.version) - Number(left.version);
+      })[0],
+  );
+  const removed = [
+    ...new Set(rows.filter((row) => row.exclusion_id).map((row) => row.logical_file_id)),
+  ].map(
+    (logicalFileId) =>
+      rows
+        .filter((row) => row.logical_file_id === logicalFileId)
+        .sort((left, right) => Number(right.version) - Number(left.version))[0],
+  );
   return {
     context,
-    files: rows.filter(({ exclusion_id: exclusionId }) => !exclusionId),
-    removed: rows.filter(({ exclusion_id: exclusionId }) => Boolean(exclusionId)),
+    files,
+    removed,
+    versions: rows,
   };
 }
 
@@ -443,23 +562,47 @@ async function authorizedFileReference(
     projectId: string;
     referenceId: string;
   },
+  { currentCleanOnly = false } = {},
 ) {
   const tenant = await tenantScopeForUser(database, input.userId);
   if (!tenant) return undefined;
   return await database
     .prepare(
-      `SELECT r.id, r.context_id, r.display_name, r.file_object_id,
+      `SELECT r.id, r.context_id, r.logical_file_id, r.version, r.display_name,
+              r.file_object_id, o.content_sha256, o.byte_size,
               o.storage_key, o.storage_version_id, o.verified_media_type AS media_type,
               o.scan_status
        FROM file_context_references r
        JOIN file_objects o ON o.workspace_id = r.workspace_id AND o.id = r.file_object_id
        JOIN work_contexts c ON c.workspace_id = r.workspace_id
          AND c.project_id = r.project_id AND c.id = r.context_id
-       LEFT JOIN file_reference_exclusions e
-         ON e.workspace_id = r.workspace_id AND e.project_id = r.project_id
-        AND e.context_id = r.context_id AND e.file_reference_id = r.id
        WHERE r.workspace_id = ? AND r.project_id = ? AND r.id = ?
-         AND c.archived_at IS NULL AND e.id IS NULL`,
+         AND c.archived_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM file_context_references grouped
+           JOIN file_reference_exclusions exclusion
+             ON exclusion.workspace_id = grouped.workspace_id
+            AND exclusion.project_id = grouped.project_id
+            AND exclusion.context_id = grouped.context_id
+            AND exclusion.file_reference_id = grouped.id
+           WHERE grouped.workspace_id = r.workspace_id AND grouped.project_id = r.project_id
+             AND grouped.context_id = r.context_id
+             AND grouped.logical_file_id = r.logical_file_id
+         )
+         ${
+           currentCleanOnly
+             ? `AND NOT EXISTS (
+                  SELECT 1 FROM file_context_references newer
+                  JOIN file_objects newer_object
+                    ON newer_object.workspace_id = newer.workspace_id
+                   AND newer_object.id = newer.file_object_id
+                  WHERE newer.workspace_id = r.workspace_id AND newer.project_id = r.project_id
+                    AND newer.context_id = r.context_id
+                    AND newer.logical_file_id = r.logical_file_id
+                    AND newer.version > r.version AND newer_object.scan_status = 'clean'
+                )`
+             : ""
+         }`,
     )
     .get(tenant.workspaceId, input.projectId, input.referenceId);
 }
@@ -471,9 +614,9 @@ async function fileReferenceView(
 ) {
   return await database
     .prepare(
-      `SELECT r.id, r.context_id, r.file_object_id, r.display_name, r.source_host,
-              r.uploader_user_id, r.access_scope, r.referenced_at,
-              o.byte_size, o.verified_media_type AS media_type, o.scan_status,
+      `SELECT r.id, r.context_id, r.file_object_id, r.logical_file_id, r.version,
+              r.display_name, r.source_host, r.uploader_user_id, r.access_scope, r.referenced_at,
+              o.content_sha256, o.byte_size, o.verified_media_type AS media_type, o.scan_status,
               o.scan_updated_at, p.name AS project_name, c.name AS context_name,
               c.visibility, e.id AS exclusion_id, e.reason AS removal_reason,
               e.removed_by_user_id, e.removed_at
@@ -484,7 +627,15 @@ async function fileReferenceView(
          AND c.project_id = r.project_id AND c.id = r.context_id
        LEFT JOIN file_reference_exclusions e
          ON e.workspace_id = r.workspace_id AND e.project_id = r.project_id
-        AND e.context_id = r.context_id AND e.file_reference_id = r.id
+        AND e.context_id = r.context_id
+        AND EXISTS (
+          SELECT 1 FROM file_context_references excluded_reference
+          WHERE excluded_reference.workspace_id = r.workspace_id
+            AND excluded_reference.project_id = r.project_id
+            AND excluded_reference.context_id = r.context_id
+            AND excluded_reference.logical_file_id = r.logical_file_id
+            AND excluded_reference.id = e.file_reference_id
+        )
        WHERE r.workspace_id = ? AND r.project_id = ? AND r.id = ? AND c.archived_at IS NULL`,
     )
     .get(tenant.workspaceId, input.projectId, input.referenceId);
@@ -500,6 +651,13 @@ function fileRemovalPreviewVersion(file): string {
         display_name: file.display_name,
         scan_status: file.scan_status,
         referenced_at: file.referenced_at,
+        versions: (file.versions || []).map((version) => ({
+          id: version.id,
+          version: version.version,
+          scan_status: version.scan_status,
+          referenced_at: version.referenced_at,
+          exclusion_id: version.exclusion_id,
+        })),
       }),
     )
     .digest("hex")}`;
@@ -515,7 +673,39 @@ export async function getProjectFileView(
 ) {
   const tenant = await tenantScopeForUser(database, input.userId);
   if (!tenant) return undefined;
-  return await fileReferenceView(database, tenant, input);
+  const file = await fileReferenceView(database, tenant, input);
+  if (!file) return undefined;
+  const versions = await database
+    .prepare(
+      `SELECT r.id, r.version, r.display_name, r.referenced_at, o.id AS file_object_id,
+              o.content_sha256, o.byte_size, o.verified_media_type AS media_type,
+              o.scan_status, o.scan_updated_at, e.id AS exclusion_id, e.removed_at
+       FROM file_context_references r
+       JOIN file_objects o ON o.workspace_id = r.workspace_id AND o.id = r.file_object_id
+       LEFT JOIN file_reference_exclusions e
+         ON e.workspace_id = r.workspace_id AND e.project_id = r.project_id
+        AND e.context_id = r.context_id AND e.file_reference_id = r.id
+       WHERE r.workspace_id = ? AND r.project_id = ? AND r.context_id = ?
+         AND r.logical_file_id = ?
+       ORDER BY r.version DESC, r.id DESC`,
+    )
+    .all(tenant.workspaceId, input.projectId, file.context_id, file.logical_file_id);
+  const current = [...versions].sort((left, right) => {
+    const cleanDifference =
+      Number(right.scan_status === "clean") - Number(left.scan_status === "clean");
+    return cleanDifference || Number(right.version) - Number(left.version);
+  })[0];
+  const latest = versions[0];
+  return {
+    ...file,
+    current_reference_id: current?.id,
+    is_current: current?.id === file.id,
+    can_replace:
+      !versions.some(({ exclusion_id: exclusionId }) => exclusionId) &&
+      latest?.id === file.id &&
+      ["clean", "threats_found", "unsupported", "scan_failed"].includes(file.scan_status),
+    versions,
+  };
 }
 
 export async function getProjectFileRemovalPreview(
@@ -547,14 +737,14 @@ export async function removeProjectFileReference(
   if (normalizedReason.length > 500) {
     throw new ProjectFileUserError("Removal reason exceeds 500 characters.");
   }
-  const initial = await fileReferenceView(database, tenant, input);
+  const initial = await getProjectFileView(database, input);
   if (!initial || initial.exclusion_id) return undefined;
   return await database.transaction(
     async () => {
       await database
         .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
-        .get(`${tenant.workspaceId}:file-reference:${input.referenceId}`);
-      const file = await fileReferenceView(database, tenant, input);
+        .get(`${tenant.workspaceId}:logical-file:${initial.logical_file_id}`);
+      const file = await getProjectFileView(database, input);
       if (
         !file ||
         file.exclusion_id ||
@@ -656,7 +846,7 @@ export async function getProjectFileDownload(
   store: PrivateFileStore,
   input: { userId: string; projectId: string; referenceId: string },
 ) {
-  const reference = await authorizedFileReference(database, input);
+  const reference = await authorizedFileReference(database, input, { currentCleanOnly: true });
   if (!reference) return undefined;
   if (reference.scan_status !== "clean" || !reference.storage_version_id) {
     return { available: false as const, scan_status: reference.scan_status as FileScanStatus };
@@ -669,4 +859,74 @@ export async function getProjectFileDownload(
     expiresInSeconds: 60,
   });
   return { available: true as const, url };
+}
+
+export async function getProjectFilePreview(
+  database,
+  store: PrivateFileStore,
+  input: { userId: string; projectId: string; referenceId: string },
+) {
+  const reference = await authorizedFileReference(database, input, { currentCleanOnly: true });
+  if (!reference) return undefined;
+  if (reference.scan_status !== "clean" || !reference.storage_version_id) {
+    return { available: false as const, scan_status: reference.scan_status as FileScanStatus };
+  }
+  if (reference.media_type === "application/pdf") {
+    return { available: true as const, kind: "metadata_only" as const };
+  }
+  const bytes = await store.getObject({
+    key: reference.storage_key,
+    versionId: reference.storage_version_id,
+  });
+  if (
+    bytes.length !== Number(reference.byte_size) ||
+    createHash("sha256").update(bytes).digest("hex") !== reference.content_sha256
+  ) {
+    throw new Error("Private object bytes do not match their immutable metadata.");
+  }
+  if (["text/plain", "text/markdown"].includes(reference.media_type)) {
+    return {
+      available: true as const,
+      kind: "text" as const,
+      text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    };
+  }
+  return {
+    available: true as const,
+    kind: "image" as const,
+    bytes,
+    media_type: reference.media_type as VerifiedFileMediaType,
+  };
+}
+
+export async function exportProjectFileMetadata(
+  database,
+  input: { userId: string; projectId: string; contextId: string },
+) {
+  const context = await authorizedContext(database, input.userId, input.projectId, input.contextId);
+  if (!context) return undefined;
+  const files = await database
+    .prepare(
+      `SELECT r.id AS file_reference_id, r.logical_file_id, r.version, r.display_name,
+              r.source_host, r.uploader_user_id, r.access_scope, r.referenced_at,
+              o.id AS file_object_id, o.content_sha256, o.byte_size,
+              o.verified_media_type, o.scan_status, o.scan_updated_at, o.created_at,
+              e.id AS exclusion_id, e.reason AS removal_reason,
+              e.removed_by_user_id, e.removed_at
+       FROM file_context_references r
+       JOIN file_objects o ON o.workspace_id = r.workspace_id AND o.id = r.file_object_id
+       LEFT JOIN file_reference_exclusions e
+         ON e.workspace_id = r.workspace_id AND e.project_id = r.project_id
+        AND e.context_id = r.context_id AND e.file_reference_id = r.id
+       WHERE r.workspace_id = ? AND r.project_id = ? AND r.context_id = ?
+       ORDER BY r.logical_file_id, r.version, r.id`,
+    )
+    .all(context.workspaceId, input.projectId, input.contextId);
+  return {
+    format: "alice.project-files.v1",
+    exported_at: new Date().toISOString(),
+    project: { id: context.project_id, name: context.project_name },
+    context: { id: context.context_id, name: context.context_name },
+    files,
+  };
 }

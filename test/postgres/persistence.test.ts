@@ -8,15 +8,18 @@ import {
   getCapturePreview,
   getProjectContext,
   getProjectFileRemovalPreview,
+  getProjectFileDownload,
   getRemovalPreview,
   getSavedContextView,
   issueAlphaInvitation,
   registerUser,
   removeSavedContextEntry,
   removeProjectFileReference,
+  refreshProjectFileScan,
   saveCandidateUpdate,
   setActiveConnectionTarget,
   supersedeAcceptedState,
+  uploadProjectFile,
 } from "@alice/domain";
 import { createTestIdentity } from "../helpers.ts";
 
@@ -31,6 +34,7 @@ let migrationDatabase;
 let owner;
 let other;
 let postgresFileReferenceId;
+let postgresReplacementReferenceId;
 
 const clientId = "client_postgres_concurrency";
 const connectionId = "connection_postgres_concurrency";
@@ -151,12 +155,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 6, filename: "006_context_entry_exclusions.sql" },
     { version: 7, filename: "007_project_files.sql" },
     { version: 8, filename: "008_file_reference_exclusions.sql" },
+    { version: 9, filename: "009_file_reference_versions.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    8,
+    9,
   );
   await reopened.close();
 });
@@ -474,11 +479,20 @@ test("PostgreSQL file lifecycle is fail-closed and immutable through the applica
   await database
     .prepare(
       `INSERT INTO file_context_references
-        (id, workspace_id, project_id, context_id, file_object_id, display_name,
-         source_host, uploader_user_id, access_scope, referenced_at)
-       VALUES (?, ?, ?, ?, ?, 'fixture.txt', 'postgres_test', ?, 'inherit_context', ?)`,
+        (id, workspace_id, project_id, context_id, file_object_id, logical_file_id,
+         version, display_name, source_host, uploader_user_id, access_scope, referenced_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, 'fixture.txt', 'postgres_test', ?, 'inherit_context', ?)`,
     )
-    .run(referenceId, owner.workspace_id, owner.project_id, context.id, objectId, owner.id, now);
+    .run(
+      referenceId,
+      owner.workspace_id,
+      owner.project_id,
+      context.id,
+      objectId,
+      referenceId,
+      owner.id,
+      now,
+    );
 
   await assert.rejects(
     database.prepare("UPDATE file_objects SET scan_status = 'clean' WHERE id = ?").run(objectId),
@@ -525,6 +539,102 @@ test("PostgreSQL file lifecycle is fail-closed and immutable through the applica
   await assert.rejects(
     database.prepare("DELETE FROM file_context_references WHERE id = ?").run(referenceId),
     /permission denied|immutable/i,
+  );
+});
+
+test("concurrent replacements create one next version and switch only after a clean scan", async () => {
+  const store = {
+    async putObject({ sha256 }) {
+      return { versionId: `version-${sha256.slice(0, 8)}`, etag: "etag-replacement" };
+    },
+    async getScanResult() {
+      return "clean";
+    },
+    async getObject() {
+      return Buffer.alloc(0);
+    },
+    async createSignedDownload({ versionId }) {
+      return `https://private-files.alice.example/object?version=${versionId}`;
+    },
+  };
+  const context = await database
+    .prepare("SELECT context_id FROM file_context_references WHERE id = ?")
+    .get(postgresFileReferenceId);
+  const attempts = await Promise.allSettled([
+    uploadProjectFile(database, store, {
+      userId: owner.id,
+      projectId: owner.project_id,
+      contextId: context.context_id,
+      fileName: "replacement-a.txt",
+      claimedMediaType: "text/plain",
+      bytes: Buffer.from("PostgreSQL replacement A"),
+      replacesReferenceId: postgresFileReferenceId,
+    }),
+    uploadProjectFile(database, store, {
+      userId: owner.id,
+      projectId: owner.project_id,
+      contextId: context.context_id,
+      fileName: "replacement-b.txt",
+      claimedMediaType: "text/plain",
+      bytes: Buffer.from("PostgreSQL replacement B"),
+      replacesReferenceId: postgresFileReferenceId,
+    }),
+  ]);
+  assert.equal(attempts.filter(({ status }) => status === "fulfilled").length, 1);
+  assert.equal(attempts.filter(({ status }) => status === "rejected").length, 1);
+  const replacement = attempts.find(({ status }) => status === "fulfilled")?.value;
+  postgresReplacementReferenceId = replacement.id;
+  assert.equal(replacement.version, 2);
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM file_context_references WHERE logical_file_id = ?")
+        .get(postgresFileReferenceId)
+    ).count,
+    2,
+  );
+  assert.equal(
+    (
+      await getProjectFileDownload(database, store, {
+        userId: owner.id,
+        projectId: owner.project_id,
+        referenceId: postgresFileReferenceId,
+      })
+    ).available,
+    true,
+  );
+  assert.equal(
+    (
+      await getProjectFileDownload(database, store, {
+        userId: owner.id,
+        projectId: owner.project_id,
+        referenceId: postgresReplacementReferenceId,
+      })
+    ).available,
+    false,
+  );
+  await refreshProjectFileScan(database, store, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    referenceId: postgresReplacementReferenceId,
+  });
+  assert.equal(
+    await getProjectFileDownload(database, store, {
+      userId: owner.id,
+      projectId: owner.project_id,
+      referenceId: postgresFileReferenceId,
+    }),
+    undefined,
+  );
+  assert.equal(
+    (
+      await getProjectFileDownload(database, store, {
+        userId: owner.id,
+        projectId: owner.project_id,
+        referenceId: postgresReplacementReferenceId,
+      })
+    ).available,
+    true,
   );
 });
 

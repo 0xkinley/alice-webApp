@@ -59,6 +59,14 @@ export function createS3PrivateFileStore({
       return statuses[String(status)] || "pending";
     },
 
+    async getObject({ key, versionId }) {
+      const result = await client.send(
+        new GetObjectCommand({ Bucket: bucket, Key: key, VersionId: versionId }),
+      );
+      if (!result.Body) throw new Error("Private object storage returned no body.");
+      return Buffer.from(await result.Body.transformToByteArray());
+    },
+
     async createSignedDownload({ key, versionId, displayName, mediaType, expiresInSeconds }) {
       return await getSignedUrl(
         client,

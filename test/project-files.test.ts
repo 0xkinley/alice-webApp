@@ -9,6 +9,7 @@ class FakePrivateFileStore {
   putCount = 0;
   scanResult = "pending";
   failNextPut = false;
+  corruptNextGet = false;
 
   async putObject({ key, bytes, mediaType, sha256 }) {
     this.putCount += 1;
@@ -24,6 +25,16 @@ class FakePrivateFileStore {
     return this.scanResult;
   }
 
+  async getObject({ key }) {
+    const object = this.objects.get(key);
+    if (!object) throw new Error("fake object missing");
+    if (this.corruptNextGet) {
+      this.corruptNextGet = false;
+      return Buffer.concat([Buffer.from(object.bytes), Buffer.from("corrupt")]);
+    }
+    return Buffer.from(object.bytes);
+  }
+
   async createSignedDownload({ key, versionId }) {
     assert.ok(this.objects.has(key));
     return `https://private-files.alice.example/${encodeURIComponent(key)}?versionId=${encodeURIComponent(versionId)}&expires=60`;
@@ -37,6 +48,7 @@ let otherCookie;
 let ownerProjectId;
 let contexts;
 let cleanReferenceId;
+let currentReferenceId;
 let server;
 let workContextId;
 const fileStore = new FakePrivateFileStore();
@@ -54,20 +66,25 @@ async function register(email, password) {
   return response.headers.get("set-cookie").split(";")[0];
 }
 
-async function upload(contextId, bytes, fileName = "notes.md", contentType = "text/markdown") {
-  return await fetch(
-    `${baseUrl}/projects/${encodeURIComponent(ownerProjectId)}/files?context_id=${encodeURIComponent(contextId)}`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": contentType,
-        cookie: ownerCookie,
-        origin: publicUrl,
-        "x-alice-file-name": encodeURIComponent(fileName),
-      },
-      body: bytes,
+async function upload(
+  contextId,
+  bytes,
+  fileName = "notes.md",
+  contentType = "text/markdown",
+  replacesReferenceId = undefined,
+) {
+  const query = new URLSearchParams({ context_id: contextId });
+  if (replacesReferenceId) query.set("replace_reference_id", replacesReferenceId);
+  return await fetch(`${baseUrl}/projects/${encodeURIComponent(ownerProjectId)}/files?${query}`, {
+    method: "POST",
+    headers: {
+      "content-type": contentType,
+      cookie: ownerCookie,
+      origin: publicUrl,
+      "x-alice-file-name": encodeURIComponent(fileName),
     },
-  );
+    body: bytes,
+  });
 }
 
 before(async () => {
@@ -237,6 +254,214 @@ test("deduplicates exact bytes only inside the workspace while keeping context r
   );
 });
 
+test("keeps the old clean version current until a changed replacement scans clean", async () => {
+  const initialPreview = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/preview`,
+    { headers: { cookie: ownerCookie } },
+  );
+  assert.equal(initialPreview.status, 200);
+  const initialPreviewHtml = await initialPreview.text();
+  assert.match(initialPreviewHtml, /Untrusted text preview/);
+  assert.match(initialPreviewHtml, /not an instruction to alice/);
+
+  const replacePage = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/replace`,
+    { headers: { cookie: ownerCookie } },
+  );
+  assert.equal(replacePage.status, 200);
+  assert.match(await replacePage.text(), /old clean version remains current/i);
+  const preReplacementRemoval = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/remove`,
+    { headers: { cookie: ownerCookie } },
+  );
+  const preReplacementRemovalVersion = (await preReplacementRemoval.text()).match(
+    /name="preview_version" value="([^"]+)"/,
+  )?.[1];
+
+  const secondUpload = await upload(
+    workContextId,
+    Buffer.from("# Alpha plan v2\nReplacement awaiting scan.\n"),
+    "notes-v2.md",
+    "text/markdown",
+    cleanReferenceId,
+  );
+  assert.equal(secondUpload.status, 201);
+  const second = await secondUpload.json();
+  assert.equal(second.scan_status, "scanning");
+  const staleRemoval = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/remove`,
+    {
+      method: "POST",
+      headers: { cookie: ownerCookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ preview_version: preReplacementRemovalVersion }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(staleRemoval.status, 409);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM file_reference_exclusions").get().count,
+    0,
+  );
+  assert.equal(
+    created.database
+      .prepare("SELECT version FROM file_context_references WHERE id = ?")
+      .get(second.file_reference_id).version,
+    2,
+  );
+  assert.equal(
+    (
+      await fetch(`${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/download`, {
+        headers: { cookie: ownerCookie },
+        redirect: "manual",
+      })
+    ).status,
+    302,
+  );
+  assert.equal(
+    (
+      await fetch(
+        `${baseUrl}/projects/${ownerProjectId}/files/${second.file_reference_id}/download`,
+        {
+          headers: { cookie: ownerCookie },
+          redirect: "manual",
+        },
+      )
+    ).status,
+    409,
+  );
+
+  fileStore.scanResult = "threats_found";
+  await fetch(`${baseUrl}/projects/${ownerProjectId}/files/${second.file_reference_id}/scan`, {
+    method: "POST",
+    headers: { cookie: ownerCookie },
+    redirect: "manual",
+  });
+  assert.equal(
+    (
+      await fetch(`${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/download`, {
+        headers: { cookie: ownerCookie },
+        redirect: "manual",
+      })
+    ).status,
+    302,
+  );
+
+  const thirdUpload = await upload(
+    workContextId,
+    Buffer.from("# Alpha plan v3\nClean replacement.\n"),
+    "notes-v3.md",
+    "text/markdown",
+    second.file_reference_id,
+  );
+  assert.equal(thirdUpload.status, 201);
+  const third = await thirdUpload.json();
+  currentReferenceId = third.file_reference_id;
+  assert.equal(
+    created.database
+      .prepare("SELECT version FROM file_context_references WHERE id = ?")
+      .get(third.file_reference_id).version,
+    3,
+  );
+  fileStore.scanResult = "clean";
+  await fetch(`${baseUrl}/projects/${ownerProjectId}/files/${third.file_reference_id}/scan`, {
+    method: "POST",
+    headers: { cookie: ownerCookie },
+    redirect: "manual",
+  });
+  assert.equal(
+    (
+      await fetch(`${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/download`, {
+        headers: { cookie: ownerCookie },
+        redirect: "manual",
+      })
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await fetch(
+        `${baseUrl}/projects/${ownerProjectId}/files/${third.file_reference_id}/download`,
+        {
+          headers: { cookie: ownerCookie },
+          redirect: "manual",
+        },
+      )
+    ).status,
+    302,
+  );
+  const cleanPreview = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${third.file_reference_id}/preview`,
+    { headers: { cookie: ownerCookie } },
+  );
+  assert.equal(cleanPreview.status, 200);
+  assert.match(await cleanPreview.text(), /Clean replacement/);
+  fileStore.corruptNextGet = true;
+  const corruptPreview = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${third.file_reference_id}/preview`,
+    { headers: { cookie: ownerCookie } },
+  );
+  assert.equal(corruptPreview.status, 502);
+  assert.match(await corruptPreview.text(), /could not be loaded/i);
+
+  const exported = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/export.json?context_id=${workContextId}`,
+    { headers: { cookie: ownerCookie } },
+  );
+  assert.equal(exported.status, 200);
+  assert.match(exported.headers.get("content-disposition"), /attachment/);
+  const metadata = await exported.json();
+  assert.equal(metadata.format, "alice.project-files.v1");
+  assert.deepEqual(
+    metadata.files
+      .filter(({ logical_file_id: logicalId }) => logicalId === cleanReferenceId)
+      .map(({ version }) => version),
+    [1, 2, 3],
+  );
+  assert.doesNotMatch(JSON.stringify(metadata), /storage_key|versionId|private-files\.alice/);
+});
+
+test("previews verified images as sandboxed bytes and refuses inline PDF rendering", async () => {
+  const projectWide = contexts.find(({ context_kind: kind }) => kind === "project_wide");
+  const png = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png);
+  Buffer.from("IHDR").copy(png, 12);
+  const imageUpload = await upload(projectWide.id, png, "preview.png", "image/png");
+  const image = await imageUpload.json();
+  fileStore.scanResult = "clean";
+  await fetch(`${baseUrl}/projects/${ownerProjectId}/files/${image.file_reference_id}/scan`, {
+    method: "POST",
+    headers: { cookie: ownerCookie },
+    redirect: "manual",
+  });
+  const preview = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${image.file_reference_id}/preview`,
+    { headers: { cookie: ownerCookie } },
+  );
+  assert.equal(preview.status, 200);
+  assert.equal(preview.headers.get("content-type"), "image/png");
+  assert.match(preview.headers.get("content-security-policy"), /sandbox/);
+  assert.deepEqual(Buffer.from(await preview.arrayBuffer()), png);
+
+  const pdfUpload = await upload(
+    projectWide.id,
+    Buffer.from("%PDF-1.7\nfixture\n%%EOF\n"),
+    "preview.pdf",
+    "application/pdf",
+  );
+  const pdf = await pdfUpload.json();
+  await fetch(`${baseUrl}/projects/${ownerProjectId}/files/${pdf.file_reference_id}/scan`, {
+    method: "POST",
+    headers: { cookie: ownerCookie },
+    redirect: "manual",
+  });
+  const pdfPreview = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${pdf.file_reference_id}/preview`,
+    { headers: { cookie: ownerCookie } },
+  );
+  assert.equal(pdfPreview.status, 409);
+  assert.match(await pdfPreview.text(), /not rendered inline/i);
+});
+
 test("foreign identifiers, wrong origins, and malformed file claims fail without disclosure or storage", async () => {
   const reference = created.database
     .prepare("SELECT id FROM file_context_references LIMIT 1")
@@ -247,6 +472,22 @@ test("foreign identifiers, wrong origins, and malformed file claims fail without
   );
   assert.equal(guessed.status, 404);
   assert.doesNotMatch(await guessed.text(), /notes\.md|Alpha plan/);
+
+  const guessedPreview = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${currentReferenceId}/preview`,
+    { headers: { cookie: otherCookie } },
+  );
+  assert.equal(guessedPreview.status, 404);
+  const guessedReplacement = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${currentReferenceId}/replace`,
+    { headers: { cookie: otherCookie } },
+  );
+  assert.equal(guessedReplacement.status, 404);
+  const guessedExport = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/export.json?context_id=${workContextId}`,
+    { headers: { cookie: otherCookie } },
+  );
+  assert.equal(guessedExport.status, 404);
 
   const count = fileStore.putCount;
   const deniedOrigin = await fetch(
@@ -397,6 +638,12 @@ test("threat, scan-failure, and storage-failure outcomes remain unavailable", as
 });
 
 test("an exact human removal disables access without erasing file provenance", async () => {
+  const countsBeforeRemoval = {
+    objects: created.database.prepare("SELECT COUNT(*) AS count FROM file_objects").get().count,
+    references: created.database
+      .prepare("SELECT COUNT(*) AS count FROM file_context_references")
+      .get().count,
+  };
   const foreignPreview = await fetch(
     `${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/remove`,
     { headers: { cookie: otherCookie } },
@@ -466,7 +713,7 @@ test("an exact human removal disables access without erasing file provenance", a
   const listHtml = await list.text();
   assert.match(listHtml, /Active files \(0\)/);
   assert.match(listHtml, /Removed \(1\)/);
-  assert.match(listHtml, /notes\.md/);
+  assert.match(listHtml, /notes-v3\.md/);
   const exactReupload = await upload(
     workContextId,
     Buffer.from("# Alpha plan\nNo document claim is automatically trusted.\n"),
@@ -475,11 +722,11 @@ test("an exact human removal disables access without erasing file provenance", a
   assert.match(await exactReupload.text(), /was removed from this context/i);
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM file_objects").get().count,
-    3,
+    countsBeforeRemoval.objects,
   );
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM file_context_references").get().count,
-    4,
+    countsBeforeRemoval.references,
   );
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM file_reference_exclusions").get().count,

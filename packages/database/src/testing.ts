@@ -359,6 +359,8 @@ function createSchema(database: DatabaseSync) {
       project_id TEXT NOT NULL,
       context_id TEXT NOT NULL,
       file_object_id TEXT NOT NULL,
+      logical_file_id TEXT NOT NULL,
+      version INTEGER NOT NULL CHECK (version > 0),
       display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 180),
       source_host TEXT NOT NULL CHECK (length(source_host) BETWEEN 1 AND 80),
       uploader_user_id TEXT NOT NULL,
@@ -372,6 +374,7 @@ function createSchema(database: DatabaseSync) {
         REFERENCES workspaces(id, user_id),
       UNIQUE (workspace_id, id),
       UNIQUE (workspace_id, project_id, context_id, id),
+      UNIQUE (workspace_id, project_id, context_id, logical_file_id, version),
       UNIQUE (workspace_id, project_id, context_id, file_object_id)
     ) STRICT;
 
@@ -397,6 +400,10 @@ function createSchema(database: DatabaseSync) {
       ON file_objects (workspace_id, scan_status, scan_updated_at, id);
     CREATE INDEX file_context_references_lookup
       ON file_context_references (workspace_id, project_id, context_id, referenced_at, id);
+    CREATE INDEX file_context_references_versions
+      ON file_context_references (
+        workspace_id, project_id, context_id, logical_file_id, version DESC, id
+      );
 
     CREATE TABLE audit_events (
       id TEXT PRIMARY KEY,

@@ -27,7 +27,9 @@ export { createProject, getProject } from "./projects.ts";
 export {
   FILE_UPLOAD_LIMIT_BYTES,
   ProjectFileUserError,
+  exportProjectFileMetadata,
   getProjectFileDownload,
+  getProjectFilePreview,
   getProjectFileRemovalPreview,
   getProjectFileView,
   listProjectFiles,
