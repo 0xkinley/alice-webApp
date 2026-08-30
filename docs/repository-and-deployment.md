@@ -89,7 +89,7 @@ The old `.data/*.sqlite` development files are not production data and receive n
 
 ## Hosting boundary
 
-The repository deliberately chooses no cloud vendor, container platform, reverse proxy, or infrastructure-as-code layer. A future hosting decision must provide:
+The dated read-only comparison in `docs/private-alpha-infrastructure-selection.md` recommends Railway for both deployables, Neon for PostgreSQL, and private Amazon S3 plus GuardDuty Malware Protection for uploaded bytes. Infrastructure remains unprovisioned until the product owner separately approves account/resource creation and the expected spending ceiling. The selected stack must provide:
 
 - stable HTTPS origins for web and MCP;
 - server-side secret injection;

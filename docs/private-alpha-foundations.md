@@ -150,6 +150,8 @@ The alice. web application provides Connect ChatGPT and Connect Claude surfaces 
 
 Vercel may host the deployables only if the built Express applications, MCP request/transport behavior, stable OAuth origins, PostgreSQL connection strategy, migration process, and operational limits pass hosted tests. Platform choice is subordinate to these properties.
 
+The read-only provider comparison and current recommendation are recorded in `docs/private-alpha-infrastructure-selection.md`. It recommends Railway for the two Node services, Neon for managed PostgreSQL, and private Amazon S3 with GuardDuty Malware Protection for file bytes. No resource, paid plan, public origin, invitation, or external data transfer exists merely because that recommendation is documented; provisioning remains an explicit product-owner approval gate.
+
 ## Host-surface compatibility
 
 Remote MCP is the integration architecture, but capability claims are made per host surface rather than per provider brand. A successful result on one client does not establish support on another client, even when they use the same account or server URL.
