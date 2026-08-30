@@ -7,6 +7,7 @@ import {
   confirmCapturedUpdate,
   getCapturePreview,
   getProjectContext,
+  getSavedContextView,
   issueAlphaInvitation,
   registerUser,
   saveCandidateUpdate,
@@ -236,6 +237,20 @@ test("one concurrent exact-preview confirmation wins and accepts the whole captu
         .get("candidate_update_confirmed")
     ).count,
     1,
+  );
+  const savedView = await getSavedContextView(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    contextId: preview.context.id,
+  });
+  assert.deepEqual(
+    savedView.saved
+      .filter(({ state_key: stateKey }) => stateKey.startsWith("preview."))
+      .map(({ state_key: stateKey, value }) => [stateKey, value]),
+    [
+      ["preview.first", "A"],
+      ["preview.second", "B"],
+    ],
   );
 });
 

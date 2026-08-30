@@ -11,6 +11,7 @@ import {
 import { createAuthRouter, renderPage, requireAuthenticatedUser } from "./auth.ts";
 import { createConnectionsRouter } from "./connections.ts";
 import { createReviewRouter } from "./review.ts";
+import { createSavedContextRouter } from "./saved-context.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -92,7 +93,7 @@ export async function createApp({
     const contextCards = contexts
       .map(
         (context) =>
-          `<article id="${escapeHtml(context.id)}"><h2>${escapeHtml(context.name)}</h2><p>${escapeHtml(context.description)}</p><p class="muted">${context.context_kind === "project_wide" ? "Included with every selected work context" : "Work context"} · ${escapeHtml(context.visibility)}</p></article>`,
+          `<article id="${escapeHtml(context.id)}"><h2>${escapeHtml(context.name)}</h2><p>${escapeHtml(context.description)}</p><p class="muted">${context.context_kind === "project_wide" ? "Included with every selected work context" : "Work context"} · ${escapeHtml(context.visibility)}</p><p><a href="/projects/${encodeURIComponent(project.id)}/saved-context?context_id=${encodeURIComponent(context.id)}">View saved context</a></p></article>`,
       )
       .join("");
     response
@@ -172,6 +173,7 @@ export async function createApp({
       }
     },
   );
+  app.use("/projects", createSavedContextRouter({ database }));
   app.use("/review", createReviewRouter({ database }));
 
   return { app, database };

@@ -183,6 +183,27 @@ test("web project list, detail, creation, and review queue stay tenant-scoped", 
         `${target.projectName}|${target.acceptedValue}|${target.pendingValue}|${target.evidenceId}`,
       ),
     );
+
+    const targetContext = database
+      .prepare("SELECT context_id FROM candidate_context_targets WHERE candidate_id = ?")
+      .get(target.pendingCandidateId);
+    const foreignSavedContext = await fetch(
+      `${webBaseUrl}/projects/${target.projectId}/saved-context?context_id=${targetContext.context_id}`,
+      { headers: { cookie: actor.cookie } },
+    );
+    const guessedSavedContext = await fetch(
+      `${webBaseUrl}/projects/project_${crypto.randomUUID()}/saved-context?context_id=context_${crypto.randomUUID()}`,
+      { headers: { cookie: actor.cookie } },
+    );
+    const foreignSavedHtml = await foreignSavedContext.text();
+    assert.equal(foreignSavedContext.status, 404);
+    assert.equal(foreignSavedHtml, await guessedSavedContext.text());
+    assert.doesNotMatch(
+      foreignSavedHtml,
+      new RegExp(
+        `${target.projectName}|${target.acceptedValue}|${target.pendingValue}|${target.evidenceId}`,
+      ),
+    );
   }
 
   const maliciousCreate = await fetch(`${webBaseUrl}/projects`, {
