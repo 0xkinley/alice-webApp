@@ -157,6 +157,40 @@ test("a user explicitly selects one permitted target for all active AI connectio
   assert.match(await page.text(), /Active target:<\/strong> Private project \/ General/);
 });
 
+test("connection center shows private immutable host-read receipts without package content", async () => {
+  const general = created.database
+    .prepare(
+      `SELECT id FROM work_contexts
+       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'work'`,
+    )
+    .get(owner.workspace_id, owner.project_id);
+  created.database
+    .prepare(
+      `INSERT INTO context_read_events
+        (id, user_id, connection_workspace_id, connection_id, client_id, client_name,
+         client_classification, requested_via, status, project_workspace_id, project_id,
+         context_id, package_version, package_utf8_bytes, created_at)
+       VALUES ('read_owner_success', ?, ?, 'connection_owner', 'client_owner_chatgpt',
+               'ChatGPT web', 'chatgpt', 'active_target', 'succeeded', ?, ?, ?,
+               'package-visible-version', 4321, ?)`,
+    )
+    .run(
+      owner.id,
+      owner.workspace_id,
+      owner.workspace_id,
+      owner.project_id,
+      general.id,
+      new Date().toISOString(),
+    );
+  const response = await fetch(`${baseUrl}/connections`, { headers: { cookie } });
+  const html = await response.text();
+  assert.match(html, /Your recent host reads/);
+  assert.match(html, /ChatGPT web/);
+  assert.match(html, /package-visible-version/);
+  assert.match(html, /4321 UTF-8 bytes/);
+  assert.doesNotMatch(html, /task text|package content/);
+});
+
 test("a stale selection cannot silently overwrite a newer target", async () => {
   const general = created.database
     .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND name = 'General'")

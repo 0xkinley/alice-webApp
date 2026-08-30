@@ -33,6 +33,7 @@ The integration fixture creates two authenticated users, separate private worksp
 | Web | Ownership transfer and departure | Non-Owners cannot transfer; an Owner cannot leave directly; personal or unmanaged selected contexts block departure | Transfer preserves an active Owner; departure ends grants and membership atomically |
 | MCP | `list_projects` | Other project ID, name, and brief are absent | None |
 | MCP | `get_project_context` | Foreign and random project IDs return the same not-found tool error | No accepted value, pending value, candidate, or evidence leaks |
+| Web/MCP | Package preview and context-read receipts | Preview requires current project/context access; inaccessible explicit reads retain no foreign destination metadata; historical destination details disappear when context access ends | Preview creates no receipt; successful/failed receipts are append-only and contain no task or package content |
 | MCP | `save_project_update` | Foreign and random project IDs return the same not-found tool error | Evidence, candidate, accepted-state, and audit counts do not change |
 | MCP | Own accepted context | Other tenant values are absent; own pending value is excluded | None |
 | Database | Evidence reference | Foreign workspace/project/connection combination is rejected | No evidence row is inserted |

@@ -1,4 +1,5 @@
 import {
+  listContextReadEvents,
   listIntegrationConnections,
   listSelectableProjectContexts,
   revokeIntegrationConnection,
@@ -41,14 +42,27 @@ function connectionCard(connection, projects, expectedVersions) {
   return `<article><h2>${escapeHtml(connection.client_name)}</h2><p><strong>${status}</strong> · ${escapeHtml(connection.client_classification)}</p>${current}<dl><dt>Permissions</dt><dd>${escapeHtml(connection.granted_scopes)}</dd><dt>Connected</dt><dd>${escapeHtml(connection.first_connected_at)}</dd><dt>Last used</dt><dd>${escapeHtml(connection.last_used_at)}</dd></dl>${action}</article>`;
 }
 
+function readEventCard(event) {
+  const route = event.requested_via === "active_target" ? "active target" : "explicit fallback";
+  const destination = event.context_name
+    ? ` · ${escapeHtml(event.project_name)} / ${escapeHtml(event.context_name)}`
+    : "";
+  const result =
+    event.status === "succeeded"
+      ? `Succeeded · package ${escapeHtml(event.package_version)} · ${escapeHtml(event.package_utf8_bytes)} UTF-8 bytes`
+      : `Failed · ${escapeHtml(String(event.failure_code).replaceAll("_", " "))}`;
+  return `<article><p><strong>${result}</strong></p><p>${escapeHtml(event.client_name)} · ${escapeHtml(event.client_classification)} · ${route}${destination}</p><p class="muted">${escapeHtml(event.created_at)}</p></article>`;
+}
+
 export function createConnectionsRouter({ database, mcpPublicUrl }) {
   const router = express.Router();
   router.use(requireAuthenticatedUser(database));
 
   router.get("/", async (request, response) => {
-    const [connections, projects] = await Promise.all([
+    const [connections, projects, readEvents] = await Promise.all([
       listIntegrationConnections(database, request.aliceUser!.id),
       listSelectableProjectContexts(database, request.aliceUser!.id),
+      listContextReadEvents(database, { userId: request.aliceUser!.id, limit: 25 }),
     ]);
     const expectedVersions = Object.fromEntries(
       connections
@@ -59,12 +73,15 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
     const cards = connections
       .map((connection) => connectionCard(connection, projects, expectedVersions))
       .join("");
+    const readActivity = readEvents.length
+      ? readEvents.map(readEventCard).join("")
+      : "<p>No successful or failed host context read has been recorded for your AI connections. This does not mean a host consulted alice.</p>";
     response
       .type("html")
       .send(
         renderPage(
           "AI connections",
-          `<nav><a href="/">Projects</a></nav><h1>AI connections</h1><p>Connect each host with your own alice. account. Collaborators never inherit or share these permissions.</p><section><h2>Connect ChatGPT</h2><p>Add a custom remote MCP connection in ChatGPT and use this stable address:</p><pre>${escapeHtml(endpoint)}</pre><p>Complete alice. sign-in and review the requested read and candidate-save permissions.</p></section><section><h2>Connect Claude</h2><p>Add a custom remote connector in Claude using the same stable address, then authorize your own alice. account.</p><pre>${escapeHtml(endpoint)}</pre></section><h2>Connection status</h2>${cards || "<p>No AI host is connected yet.</p>"}`,
+          `<nav><a href="/">Projects</a></nav><h1>AI connections</h1><p>Connect each host with your own alice. account. Collaborators never inherit or share these permissions.</p><section><h2>Connect ChatGPT</h2><p>Add a custom remote MCP connection in ChatGPT and use this stable address:</p><pre>${escapeHtml(endpoint)}</pre><p>Complete alice. sign-in and review the requested read and candidate-save permissions.</p></section><section><h2>Connect Claude</h2><p>Add a custom remote connector in Claude using the same stable address, then authorize your own alice. account.</p><pre>${escapeHtml(endpoint)}</pre></section><h2>Connection status</h2>${cards || "<p>No AI host is connected yet.</p>"}<h2>Your recent host reads</h2><p>These immutable receipts distinguish successful retrieval from failure. Success does not prove that a host used the returned context in its answer.</p>${readActivity}`,
         ),
       );
   });

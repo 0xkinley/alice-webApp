@@ -88,6 +88,12 @@ Records which authenticated MCP client a user connected, granted capabilities, f
 
 Each authorization grant creates a connection bound by foreign keys to the user, private workspace, and dynamically registered OAuth client. The row stores the bounded scope grant, safe client classification, first-connected timestamp, last-use timestamp, and optional revocation timestamp. Authorization codes, OAuth client secrets, access tokens, and refresh tokens are persisted only as SHA-256 digests in their protocol tables; plaintext values exist only in the immediate protocol request/response path.
 
+### Context read events
+
+Migration `012_context_read_events.sql` adds immutable receipts for MCP context-package attempts. A successful receipt records the authenticated user-owned connection, safe client classification, active-target or explicit-fallback route, currently authorized project/context, deterministic package version, UTF-8 byte size, and timestamp. A failed receipt records one bounded reason: no active target, inaccessible target, budget failure, or internal failure. It attaches project/context identifiers only when the user can still resolve that exact context.
+
+Read receipts intentionally omit task text, package contents, accepted values, evidence/candidate content, emails, and bearer material. Only the connection owner can list their receipts, and current project/context authorization is rechecked before historical destination metadata is shown. The authenticated package-preview path assembles the same deterministic JSON but creates no receipt, because a browser preview is not an AI-host retrieval. Database triggers and the constrained application role reject receipt updates and deletes.
+
 ### Audit events
 
 Append-only records of security- and state-relevant actions. Store identifiers, safe metadata, and correlation IDs rather than unsaved conversation content.

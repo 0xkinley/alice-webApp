@@ -45,6 +45,8 @@ Read/fetch operations remain side-effect free. They cannot alter active selectio
 
 alice. cannot force a host model to invoke an MCP tool. Active selection, tool descriptions, and server instructions can reduce friction, but they do not prove that a particular conversation consulted alice. The product therefore exposes both a deterministic package preview and a last-read receipt containing the host, surface, project, context, package version, and time. A skipped or failed invocation must be distinguishable from a successful read, and copy must not imply otherwise.
 
+The implemented preview is an authenticated project/context route that renders the exact deterministic JSON package for an explicit task and 2,000–32,000 UTF-8 byte budget, including freshness, omissions, and per-item provenance when entries are present. Opening it is explicitly not a host read and creates no receipt. MCP `get_active_context` and `get_project_context` append immutable success or bounded-failure receipts to the connection owner's private workspace. A success proves retrieval only, not that the host used the package in an answer. Receipts contain no task text or package content, and destination metadata is displayed only while the user retains access to that context.
+
 ### Saving with one human confirmation
 
 The desired routine flow is:

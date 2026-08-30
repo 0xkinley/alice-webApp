@@ -162,6 +162,24 @@ test("uses the per-connection active project and work context without target arg
   });
   assert.equal(beforeSelection.payload.result.isError, true);
   assert.match(beforeSelection.payload.result.content[0].text, /no active/i);
+  assert.deepEqual(
+    created.database
+      .prepare(
+        `SELECT status, failure_code, requested_via, project_id, context_id
+         FROM context_read_events ORDER BY created_at, id`,
+      )
+      .all()
+      .map((row) => ({ ...row })),
+    [
+      {
+        status: "failed",
+        failure_code: "no_active_target",
+        requested_via: "active_target",
+        project_id: null,
+        context_id: null,
+      },
+    ],
+  );
 
   const general = created.database
     .prepare(
@@ -188,6 +206,36 @@ test("uses the per-connection active project and work context without target arg
   assert.equal(context.context.name, "General");
   assert.equal(context.context.includes_project_wide, true);
   assert.equal(context.accepted_decisions[0].state_key, "launch.icp");
+  const receipt = created.database
+    .prepare(
+      `SELECT status, failure_code, requested_via, project_id, context_id,
+              package_version, package_utf8_bytes
+       FROM context_read_events WHERE status = 'succeeded'`,
+    )
+    .get();
+  assert.deepEqual(
+    { ...receipt },
+    {
+      status: "succeeded",
+      failure_code: null,
+      requested_via: "active_target",
+      project_id: identity.project_id,
+      context_id: general.id,
+      package_version: context.package.version,
+      package_utf8_bytes: context.package.budget.used,
+    },
+  );
+  assert.throws(
+    () =>
+      created.database
+        .prepare("UPDATE context_read_events SET status = 'failed' WHERE id = ?")
+        .run(
+          created.database
+            .prepare("SELECT id FROM context_read_events WHERE status = 'succeeded'")
+            .get().id,
+        ),
+    /append-only|immutable/i,
+  );
 
   const listing = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "list_projects",
@@ -300,6 +348,54 @@ test("returns accepted context with provenance and excludes pending candidates",
       )
       .get(),
     before,
+  );
+});
+
+test("records an inaccessible explicit read without retaining foreign target metadata", async () => {
+  const foreign = await createTestIdentity(created.database, {
+    email: "foreign-context-read@alice.example",
+    password: "foreign context read private password",
+    projectId: "project_foreign_context_read",
+  });
+  const foreignContext = created.database
+    .prepare(
+      `SELECT id FROM work_contexts
+       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'work'`,
+    )
+    .get(foreign.workspace_id, foreign.project_id);
+  const before = created.database
+    .prepare("SELECT COUNT(*) AS count FROM context_read_events")
+    .get().count;
+  const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "get_project_context",
+    arguments: {
+      project_id: foreign.project_id,
+      context_id: foreignContext.id,
+      task: "Attempt inaccessible read",
+    },
+  });
+  assert.equal(payload.result.isError, true);
+  const failed = created.database
+    .prepare(
+      `SELECT status, failure_code, requested_via, project_id, context_id
+       FROM context_read_events
+       WHERE failure_code = 'not_accessible' AND requested_via = 'explicit_fallback'
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+    )
+    .get();
+  assert.deepEqual(
+    { ...failed },
+    {
+      status: "failed",
+      failure_code: "not_accessible",
+      requested_via: "explicit_fallback",
+      project_id: null,
+      context_id: null,
+    },
+  );
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM context_read_events").get().count,
+    before + 1,
   );
 });
 

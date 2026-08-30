@@ -17,6 +17,7 @@ import {
   issueAlphaInvitation,
   grantContextAccess,
   registerUser,
+  recordContextReadSuccess,
   removeSavedContextEntry,
   removeProjectFileReference,
   removeProjectMember,
@@ -165,12 +166,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 9, filename: "009_file_reference_versions.sql" },
     { version: 10, filename: "010_project_memberships.sql" },
     { version: 11, filename: "011_context_access.sql" },
+    { version: 12, filename: "012_context_read_events.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    11,
+    12,
   );
   await reopened.close();
 });
@@ -610,6 +612,50 @@ test("PostgreSQL denies immutable history rewrites through the constrained appli
   await assert.rejects(
     database.prepare("DELETE FROM context_entry_exclusions").run(),
     /permission denied|immutable/i,
+  );
+  const context = await database
+    .prepare(
+      `SELECT id FROM work_contexts
+       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'work'
+       ORDER BY id LIMIT 1`,
+    )
+    .get(owner.workspace_id, owner.project_id);
+  const readEvent = await recordContextReadSuccess(database, {
+    userId: owner.id,
+    connectionId,
+    projectId: owner.project_id,
+    contextId: context.id,
+    requestedVia: "active_target",
+    packageVersion: "postgres-package-version",
+    packageUtf8Bytes: 4096,
+  });
+  assert.ok(readEvent);
+  await assert.rejects(
+    database.prepare("UPDATE context_read_events SET package_utf8_bytes = 1").run(),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database.prepare("DELETE FROM context_read_events").run(),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database
+      .prepare(
+        `INSERT INTO context_read_events
+          (id, user_id, connection_workspace_id, connection_id, client_id, client_name,
+           client_classification, requested_via, status, failure_code, created_at)
+         VALUES (?, ?, ?, ?, ?, 'mismatch', 'test', 'active_target', 'failed',
+                 'no_active_target', ?)`,
+      )
+      .run(
+        `context_read_${randomUUID()}`,
+        other.id,
+        owner.workspace_id,
+        connectionId,
+        clientId,
+        new Date().toISOString(),
+      ),
+    /foreign key/i,
   );
 });
 

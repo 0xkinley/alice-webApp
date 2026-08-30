@@ -13,6 +13,12 @@ export {
   updateContextAccessRole,
 } from "./context-access.ts";
 export {
+  listContextReadEvents,
+  recordContextReadFailure,
+  recordContextReadSuccess,
+} from "./context-read-events.ts";
+export type { ContextReadFailureCode, ContextReadRequestMode } from "./context-read-events.ts";
+export {
   getRemovalPreview,
   getSavedContextView,
   removeSavedContextEntry,

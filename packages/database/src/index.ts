@@ -223,6 +223,9 @@ export async function configureApplicationRole(
       `GRANT UPDATE (role, updated_at, ended_at, ended_by_user_id) ON TABLE ${schema}.context_access_grants TO ${role}`,
     );
     await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.context_read_events FROM ${role}`,
+    );
+    await database.exec(
       `REVOKE INSERT, UPDATE, DELETE ON TABLE ${schema}.alice_schema_migrations FROM ${role}`,
     );
   });

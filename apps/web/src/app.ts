@@ -1,14 +1,18 @@
 import express from "express";
 import { openDatabase } from "@alice/database";
 import {
+  ContextBudgetError,
   createProject,
   createWorkContext,
   getProject,
+  getProjectContext,
+  listContextReadEvents,
   listSharedProjects,
   listProjects,
   listWorkContexts,
   suggestSimilarWorkContexts,
 } from "@alice/domain";
+import { getProjectContextSchema } from "@alice/schemas";
 import { createAuthRouter, renderPage, requireAuthenticatedUser } from "./auth.ts";
 import { createConnectionsRouter } from "./connections.ts";
 import { createContextAccessRouter } from "./context-access.ts";
@@ -25,6 +29,15 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function contextReadEventCard(event) {
+  const route = event.requested_via === "active_target" ? "active target" : "explicit fallback";
+  const result =
+    event.status === "succeeded"
+      ? `Succeeded · package ${escapeHtml(event.package_version)} · ${escapeHtml(event.package_utf8_bytes)} UTF-8 bytes`
+      : `Failed · ${escapeHtml(String(event.failure_code).replaceAll("_", " "))}`;
+  return `<article><p><strong>${result}</strong></p><p>${escapeHtml(event.client_name)} · ${escapeHtml(event.client_classification)} · ${route}${event.context_name ? ` · ${escapeHtml(event.context_name)}` : ""}</p><p class="muted">${escapeHtml(event.created_at)}</p></article>`;
 }
 
 export async function createApp({
@@ -104,12 +117,17 @@ export async function createApp({
     }
     const contexts =
       (await listWorkContexts(database, request.aliceUser!.id, request.params.projectId)) || [];
+    const contextReadEvents = await listContextReadEvents(database, {
+      userId: request.aliceUser!.id,
+      projectId: request.params.projectId,
+      limit: 10,
+    });
     const canWrite = project.project_role === "owner" || project.project_role === "editor";
     const isOwner = project.project_role === "owner";
     const contextCards = contexts
       .map(
         (context) =>
-          `<article id="${escapeHtml(context.id)}"><h2>${escapeHtml(context.name)}</h2><p>${escapeHtml(context.description)}</p><p class="muted">${context.context_kind === "project_wide" ? "Included with every selected work context" : "Work context"} · ${escapeHtml(context.visibility)} · your context role: ${escapeHtml(context.context_role)}</p><p><a href="/projects/${encodeURIComponent(project.id)}/saved-context?context_id=${encodeURIComponent(context.id)}">View saved context</a>${fileStore ? ` · <a href="/projects/${encodeURIComponent(project.id)}/files?context_id=${encodeURIComponent(context.id)}">Files</a>` : ""}${context.visibility === "selected_members" && context.can_manage ? ` · <a href="/projects/${encodeURIComponent(project.id)}/contexts/${encodeURIComponent(context.id)}/access">Manage context access</a>` : ""}</p></article>`,
+          `<article id="${escapeHtml(context.id)}"><h2>${escapeHtml(context.name)}</h2><p>${escapeHtml(context.description)}</p><p class="muted">${context.context_kind === "project_wide" ? "Included with every selected work context" : "Work context"} · ${escapeHtml(context.visibility)} · your context role: ${escapeHtml(context.context_role)}</p><p><a href="/projects/${encodeURIComponent(project.id)}/saved-context?context_id=${encodeURIComponent(context.id)}">View saved context</a> · <a href="/projects/${encodeURIComponent(project.id)}/context-preview${context.context_kind === "project_wide" ? "" : `?context_id=${encodeURIComponent(context.id)}`}">Preview host package</a>${fileStore ? ` · <a href="/projects/${encodeURIComponent(project.id)}/files?context_id=${encodeURIComponent(context.id)}">Files</a>` : ""}${context.visibility === "selected_members" && context.can_manage ? ` · <a href="/projects/${encodeURIComponent(project.id)}/contexts/${encodeURIComponent(context.id)}/access">Manage context access</a>` : ""}</p></article>`,
       )
       .join("");
     const reviewLink = canWrite
@@ -121,15 +139,90 @@ export async function createApp({
     const collaboratorsLink = isOwner
       ? `<a href="/projects/${encodeURIComponent(project.id)}/collaborators">Collaborators</a>`
       : "";
+    const readActivity = contextReadEvents.length
+      ? contextReadEvents.map(contextReadEventCard).join("")
+      : "<p>No host context read has been recorded for your AI connections in this project. This does not mean a host consulted alice.</p>";
     response
       .type("html")
       .send(
         renderPage(
           project.name,
-          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a><a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>${collaboratorsLink}</nav><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><p class="muted">Your project role: ${escapeHtml(project.project_role)}</p>${reviewLink}<h2>Project and work contexts</h2><p>Only contexts listed here are visible to you. Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}${createContext}`,
+          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a><a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>${collaboratorsLink}</nav><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><p class="muted">Your project role: ${escapeHtml(project.project_role)}</p>${reviewLink}<h2>Project and work contexts</h2><p>Only contexts listed here are visible to you. Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}<h2>Your recent host reads</h2><p>These receipts show retrieval through your own AI connections. A successful retrieval does not prove the host used the context in its answer.</p>${readActivity}${createContext}`,
         ),
       );
   });
+  const renderContextPreview = async (request, response, input) => {
+    const parsed = getProjectContextSchema.safeParse({
+      project_id: request.params.projectId,
+      context_id:
+        typeof input.context_id === "string" && input.context_id ? input.context_id : undefined,
+      task:
+        typeof input.task === "string" && input.task.trim()
+          ? input.task
+          : "Preview the exact host context package",
+      context_budget:
+        typeof input.context_budget === "string" ? Number(input.context_budget) : undefined,
+    });
+    if (!parsed.success) {
+      return response
+        .status(400)
+        .type("html")
+        .send(
+          renderPage(
+            "Invalid preview",
+            `<h1>Invalid package preview request</h1><p>${escapeHtml(parsed.error.issues[0]?.message || "Invalid input")}</p>`,
+          ),
+        );
+    }
+    let packagePreview;
+    try {
+      packagePreview = await getProjectContext(database, {
+        userId: request.aliceUser!.id,
+        projectId: parsed.data.project_id,
+        contextId: parsed.data.context_id,
+        task: parsed.data.task,
+        contextBudget: parsed.data.context_budget,
+      });
+    } catch (error) {
+      if (error instanceof ContextBudgetError) {
+        return response
+          .status(422)
+          .type("html")
+          .send(
+            renderPage(
+              "Package does not fit",
+              `<h1>Package does not fit this byte budget</h1><p>${escapeHtml(error.message)}</p>`,
+            ),
+          );
+      }
+      throw error;
+    }
+    if (!packagePreview) {
+      return response
+        .status(404)
+        .type("html")
+        .send(renderPage("Not found", "<h1>Project or context not found</h1>"));
+    }
+    response
+      .type("html")
+      .send(
+        renderPage(
+          "Host package preview",
+          `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}">Back to project</a></nav><h1>Exact host package preview</h1><p>This is the deterministic JSON alice. would return for this task and byte budget. Opening this preview does not create a host-read receipt and does not mean an AI host consulted alice.</p><form method="post"><input type="hidden" name="context_id" value="${escapeHtml(parsed.data.context_id || "")}"><label>Task<input name="task" maxlength="2000" value="${escapeHtml(parsed.data.task)}" required></label><label>UTF-8 byte budget<input name="context_budget" type="number" min="2000" max="32000" value="${escapeHtml(parsed.data.context_budget)}" required></label><button type="submit">Refresh preview</button></form><dl><dt>Package version</dt><dd>${escapeHtml(packagePreview.package.version)}</dd><dt>Budget</dt><dd>${escapeHtml(packagePreview.package.budget.used)} of ${escapeHtml(packagePreview.package.budget.limit)} UTF-8 bytes</dd><dt>Freshness</dt><dd><pre>${escapeHtml(JSON.stringify(packagePreview.package.freshness, null, 2))}</pre></dd><dt>Omitted entries</dt><dd>${escapeHtml(packagePreview.package.omissions.total)}</dd></dl><pre>${escapeHtml(JSON.stringify(packagePreview, null, 2))}</pre>`,
+        ),
+      );
+  };
+  app.get(
+    "/projects/:projectId/context-preview",
+    requireAuthenticatedUser(database),
+    (request, response) =>
+      renderContextPreview(request, response, { context_id: request.query.context_id }),
+  );
+  app.post(
+    "/projects/:projectId/context-preview",
+    requireAuthenticatedUser(database),
+    (request, response) => renderContextPreview(request, response, request.body),
+  );
   app.post(
     "/projects/:projectId/contexts/preview",
     requireAuthenticatedUser(database),

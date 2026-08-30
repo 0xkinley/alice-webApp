@@ -66,6 +66,44 @@ test("creates and revisits a project in the authenticated private workspace", as
   assert.match(detailHtml, /Plan the private alpha\./);
   assert.match(detailHtml, /Project-wide/);
   assert.match(detailHtml, /General/);
+  assert.match(detailHtml, /Preview host package/);
+
+  const projectWidePreview = await fetch(`${baseUrl}${location}/context-preview`, {
+    headers: { cookie: ownerCookie },
+  });
+  assert.equal(projectWidePreview.status, 200);
+
+  const generalContext = created.database
+    .prepare(
+      `SELECT id FROM work_contexts
+       WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
+    )
+    .get(ownerProjectId);
+  const receiptsBeforePreview = created.database
+    .prepare("SELECT COUNT(*) AS count FROM context_read_events")
+    .get().count;
+  const packagePreview = await fetch(`${baseUrl}${location}/context-preview`, {
+    method: "POST",
+    headers: {
+      cookie: ownerCookie,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      context_id: generalContext.id,
+      task: "Plan the private alpha",
+      context_budget: "16000",
+    }),
+  });
+  assert.equal(packagePreview.status, 200);
+  const packageHtml = await packagePreview.text();
+  assert.match(packageHtml, /Exact host package preview/);
+  assert.match(packageHtml, /does not create a host-read receipt/);
+  assert.match(packageHtml, /&quot;version&quot;/);
+  assert.match(packageHtml, /&quot;freshness&quot;/);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM context_read_events").get().count,
+    receiptsBeforePreview,
+  );
 
   const preview = await fetch(`${baseUrl}${location}/contexts/preview`, {
     method: "POST",

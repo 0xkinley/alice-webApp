@@ -17,6 +17,8 @@ import {
   getProjectContext,
   listProjects,
   listSelectableProjectContexts,
+  recordContextReadFailure,
+  recordContextReadSuccess,
   saveCandidateUpdate,
 } from "@alice/domain";
 import {
@@ -119,6 +121,12 @@ function createProtocolServer(database, publicUrl) {
       const connectionId = authenticatedConnectionId(context);
       const target = await activeTargetForConnection(database, { userId, connectionId });
       if (!target) {
+        await recordContextReadFailure(database, {
+          userId,
+          connectionId,
+          requestedVia: "active_target",
+          failureCode: "no_active_target",
+        });
         return {
           content: [
             {
@@ -138,19 +146,52 @@ function createProtocolServer(database, publicUrl) {
           contextBudget,
         });
         if (!activeContext) {
+          await recordContextReadFailure(database, {
+            userId,
+            connectionId,
+            requestedVia: "active_target",
+            failureCode: "not_accessible",
+            projectId: target.project_id,
+            contextId: target.context_id,
+          });
           return {
             content: [{ type: "text", text: "The active target is no longer accessible." }],
             isError: true,
           };
         }
+        await recordContextReadSuccess(database, {
+          userId,
+          connectionId,
+          requestedVia: "active_target",
+          projectId: activeContext.project.id,
+          contextId: activeContext.context.id,
+          packageVersion: activeContext.package.version,
+          packageUtf8Bytes: activeContext.package.budget.used,
+        });
         return {
           content: [{ type: "text", text: JSON.stringify(activeContext) }],
           structuredContent: activeContext,
         };
       } catch (error) {
         if (error instanceof ContextBudgetError) {
+          await recordContextReadFailure(database, {
+            userId,
+            connectionId,
+            requestedVia: "active_target",
+            failureCode: "budget_error",
+            projectId: target.project_id,
+            contextId: target.context_id,
+          });
           return { content: [{ type: "text", text: error.message }], isError: true };
         }
+        await recordContextReadFailure(database, {
+          userId,
+          connectionId,
+          requestedVia: "active_target",
+          failureCode: "internal_error",
+          projectId: target.project_id,
+          contextId: target.context_id,
+        });
         throw error;
       }
     },
@@ -171,10 +212,12 @@ function createProtocolServer(database, publicUrl) {
       { project_id: projectId, context_id: contextId, task, context_budget: contextBudget },
       context,
     ) => {
+      const userId = authenticatedUserId(context);
+      const connectionId = authenticatedConnectionId(context);
       let projectContext;
       try {
         projectContext = await getProjectContext(database, {
-          userId: authenticatedUserId(context),
+          userId,
           projectId,
           contextId,
           task,
@@ -182,16 +225,46 @@ function createProtocolServer(database, publicUrl) {
         });
       } catch (error) {
         if (error instanceof ContextBudgetError) {
+          await recordContextReadFailure(database, {
+            userId,
+            connectionId,
+            requestedVia: "explicit_fallback",
+            failureCode: "budget_error",
+            ...(contextId ? { projectId, contextId } : {}),
+          });
           return { content: [{ type: "text", text: error.message }], isError: true };
         }
+        await recordContextReadFailure(database, {
+          userId,
+          connectionId,
+          requestedVia: "explicit_fallback",
+          failureCode: "internal_error",
+          ...(contextId ? { projectId, contextId } : {}),
+        });
         throw error;
       }
       if (!projectContext) {
+        await recordContextReadFailure(database, {
+          userId,
+          connectionId,
+          requestedVia: "explicit_fallback",
+          failureCode: "not_accessible",
+          ...(contextId ? { projectId, contextId } : {}),
+        });
         return {
           content: [{ type: "text", text: "Project not found in the authenticated workspace." }],
           isError: true,
         };
       }
+      await recordContextReadSuccess(database, {
+        userId,
+        connectionId,
+        requestedVia: "explicit_fallback",
+        projectId: projectContext.project.id,
+        contextId: projectContext.context.id,
+        packageVersion: projectContext.package.version,
+        packageUtf8Bytes: projectContext.package.budget.used,
+      });
       return {
         content: [{ type: "text", text: JSON.stringify(projectContext) }],
         structuredContent: projectContext,
