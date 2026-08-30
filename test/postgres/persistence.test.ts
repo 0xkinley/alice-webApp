@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
-import { openDatabase } from "@alice/database";
+import { configureApplicationRole, openDatabase } from "@alice/database";
 import {
   acceptCandidate,
   getProjectContext,
@@ -14,7 +14,10 @@ const connectionString = process.env.ALICE_TEST_DATABASE_URL;
 assert.ok(connectionString, "ALICE_TEST_DATABASE_URL is required for PostgreSQL tests.");
 
 const schema = `test_${randomUUID().replaceAll("-", "_")}`;
+const applicationRole = `app_${randomUUID().replaceAll("-", "_")}`;
+const applicationPassword = `test_${randomUUID()}`;
 let database;
+let migrationDatabase;
 let owner;
 let other;
 
@@ -48,7 +51,24 @@ async function capture(idempotencyKey, value = 24) {
 }
 
 before(async () => {
-  database = await openDatabase({ connectionString, schema, maxConnections: 20 });
+  migrationDatabase = await openDatabase({
+    connectionString,
+    schema,
+    maxConnections: 2,
+    migrate: true,
+  });
+  await migrationDatabase.exec(
+    `CREATE ROLE "${applicationRole}" LOGIN PASSWORD '${applicationPassword}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`,
+  );
+  await configureApplicationRole(migrationDatabase, applicationRole);
+  const applicationUrl = new URL(connectionString);
+  applicationUrl.username = applicationRole;
+  applicationUrl.password = applicationPassword;
+  database = await openDatabase({
+    connectionString: applicationUrl.href,
+    schema,
+    maxConnections: 20,
+  });
   owner = await createTestIdentity(database, {
     email: "postgres-owner@alice.example",
     password: "postgres owner private password",
@@ -79,6 +99,7 @@ before(async () => {
 
 after(async () => {
   await database.close();
+  await migrationDatabase.close();
 });
 
 test("versioned migration is repeatable on the same PostgreSQL schema", async () => {
@@ -188,15 +209,18 @@ test("human acceptance and concurrent supersession preserve one version chain", 
   );
 });
 
-test("PostgreSQL rejects immutable history rewrites through the application role", async () => {
+test("PostgreSQL denies immutable history rewrites through the constrained application role", async () => {
   await assert.rejects(
     database.prepare("UPDATE evidence_events SET exact_payload_json = '{}'").run(),
-    /immutable/i,
+    /permission denied|immutable/i,
   );
-  await assert.rejects(database.prepare("DELETE FROM audit_events").run(), /immutable/i);
+  await assert.rejects(
+    database.prepare("DELETE FROM audit_events").run(),
+    /permission denied|immutable/i,
+  );
   await assert.rejects(
     database.prepare("UPDATE accepted_project_state SET value_json = '0'").run(),
-    /immutable/i,
+    /permission denied|immutable/i,
   );
 });
 

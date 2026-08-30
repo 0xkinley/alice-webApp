@@ -1,6 +1,6 @@
 # Authentication and Tenancy
 
-Status: Accepted through Milestone 04
+Status: Accepted through Milestone 06 PostgreSQL foundation
 
 Decision date: 2026-08-27; updated 2026-08-29
 
@@ -46,4 +46,6 @@ Every grant creates a separate integration connection. Revoking either bearer to
 
 ## Database lifecycle
 
-The Milestone 03 tenant schema is version 3 and is created only for an empty database. A Milestone 01/02 scratch database is preserved as historical spike evidence and fails closed with an explicit instruction to use a new `ALICE_DATABASE_PATH`; it is not silently rewritten or mixed with production-shaped tenant records.
+The complete tenant model is migration `001_initial.sql` in PostgreSQL. Only the separately invoked migration command may create schema or apply a version. Both deployables connect with a constrained application login, verify the exact migration ledger at startup, and fail closed rather than altering schema.
+
+Milestone 01–05 `.data/*.sqlite` files were local development fixtures, not alpha records. Milestone 06 intentionally does not import them. The testing-only SQLite adapter starts empty and remains unavailable to production configuration.

@@ -140,6 +140,56 @@ async function applyMigrations(database: AliceDatabase): Promise<void> {
   });
 }
 
+async function expectedMigrations(): Promise<Array<{ version: number; filename: string }>> {
+  return (await readdir(migrationsDirectory))
+    .filter((filename) => /^\d{3}_[a-z0-9_]+\.sql$/.test(filename))
+    .sort()
+    .map((filename) => ({ version: Number(filename.slice(0, 3)), filename }));
+}
+
+async function verifyMigrations(database: AliceDatabase): Promise<void> {
+  let applied;
+  try {
+    applied = await database
+      .prepare("SELECT version, filename FROM alice_schema_migrations ORDER BY version")
+      .all();
+  } catch (error) {
+    throw new Error("The PostgreSQL schema is not migrated. Run npm run db:migrate first.", {
+      cause: error,
+    });
+  }
+  const expected = await expectedMigrations();
+  if (JSON.stringify(applied) !== JSON.stringify(expected)) {
+    throw new Error("The PostgreSQL schema version does not match this alice. build.");
+  }
+}
+
+export async function configureApplicationRole(
+  database: AliceDatabase,
+  applicationRole: string,
+): Promise<void> {
+  const role = quoteIdentifier(applicationRole);
+  const schema = quoteIdentifier(database.schema);
+  await database.transaction(async () => {
+    await database.exec(`GRANT USAGE ON SCHEMA ${schema} TO ${role}`);
+    await database.exec(`REVOKE CREATE ON SCHEMA ${schema} FROM PUBLIC`);
+    await database.exec(`REVOKE CREATE ON SCHEMA ${schema} FROM ${role}`);
+    await database.exec(
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schema} TO ${role}`,
+    );
+    await database.exec(
+      `REVOKE TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA ${schema} FROM ${role}`,
+    );
+    await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.evidence_events, ${schema}.audit_events, ${schema}.accepted_project_state FROM ${role}`,
+    );
+    await database.exec(`REVOKE DELETE ON TABLE ${schema}.candidate_claims FROM ${role}`);
+    await database.exec(
+      `REVOKE INSERT, UPDATE, DELETE ON TABLE ${schema}.alice_schema_migrations FROM ${role}`,
+    );
+  });
+}
+
 export type OpenDatabaseOptions = Readonly<{
   connectionString: string;
   schema?: string;
@@ -151,21 +201,23 @@ export async function openDatabase({
   connectionString,
   schema = "public",
   maxConnections = 10,
-  migrate = true,
+  migrate = false,
 }: OpenDatabaseOptions): Promise<AliceDatabase> {
   if (!/^postgres(?:ql)?:\/\//.test(connectionString)) {
     throw new Error("ALICE_DATABASE_URL must be a PostgreSQL connection URL.");
   }
   const quotedSchema = quoteIdentifier(schema);
-  const bootstrapPool = new Pool({
-    connectionString,
-    max: 1,
-    application_name: "alice-migrations",
-  });
-  try {
-    await bootstrapPool.query(`CREATE SCHEMA IF NOT EXISTS ${quotedSchema}`);
-  } finally {
-    await bootstrapPool.end();
+  if (migrate) {
+    const bootstrapPool = new Pool({
+      connectionString,
+      max: 1,
+      application_name: "alice-migrations",
+    });
+    try {
+      await bootstrapPool.query(`CREATE SCHEMA IF NOT EXISTS ${quotedSchema}`);
+    } finally {
+      await bootstrapPool.end();
+    }
   }
 
   const pool = new Pool({
@@ -178,6 +230,7 @@ export async function openDatabase({
   try {
     await database.query("SELECT 1");
     if (migrate) await applyMigrations(database);
+    await verifyMigrations(database);
     return database;
   } catch (error) {
     await database.close();
