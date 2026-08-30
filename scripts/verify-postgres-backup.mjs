@@ -70,6 +70,7 @@ async function tableCounts(databaseUrl) {
       "evidence_events",
       "file_context_references",
       "file_objects",
+      "file_reference_exclusions",
       "candidate_claims",
       "accepted_project_state",
       "audit_events",

@@ -28,8 +28,11 @@ export {
   FILE_UPLOAD_LIMIT_BYTES,
   ProjectFileUserError,
   getProjectFileDownload,
+  getProjectFileRemovalPreview,
+  getProjectFileView,
   listProjectFiles,
   refreshProjectFileScan,
+  removeProjectFileReference,
   uploadProjectFile,
   validateProjectFile,
 } from "./project-files.ts";

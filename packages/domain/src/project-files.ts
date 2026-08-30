@@ -270,8 +270,13 @@ export async function uploadProjectFile(
 
     reference = await database
       .prepare(
-        `SELECT id, display_name, referenced_at FROM file_context_references
-         WHERE workspace_id = ? AND project_id = ? AND context_id = ? AND file_object_id = ?`,
+        `SELECT r.id, r.display_name, r.referenced_at, e.id AS exclusion_id
+         FROM file_context_references r
+         LEFT JOIN file_reference_exclusions e
+           ON e.workspace_id = r.workspace_id AND e.project_id = r.project_id
+          AND e.context_id = r.context_id AND e.file_reference_id = r.id
+         WHERE r.workspace_id = ? AND r.project_id = ?
+           AND r.context_id = ? AND r.file_object_id = ?`,
       )
       .get(context.workspaceId, input.projectId, input.contextId, object.id);
     if (!reference) {
@@ -312,6 +317,10 @@ export async function uploadProjectFile(
           source_host: String(input.sourceHost || "alice_web").slice(0, 80),
         },
       });
+    } else if (reference.exclusion_id) {
+      throw new ProjectFileUserError(
+        "This exact file was removed from this context. Upload a changed version to add it again.",
+      );
     }
   });
 
@@ -404,18 +413,27 @@ export async function listProjectFiles(
 ) {
   const context = await authorizedContext(database, input.userId, input.projectId, input.contextId);
   if (!context) return undefined;
-  const files = await database
+  const rows = await database
     .prepare(
       `SELECT r.id, r.display_name, r.source_host, r.access_scope, r.referenced_at,
               o.id AS object_id, o.byte_size, o.verified_media_type AS media_type,
-              o.scan_status, o.scan_updated_at
+              o.scan_status, o.scan_updated_at,
+              e.id AS exclusion_id, e.reason AS removal_reason,
+              e.removed_by_user_id, e.removed_at
        FROM file_context_references r
        JOIN file_objects o ON o.workspace_id = r.workspace_id AND o.id = r.file_object_id
+       LEFT JOIN file_reference_exclusions e
+         ON e.workspace_id = r.workspace_id AND e.project_id = r.project_id
+        AND e.context_id = r.context_id AND e.file_reference_id = r.id
        WHERE r.workspace_id = ? AND r.project_id = ? AND r.context_id = ?
        ORDER BY r.referenced_at DESC, r.id DESC`,
     )
     .all(context.workspaceId, input.projectId, input.contextId);
-  return { context, files };
+  return {
+    context,
+    files: rows.filter(({ exclusion_id: exclusionId }) => !exclusionId),
+    removed: rows.filter(({ exclusion_id: exclusionId }) => Boolean(exclusionId)),
+  };
 }
 
 async function authorizedFileReference(
@@ -437,9 +455,163 @@ async function authorizedFileReference(
        JOIN file_objects o ON o.workspace_id = r.workspace_id AND o.id = r.file_object_id
        JOIN work_contexts c ON c.workspace_id = r.workspace_id
          AND c.project_id = r.project_id AND c.id = r.context_id
+       LEFT JOIN file_reference_exclusions e
+         ON e.workspace_id = r.workspace_id AND e.project_id = r.project_id
+        AND e.context_id = r.context_id AND e.file_reference_id = r.id
+       WHERE r.workspace_id = ? AND r.project_id = ? AND r.id = ?
+         AND c.archived_at IS NULL AND e.id IS NULL`,
+    )
+    .get(tenant.workspaceId, input.projectId, input.referenceId);
+}
+
+async function fileReferenceView(
+  database,
+  tenant,
+  input: { projectId: string; referenceId: string },
+) {
+  return await database
+    .prepare(
+      `SELECT r.id, r.context_id, r.file_object_id, r.display_name, r.source_host,
+              r.uploader_user_id, r.access_scope, r.referenced_at,
+              o.byte_size, o.verified_media_type AS media_type, o.scan_status,
+              o.scan_updated_at, p.name AS project_name, c.name AS context_name,
+              c.visibility, e.id AS exclusion_id, e.reason AS removal_reason,
+              e.removed_by_user_id, e.removed_at
+       FROM file_context_references r
+       JOIN file_objects o ON o.workspace_id = r.workspace_id AND o.id = r.file_object_id
+       JOIN projects p ON p.workspace_id = r.workspace_id AND p.id = r.project_id
+       JOIN work_contexts c ON c.workspace_id = r.workspace_id
+         AND c.project_id = r.project_id AND c.id = r.context_id
+       LEFT JOIN file_reference_exclusions e
+         ON e.workspace_id = r.workspace_id AND e.project_id = r.project_id
+        AND e.context_id = r.context_id AND e.file_reference_id = r.id
        WHERE r.workspace_id = ? AND r.project_id = ? AND r.id = ? AND c.archived_at IS NULL`,
     )
     .get(tenant.workspaceId, input.projectId, input.referenceId);
+}
+
+function fileRemovalPreviewVersion(file): string {
+  return `file_removal_preview_${createHash("sha256")
+    .update(
+      JSON.stringify({
+        file_reference_id: file.id,
+        file_object_id: file.file_object_id,
+        context_id: file.context_id,
+        display_name: file.display_name,
+        scan_status: file.scan_status,
+        referenced_at: file.referenced_at,
+      }),
+    )
+    .digest("hex")}`;
+}
+
+export async function getProjectFileView(
+  database,
+  input: {
+    userId: string;
+    projectId: string;
+    referenceId: string;
+  },
+) {
+  const tenant = await tenantScopeForUser(database, input.userId);
+  if (!tenant) return undefined;
+  return await fileReferenceView(database, tenant, input);
+}
+
+export async function getProjectFileRemovalPreview(
+  database,
+  input: {
+    userId: string;
+    projectId: string;
+    referenceId: string;
+  },
+) {
+  const file = await getProjectFileView(database, input);
+  if (!file || file.exclusion_id) return undefined;
+  return { ...file, preview_version: fileRemovalPreviewVersion(file) };
+}
+
+export async function removeProjectFileReference(
+  database,
+  input: {
+    userId: string;
+    projectId: string;
+    referenceId: string;
+    expectedPreviewVersion: string;
+    reason?: string;
+  },
+) {
+  const tenant = await tenantScopeForUser(database, input.userId);
+  if (!tenant) return undefined;
+  const normalizedReason = String(input.reason || "").trim();
+  if (normalizedReason.length > 500) {
+    throw new ProjectFileUserError("Removal reason exceeds 500 characters.");
+  }
+  const initial = await fileReferenceView(database, tenant, input);
+  if (!initial || initial.exclusion_id) return undefined;
+  return await database.transaction(
+    async () => {
+      await database
+        .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
+        .get(`${tenant.workspaceId}:file-reference:${input.referenceId}`);
+      const file = await fileReferenceView(database, tenant, input);
+      if (
+        !file ||
+        file.exclusion_id ||
+        fileRemovalPreviewVersion(file) !== input.expectedPreviewVersion
+      ) {
+        return { conflict: true as const };
+      }
+      const exclusionId = `file_exclusion_${randomUUID()}`;
+      const removedAt = new Date().toISOString();
+      const correlationId = `file_removal_${randomUUID()}`;
+      await database
+        .prepare(
+          `INSERT INTO file_reference_exclusions
+            (id, workspace_id, project_id, context_id, file_reference_id, reason,
+             removed_by_user_id, removed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          exclusionId,
+          tenant.workspaceId,
+          input.projectId,
+          file.context_id,
+          input.referenceId,
+          normalizedReason,
+          input.userId,
+          removedAt,
+        );
+      await database
+        .prepare(
+          `UPDATE work_contexts SET updated_at = ?
+           WHERE workspace_id = ? AND project_id = ? AND id = ?`,
+        )
+        .run(removedAt, tenant.workspaceId, input.projectId, file.context_id);
+      const audit = await appendAuditEvent(database, {
+        workspaceId: tenant.workspaceId,
+        projectId: input.projectId,
+        action: "file_reference_removed",
+        actorType: "human_user",
+        actorId: input.userId,
+        correlationId,
+        metadata: {
+          context_id: file.context_id,
+          file_object_id: file.file_object_id,
+          file_reference_id: input.referenceId,
+          exclusion_id: exclusionId,
+        },
+      });
+      return {
+        conflict: false as const,
+        contextId: file.context_id,
+        exclusionId,
+        removedAt,
+        auditEventId: audit.id,
+      };
+    },
+    { isolation: "READ COMMITTED" },
+  );
 }
 
 export async function refreshProjectFileScan(

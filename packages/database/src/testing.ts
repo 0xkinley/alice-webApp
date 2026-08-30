@@ -371,8 +371,27 @@ function createSchema(database: DatabaseSync) {
       FOREIGN KEY (workspace_id, uploader_user_id)
         REFERENCES workspaces(id, user_id),
       UNIQUE (workspace_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id),
       UNIQUE (workspace_id, project_id, context_id, file_object_id)
     ) STRICT;
+
+    CREATE TABLE file_reference_exclusions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      file_reference_id TEXT NOT NULL UNIQUE,
+      reason TEXT NOT NULL CHECK (length(reason) <= 500),
+      removed_by_user_id TEXT NOT NULL,
+      removed_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id, file_reference_id)
+        REFERENCES file_context_references(workspace_id, project_id, context_id, id),
+      FOREIGN KEY (workspace_id, removed_by_user_id)
+        REFERENCES workspaces(id, user_id)
+    ) STRICT;
+
+    CREATE INDEX file_reference_exclusions_lookup
+      ON file_reference_exclusions (workspace_id, project_id, context_id, removed_at, id);
 
     CREATE INDEX file_objects_scan_queue
       ON file_objects (workspace_id, scan_status, scan_updated_at, id);
@@ -546,6 +565,18 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON file_context_references
     BEGIN
       SELECT RAISE(ABORT, 'file context references are immutable');
+    END;
+
+    CREATE TRIGGER file_reference_exclusions_no_update
+    BEFORE UPDATE ON file_reference_exclusions
+    BEGIN
+      SELECT RAISE(ABORT, 'file reference exclusions are immutable');
+    END;
+
+    CREATE TRIGGER file_reference_exclusions_no_delete
+    BEFORE DELETE ON file_reference_exclusions
+    BEGIN
+      SELECT RAISE(ABORT, 'file reference exclusions are immutable');
     END;
   `);
 }

@@ -91,6 +91,8 @@ Both deployables use one versioned PostgreSQL database through a pooled asynchro
 
 The constrained runtime role cannot create schema, manage migrations, truncate tables, or rewrite immutable evidence, accepted history, and audit events. Host writes remain candidate-only, evidence remains immutable, accepted context is authenticated and provenance-bearing, and only the web review action changes trusted state.
 
+File objects and context references are likewise immutable through the runtime role. Only storage-version and scan-lifecycle columns may advance through database-enforced transitions. Remove-from-context appends an immutable file-reference exclusion; it does not grant the runtime role object/reference deletion or permanent erasure authority.
+
 The old `.data/*.sqlite` development files are not production data and receive no automatic conversion. They are deliberately discarded when moving to Milestone 06. SQLite remains only behind `@alice/database/testing` for empty, ephemeral regression fixtures; neither deployable can select it through configuration.
 
 ## Hosting boundary

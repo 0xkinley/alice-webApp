@@ -36,7 +36,9 @@ let ownerCookie;
 let otherCookie;
 let ownerProjectId;
 let contexts;
+let cleanReferenceId;
 let server;
+let workContextId;
 const fileStore = new FakePrivateFileStore();
 const publicUrl = "http://127.0.0.1";
 
@@ -91,6 +93,7 @@ before(async () => {
       "SELECT id, context_kind FROM work_contexts WHERE project_id = ? ORDER BY context_kind, id",
     )
     .all(ownerProjectId);
+  workContextId = contexts.find(({ context_kind: kind }) => kind === "work").id;
 });
 
 after(async () => {
@@ -165,6 +168,7 @@ test("keeps uploaded bytes unavailable until a clean scan and issues only a shor
   const uploaded = await upload(workContext.id, bytes);
   assert.equal(uploaded.status, 201);
   const receipt = await uploaded.json();
+  cleanReferenceId = receipt.file_reference_id;
   assert.equal(receipt.scan_status, "scanning");
   assert.equal(fileStore.putCount, 1);
 
@@ -389,6 +393,106 @@ test("threat, scan-failure, and storage-failure outcomes remain unavailable", as
       )
       .get(retryReceipt.file_reference_id).scan_status,
     "scan_failed",
+  );
+});
+
+test("an exact human removal disables access without erasing file provenance", async () => {
+  const foreignPreview = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/remove`,
+    { headers: { cookie: otherCookie } },
+  );
+  assert.equal(foreignPreview.status, 404);
+  assert.doesNotMatch(await foreignPreview.text(), /notes\.md|Alpha plan/);
+
+  const preview = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/remove`,
+    { headers: { cookie: ownerCookie } },
+  );
+  assert.equal(preview.status, 200);
+  const previewHtml = await preview.text();
+  assert.match(previewHtml, /not permanent deletion/i);
+  const previewVersion = previewHtml.match(/name="preview_version" value="([^"]+)"/)?.[1];
+  assert.match(previewVersion, /^file_removal_preview_[0-9a-f]{64}$/);
+
+  const stale = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/remove`,
+    {
+      method: "POST",
+      headers: { cookie: ownerCookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ preview_version: "stale", reason: "Wrong preview" }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(stale.status, 409);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM file_reference_exclusions").get().count,
+    0,
+  );
+
+  const removed = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/remove`,
+    {
+      method: "POST",
+      headers: { cookie: ownerCookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        preview_version: previewVersion,
+        reason: "No longer active in this context",
+      }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(removed.status, 303);
+  assert.match(removed.headers.get("location"), /context_id=/);
+
+  const download = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/download`,
+    { headers: { cookie: ownerCookie }, redirect: "manual" },
+  );
+  assert.equal(download.status, 404);
+  const details = await fetch(`${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}`, {
+    headers: { cookie: ownerCookie },
+  });
+  assert.equal(details.status, 200);
+  const detailsHtml = await details.text();
+  assert.match(detailsHtml, /Removed from active context/);
+  assert.match(detailsHtml, /No longer active in this context/);
+  assert.match(detailsHtml, /not permanent erasure/i);
+  assert.doesNotMatch(detailsHtml, />Download</);
+
+  const list = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files?context_id=${workContextId}`,
+    { headers: { cookie: ownerCookie } },
+  );
+  const listHtml = await list.text();
+  assert.match(listHtml, /Active files \(0\)/);
+  assert.match(listHtml, /Removed \(1\)/);
+  assert.match(listHtml, /notes\.md/);
+  const exactReupload = await upload(
+    workContextId,
+    Buffer.from("# Alpha plan\nNo document claim is automatically trusted.\n"),
+  );
+  assert.equal(exactReupload.status, 400);
+  assert.match(await exactReupload.text(), /was removed from this context/i);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM file_objects").get().count,
+    3,
+  );
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM file_context_references").get().count,
+    4,
+  );
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM file_reference_exclusions").get().count,
+    1,
+  );
+  assert.throws(
+    () =>
+      created.database.prepare("UPDATE file_reference_exclusions SET reason = 'rewritten'").run(),
+    /immutable/,
+  );
+  assert.throws(
+    () => created.database.prepare("DELETE FROM file_reference_exclusions").run(),
+    /immutable/,
   );
 });
 

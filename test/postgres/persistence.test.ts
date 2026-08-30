@@ -7,11 +7,13 @@ import {
   confirmCapturedUpdate,
   getCapturePreview,
   getProjectContext,
+  getProjectFileRemovalPreview,
   getRemovalPreview,
   getSavedContextView,
   issueAlphaInvitation,
   registerUser,
   removeSavedContextEntry,
+  removeProjectFileReference,
   saveCandidateUpdate,
   setActiveConnectionTarget,
   supersedeAcceptedState,
@@ -28,6 +30,7 @@ let database;
 let migrationDatabase;
 let owner;
 let other;
+let postgresFileReferenceId;
 
 const clientId = "client_postgres_concurrency";
 const connectionId = "connection_postgres_concurrency";
@@ -147,12 +150,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 5, filename: "005_active_context_targets.sql" },
     { version: 6, filename: "006_context_entry_exclusions.sql" },
     { version: 7, filename: "007_project_files.sql" },
+    { version: 8, filename: "008_file_reference_exclusions.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    7,
+    8,
   );
   await reopened.close();
 });
@@ -457,6 +461,7 @@ test("PostgreSQL file lifecycle is fail-closed and immutable through the applica
     .get(owner.workspace_id, owner.project_id);
   const objectId = `file_${randomUUID()}`;
   const referenceId = `file_ref_${randomUUID()}`;
+  postgresFileReferenceId = referenceId;
   const now = new Date().toISOString();
   await database
     .prepare(
@@ -519,6 +524,65 @@ test("PostgreSQL file lifecycle is fail-closed and immutable through the applica
   );
   await assert.rejects(
     database.prepare("DELETE FROM file_context_references WHERE id = ?").run(referenceId),
+    /permission denied|immutable/i,
+  );
+});
+
+test("one concurrent exact file-removal preview wins and preserves immutable history", async () => {
+  const preview = await getProjectFileRemovalPreview(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    referenceId: postgresFileReferenceId,
+  });
+  assert.match(preview.preview_version, /^file_removal_preview_[0-9a-f]{64}$/);
+  const attempts = await Promise.all([
+    removeProjectFileReference(database, {
+      userId: owner.id,
+      projectId: owner.project_id,
+      referenceId: postgresFileReferenceId,
+      expectedPreviewVersion: preview.preview_version,
+      reason: "PostgreSQL exact removal fixture",
+    }),
+    removeProjectFileReference(database, {
+      userId: owner.id,
+      projectId: owner.project_id,
+      referenceId: postgresFileReferenceId,
+      expectedPreviewVersion: preview.preview_version,
+      reason: "PostgreSQL exact removal fixture",
+    }),
+  ]);
+  assert.equal(attempts.filter((result) => result?.conflict === false).length, 1);
+  assert.equal(attempts.filter((result) => result?.conflict !== false).length, 1);
+  assert.equal(
+    (
+      await database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM file_reference_exclusions WHERE file_reference_id = ?",
+        )
+        .get(postgresFileReferenceId)
+    ).count,
+    1,
+  );
+  assert.equal(
+    await getProjectFileRemovalPreview(database, {
+      userId: owner.id,
+      projectId: owner.project_id,
+      referenceId: postgresFileReferenceId,
+    }),
+    undefined,
+  );
+  await assert.rejects(
+    database
+      .prepare(
+        "UPDATE file_reference_exclusions SET reason = 'rewritten' WHERE file_reference_id = ?",
+      )
+      .run(postgresFileReferenceId),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database
+      .prepare("DELETE FROM file_reference_exclusions WHERE file_reference_id = ?")
+      .run(postgresFileReferenceId),
     /permission denied|immutable/i,
   );
 });
