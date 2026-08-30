@@ -249,7 +249,7 @@ Notes:
 
 ## Milestone 06 — Private Alpha Foundations
 
-Status: Not Started
+Status: In Progress
 
 Branch: `milestone-06-private-alpha-foundations`
 
@@ -310,6 +310,7 @@ Success criteria:
 
 Notes:
 
+- Started on 2026-08-30 after verifying Milestone 05 complete. Merge `08717cd` and private-alpha planning commit `377cfd0` are present on synchronized local and remote `main`, the starting tree was clean, and GitHub Actions run `33279054848` passed commit `377cfd0`. Implementation is sequenced to verify the single-user project/read/save/repair loop before collaboration and final presentation work.
 - This milestone intentionally changes the pre-alpha roadmap based on direct product testing. It does not retroactively alter what Milestones 01-05 proved.
 - PostgreSQL is the production system of record. A local SQLite adapter may remain only if its supported purpose and semantic differences are explicit and it cannot be selected accidentally in production.
 - Vercel is an acceptable target only after both deployables, long-lived protocol behavior, PostgreSQL connectivity, migrations, and stable OAuth origins pass hosted verification. Another platform may be selected if those requirements cannot be satisfied; the decision must be recorded before deployment.
