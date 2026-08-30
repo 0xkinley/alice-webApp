@@ -29,7 +29,7 @@ npm run build
 
 Generated `dist/` directories are deployment artifacts, not source. They and TypeScript build metadata remain ignored. A deployment must run `npm run build` before starting either server.
 
-The production `Dockerfile` builds both deployables from the locked workspace on Node.js 24, disables dependency lifecycle scripts, prunes development dependencies, runs as the unprivileged `node` user, and defaults to the MCP start command. The Railway web service overrides only the start command with `npm run start:web`; both services use the injected `PORT`, explicit `HOST=0.0.0.0`, and the same immutable image contract. Neither service uses a volume or an application-local persistence path. Both entry points drain HTTP and close the PostgreSQL pool on `SIGTERM`, with a bounded forced-close fallback.
+The production `Dockerfile` builds both deployables from the locked workspace on Node.js 24, disables dependency lifecycle scripts, prunes development dependencies, runs as the unprivileged `node` user, and defaults to the MCP start command. A host may override only the start command with `npm run start:web`; both services use an injected `PORT`, explicit `HOST=0.0.0.0`, and the same immutable image contract. Neither service uses a volume or an application-local persistence path. Both entry points drain HTTP and close the PostgreSQL pool on `SIGTERM`, with a bounded forced-close fallback.
 
 ## Deployables
 
@@ -101,7 +101,7 @@ The old `.data/*.sqlite` development files are not production data and receive n
 
 ## Hosting boundary
 
-The dated read-only comparison in `docs/private-alpha-infrastructure-selection.md` recommends Railway for both deployables, Neon for PostgreSQL, and private Amazon S3 plus GuardDuty Malware Protection for uploaded bytes. Infrastructure remains unprovisioned until the product owner separately approves account/resource creation and the expected spending ceiling. The selected stack must provide:
+The earlier Railway/Neon comparison in `docs/private-alpha-infrastructure-selection.md` was superseded before provisioning. `docs/private-alpha-aws-compatibility.md` now selects Lambda Function URLs plus Aurora Serverless v2 for a bounded implementation proof, with ECS Express Mode as the higher-baseline-cost fallback. Infrastructure remains unprovisioned until the product owner separately approves account/resource creation, account-plan eligibility, the final change set, and the expected spending ceiling. The selected stack must provide:
 
 - stable HTTPS origins for web and MCP;
 - server-side secret injection;
@@ -112,4 +112,4 @@ The dated read-only comparison in `docs/private-alpha-infrastructure-selection.m
 
 Provider-specific behavior stays inside the MCP integration surface. The web application does not receive provider credentials or configuration, and neither deployable routes work between AI models.
 
-The exact pre-provisioning settings and approval gates are in `docs/private-alpha-production-deployment.md`. `infra/aws/private-files.template.json` contains no credential and must be applied only after its CloudFormation change set, GuardDuty terms, regions, residual credential risks, and spend ceiling are approved. `.github/workflows/hosted-health.yml` remains dormant until the two public origin repository variables exist; once enabled, it probes only public health and MCP metadata on a 15-minute schedule.
+The superseded Railway/Neon settings remain in `docs/private-alpha-production-deployment.md` only as decision history. The active no-provisioning gates are in `docs/private-alpha-aws-compatibility.md`. `infra/aws/private-files.template.json` contains no credential and has not been applied; its IAM-user model must be replaced with Lambda execution roles before an AWS-native stack can be approved. `.github/workflows/hosted-health.yml` remains dormant until the two public origin repository variables exist; its interval must be reconsidered so health probes do not keep an auto-pausing database awake.

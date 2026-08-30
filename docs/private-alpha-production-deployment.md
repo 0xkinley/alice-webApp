@@ -1,10 +1,12 @@
 # Private Alpha Production Deployment
 
-Status: Pre-provisioning checkpoint ready for product-owner approval; no account or resource created
+Status: Superseded before provisioning; no workload resource created
 
 Decision date: 2026-08-31
 
 Official references revalidated: 2026-08-31
+
+> Superseded on 2026-08-31 before approval or provisioning. The product owner chose to investigate an AWS-native path using the account's AWS credit. Do not execute this Railway/Neon sequence. Continue from `docs/private-alpha-aws-compatibility.md`.
 
 ## Approval boundary
 

@@ -1,10 +1,12 @@
 # Private Alpha Infrastructure Selection
 
-Status: Recommended; pre-provisioning artifacts ready; no resources provisioned
+Status: Superseded before provisioning; retained as comparison history
 
 Decision date: 2026-08-30
 
 Official references revalidated: 2026-08-31
+
+> Superseded on 2026-08-31 after the product owner chose to investigate the account's AWS credit. No Railway, Neon, or AWS workload resource was provisioned from this plan. The current AWS-native compatibility checkpoint is `docs/private-alpha-aws-compatibility.md`.
 
 ## Decision boundary
 
