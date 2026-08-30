@@ -1,10 +1,12 @@
 # Private Alpha AWS Deployment Runbook
 
-Status: reviewed and CI-confirmed repository change set; no AWS workload resource has been created
+Status: product-owner approved for the bounded staged proof; no AWS workload resource has been created
 
 Date: 2026-08-31
 
 This runbook is the approval boundary for the first AWS-hosted proof. It is not permission to create the stack. The product owner must approve the region, resources, usage-priced costs, and security settings below before Stage 1. Every command after approval runs with short-lived console credentials in AWS CloudShell or with AWS CLI `aws login`; no IAM access key is created, copied, committed, or stored as a GitHub secret.
+
+Product-owner approval was received on 2026-08-31 for AWS Bundle 1 in `eu-central-1`, the existing USD 5 alert, the USD 5-15/month low-traffic expectation, the USD 45 planning ceiling, and at most three live proof rounds. This authorizes the staged procedure below; it does not authorize exceeding a stop rule, changing region or architecture, creating access keys, or retaining the stack after the proof without the Stage 7 review.
 
 ## Approval envelope
 
