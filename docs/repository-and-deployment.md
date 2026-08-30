@@ -83,7 +83,7 @@ OAuth client secrets and authorization codes are also hash-only at rest. Integra
 
 AWS access keys, session credentials, and roles use the standard server runtime credential chain and are never returned by configuration, rendered into HTML, or stored in PostgreSQL. File routes are not mounted when storage configuration is absent. PostgreSQL stores only immutable file metadata and references plus the bounded storage/scan lifecycle; private bytes remain in object storage.
 
-Alpha invitation tokens are also hash-only at rest. The invitation URL is a one-time credential and its query value must be redacted from edge and application logs.
+Alpha and project invitation tokens are also hash-only at rest. Their URLs are one-time credentials; both invitation query values and path segments must be redacted from edge and application logs.
 
 ## PostgreSQL persistence boundary
 
@@ -92,6 +92,8 @@ Both deployables use one versioned PostgreSQL database through a pooled asynchro
 The constrained runtime role cannot create schema, manage migrations, truncate tables, or rewrite immutable evidence, accepted history, and audit events. Host writes remain candidate-only, evidence remains immutable, accepted context is authenticated and provenance-bearing, and only the web review action changes trusted state.
 
 File objects and context references are likewise immutable through the runtime role. Only storage-version and scan-lifecycle columns may advance through database-enforced transitions. Remove-from-context appends an immutable file-reference exclusion; it does not grant the runtime role object/reference deletion or permanent erasure authority.
+
+Project membership and invitation history is also non-deletable through the runtime role. The role may update only bounded membership role/end columns and one invitation terminal outcome; database triggers reject identity rewrites, terminal-history rewrites, ended-membership rewrites, and removal or demotion of the final active Owner. Migration grants must be refreshed after adding these tables.
 
 The old `.data/*.sqlite` development files are not production data and receive no automatic conversion. They are deliberately discarded when moving to Milestone 06. SQLite remains only behind `@alice/database/testing` for empty, ephemeral regression fixtures; neither deployable can select it through configuration.
 

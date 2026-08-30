@@ -4,7 +4,9 @@ import { after, before, test } from "node:test";
 import { configureApplicationRole, openDatabase } from "@alice/database";
 import {
   acceptCandidate,
+  acceptProjectInvitation,
   confirmCapturedUpdate,
+  createProjectInvitation,
   getCapturePreview,
   getProjectContext,
   getProjectFileRemovalPreview,
@@ -15,11 +17,13 @@ import {
   registerUser,
   removeSavedContextEntry,
   removeProjectFileReference,
+  removeProjectMember,
   refreshProjectFileScan,
   saveCandidateUpdate,
   setActiveConnectionTarget,
   supersedeAcceptedState,
   uploadProjectFile,
+  updateProjectMemberRole,
 } from "@alice/domain";
 import { createTestIdentity } from "../helpers.ts";
 
@@ -156,14 +160,74 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 7, filename: "007_project_files.sql" },
     { version: 8, filename: "008_file_reference_exclusions.sql" },
     { version: 9, filename: "009_file_reference_versions.sql" },
+    { version: 10, filename: "010_project_memberships.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    9,
+    10,
   );
   await reopened.close();
+});
+
+test("concurrent project-invitation acceptance creates one protected membership", async () => {
+  const invitation = await createProjectInvitation(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    email: other.email,
+    role: "editor",
+  });
+  assert.ok(invitation);
+  const attempts = await Promise.allSettled(
+    Array.from({ length: 2 }, () => acceptProjectInvitation(database, other.id, invitation.token)),
+  );
+  assert.equal(attempts.filter(({ status, value }) => status === "fulfilled" && value).length, 1);
+  const membership = await database
+    .prepare(
+      `SELECT id, role, ended_at FROM project_memberships
+       WHERE project_id = ? AND user_id = ?`,
+    )
+    .get(owner.project_id, other.id);
+  assert.equal(membership.role, "editor");
+  assert.equal(membership.ended_at, null);
+
+  await assert.rejects(
+    database.prepare("DELETE FROM project_memberships WHERE id = ?").run(membership.id),
+  );
+  const ownerMembership = await database
+    .prepare(
+      "SELECT id FROM project_memberships WHERE project_id = ? AND user_id = ? AND ended_at IS NULL",
+    )
+    .get(owner.project_id, owner.id);
+  await assert.rejects(
+    database
+      .prepare("UPDATE project_memberships SET role = 'editor', updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), ownerMembership.id),
+  );
+
+  assert.deepEqual(
+    await updateProjectMemberRole(database, {
+      userId: owner.id,
+      projectId: owner.project_id,
+      membershipId: membership.id,
+      role: "viewer",
+    }),
+    { id: membership.id, role: "viewer" },
+  );
+  assert.deepEqual(
+    await removeProjectMember(database, {
+      userId: owner.id,
+      projectId: owner.project_id,
+      membershipId: membership.id,
+    }),
+    { id: membership.id },
+  );
+  await assert.rejects(
+    database
+      .prepare("UPDATE project_memberships SET role = 'editor', updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), membership.id),
+  );
 });
 
 test("concurrent active-target changes cannot silently overwrite one another", async () => {

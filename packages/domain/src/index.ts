@@ -25,6 +25,21 @@ export {
 export { ContextBudgetError, getProjectContext, listProjects } from "./project-context.ts";
 export { createProject, getProject } from "./projects.ts";
 export {
+  acceptProjectInvitation,
+  createProjectInvitation,
+  declineProjectInvitation,
+  getProjectCollaborators,
+  getProjectInvitationPreview,
+  getProjectMembershipView,
+  listSharedProjects,
+  ProjectMembershipUserError,
+  removeProjectMember,
+  resendProjectInvitation,
+  revokeProjectInvitation,
+  updateProjectMemberRole,
+} from "./project-memberships.ts";
+export type { ProjectInvitationRole, ProjectMembershipRole } from "./project-memberships.ts";
+export {
   FILE_UPLOAD_LIMIT_BYTES,
   ProjectFileUserError,
   exportProjectFileMetadata,

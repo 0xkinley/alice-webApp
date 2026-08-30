@@ -181,6 +181,73 @@ function createSchema(database: DatabaseSync) {
       UNIQUE (workspace_id, id)
     ) STRICT;
 
+    CREATE TABLE project_memberships (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      role TEXT NOT NULL CHECK (role IN ('owner', 'editor', 'viewer')),
+      created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      ended_at TEXT,
+      ended_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      CHECK ((ended_at IS NULL) = (ended_by_user_id IS NULL)),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE UNIQUE INDEX project_memberships_active_user
+      ON project_memberships (project_id, user_id) WHERE ended_at IS NULL;
+    CREATE INDEX project_memberships_user_lookup
+      ON project_memberships (user_id, ended_at, project_id, role);
+    CREATE INDEX project_memberships_project_lookup
+      ON project_memberships (workspace_id, project_id, ended_at, role, user_id);
+
+    CREATE TABLE project_invitations (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      email TEXT NOT NULL COLLATE NOCASE,
+      role TEXT NOT NULL CHECK (role IN ('editor', 'viewer')),
+      token_hash TEXT NOT NULL UNIQUE,
+      created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      accepted_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      accepted_at TEXT,
+      declined_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      declined_at TEXT,
+      revoked_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      revoked_at TEXT,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      CHECK ((accepted_at IS NULL) = (accepted_by_user_id IS NULL)),
+      CHECK ((declined_at IS NULL) = (declined_by_user_id IS NULL)),
+      CHECK ((revoked_at IS NULL) = (revoked_by_user_id IS NULL)),
+      CHECK (
+        (CASE WHEN accepted_at IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN declined_at IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN revoked_at IS NULL THEN 0 ELSE 1 END) <= 1
+      )
+    ) STRICT;
+
+    CREATE UNIQUE INDEX project_invitations_pending_email
+      ON project_invitations (project_id, email)
+      WHERE accepted_at IS NULL AND declined_at IS NULL AND revoked_at IS NULL;
+    CREATE INDEX project_invitations_project_lookup
+      ON project_invitations (workspace_id, project_id, created_at DESC, id);
+
+    CREATE TRIGGER projects_create_owner_membership
+    AFTER INSERT ON projects
+    BEGIN
+      INSERT INTO project_memberships
+        (id, workspace_id, project_id, user_id, role, created_by_user_id,
+         created_at, updated_at)
+      SELECT 'membership_owner_' || NEW.id, NEW.workspace_id, NEW.id, user_id,
+             'owner', user_id, NEW.created_at, NEW.updated_at
+      FROM workspaces WHERE id = NEW.workspace_id;
+    END;
+
     CREATE TABLE work_contexts (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
@@ -441,6 +508,62 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON audit_events
     BEGIN
       SELECT RAISE(ABORT, 'audit events are append-only');
+    END;
+
+    CREATE TRIGGER project_memberships_validate_update
+    BEFORE UPDATE ON project_memberships
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.project_id IS NOT OLD.project_id
+      OR NEW.user_id IS NOT OLD.user_id
+      OR NEW.created_by_user_id IS NOT OLD.created_by_user_id
+      OR NEW.created_at IS NOT OLD.created_at
+      OR OLD.ended_at IS NOT NULL
+      OR (NEW.ended_at IS NULL AND NEW.ended_by_user_id IS NOT NULL)
+      OR (NEW.ended_at IS NOT NULL AND NEW.ended_by_user_id IS NULL)
+      OR (
+        OLD.ended_at IS NULL AND OLD.role = 'owner'
+        AND (NEW.role <> 'owner' OR NEW.ended_at IS NOT NULL)
+        AND NOT EXISTS (
+          SELECT 1 FROM project_memberships membership
+          WHERE membership.project_id = OLD.project_id
+            AND membership.id <> OLD.id
+            AND membership.role = 'owner'
+            AND membership.ended_at IS NULL
+        )
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid membership rewrite or project would have no owner');
+    END;
+
+    CREATE TRIGGER project_memberships_no_delete
+    BEFORE DELETE ON project_memberships
+    BEGIN
+      SELECT RAISE(ABORT, 'project membership history is retained');
+    END;
+
+    CREATE TRIGGER project_invitations_validate_update
+    BEFORE UPDATE ON project_invitations
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.project_id IS NOT OLD.project_id
+      OR NEW.email IS NOT OLD.email
+      OR NEW.role IS NOT OLD.role
+      OR NEW.token_hash IS NOT OLD.token_hash
+      OR NEW.created_by_user_id IS NOT OLD.created_by_user_id
+      OR NEW.expires_at IS NOT OLD.expires_at
+      OR NEW.created_at IS NOT OLD.created_at
+      OR OLD.accepted_at IS NOT NULL
+      OR OLD.declined_at IS NOT NULL
+      OR OLD.revoked_at IS NOT NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'project invitation history is retained');
+    END;
+
+    CREATE TRIGGER project_invitations_no_delete
+    BEFORE DELETE ON project_invitations
+    BEGIN
+      SELECT RAISE(ABORT, 'project invitation history is retained');
     END;
 
     CREATE TRIGGER candidate_claims_status_only_update

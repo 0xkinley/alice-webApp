@@ -205,6 +205,18 @@ export async function configureApplicationRole(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.file_reference_exclusions FROM ${role}`,
     );
     await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.project_memberships FROM ${role}`,
+    );
+    await database.exec(
+      `GRANT UPDATE (role, updated_at, ended_at, ended_by_user_id) ON TABLE ${schema}.project_memberships TO ${role}`,
+    );
+    await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.project_invitations FROM ${role}`,
+    );
+    await database.exec(
+      `GRANT UPDATE (accepted_by_user_id, accepted_at, declined_by_user_id, declined_at, revoked_by_user_id, revoked_at) ON TABLE ${schema}.project_invitations TO ${role}`,
+    );
+    await database.exec(
       `REVOKE INSERT, UPDATE, DELETE ON TABLE ${schema}.alice_schema_migrations FROM ${role}`,
     );
   });

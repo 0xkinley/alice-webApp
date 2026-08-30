@@ -12,7 +12,7 @@ Application identity with a stable internal identifier and normalized unique ema
 
 One private workspace is automatically created per MVP user.
 
-The user and workspace are inserted transactionally. A unique constraint on `workspaces.user_id` enforces exactly one workspace per user. No membership, team, organization, invitation, sharing, or role table exists.
+The user and workspace are inserted transactionally. A unique constraint on `workspaces.user_id` enforces exactly one workspace per user. Workspaces are not merged for collaboration: a project stays anchored to its creator's workspace and gains explicit user memberships around that project.
 
 ### Projects
 
@@ -20,7 +20,9 @@ Projects belong to a private workspace. Every tenant-owned record carries the wo
 
 Composite workspace/project foreign keys prevent a record from naming a project in another workspace.
 
-Project identifiers are random server-generated UUID-based values. Names are unique within a workspace but not globally. The application exposes create, list, and detail paths scoped to the workspace derived from the authenticated user; project deletion is intentionally absent while immutable history and retention rules are being established.
+Project identifiers are random server-generated UUID-based values. Names are unique within a workspace but not globally. Migration `010_project_memberships.sql` backfills and automatically creates exactly one Owner membership for every project. Active memberships use Owner, Editor, or Viewer roles and retain ended rows rather than deleting history. Database triggers reject membership deletion, ended-row rewrites, and demotion of the last active Owner.
+
+Project invitations are expiring, single-recipient, Editor-or-Viewer grants. Only the random token digest is stored. The exact signed-in normalized email can preview, accept, or decline; an Owner can revoke a pending invitation or replace it with a new token that invalidates the old one. Acceptance, decline, replacement, revocation, role change, and member removal append content-free audit events. The current foundation exposes project summary plus the accepted role but grants no project-context content to collaborators yet. Ownership transfer and Owner departure remain unavailable until every older workspace-scoped data path has been converted to membership and context authorization.
 
 ### Work contexts
 
@@ -88,12 +90,12 @@ Each authorization grant creates a connection bound by foreign keys to the user,
 
 Append-only records of security- and state-relevant actions. Store identifiers, safe metadata, and correlation IDs rather than unsaved conversation content.
 
-The current action set covers registration, session creation and revocation, project and work-context creation, integration authorization and revocation, candidate submission, and human acceptance and rejection. Audit insertion participates in the transaction for the associated state change. Database triggers reject every audit update and delete. Metadata excludes passwords, session values, bearer tokens, email addresses, context names/descriptions, and submitted evidence content.
+The current action set covers registration, session creation and revocation, project and work-context creation, project invitation and non-owner membership lifecycle, integration authorization and revocation, candidate submission, and human acceptance and rejection. Audit insertion participates in the transaction for the associated state change. Database triggers reject every audit update and delete. Metadata excludes passwords, session values, invitation and bearer tokens, email addresses, context names/descriptions, and submitted evidence content.
 
 ## Required invariants
 
 - Deny access by default.
-- Authorize from authenticated identity and workspace membership, never a caller-supplied workspace ID alone.
+- Authorize from authenticated identity and an active project membership as collaboration paths are admitted, never a caller-supplied workspace, project, membership, or role identifier alone.
 - Evidence and audit history are append-only through normal application roles.
 - Candidate creation does not change trusted state.
 - Trusted state always references the accepted candidate and source evidence.

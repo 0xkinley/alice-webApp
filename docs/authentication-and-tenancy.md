@@ -2,7 +2,7 @@
 
 Status: Accepted through Milestone 06 PostgreSQL foundation
 
-Decision date: 2026-08-27; updated 2026-08-29
+Decision date: 2026-08-27; updated 2026-08-30
 
 ## Identity decision
 
@@ -22,9 +22,13 @@ The current server-rendered application has no browser JavaScript and no browser
 
 Registration creates the user and exactly one private workspace in one immediate database transaction. `workspaces.user_id` is unique, so normal application code and the database both prevent a second workspace for the same MVP user. A failed user or workspace insert rolls back both records.
 
-Every authenticated request resolves the workspace from the server-side user/session or OAuth subject. Caller-supplied workspace identifiers are never authorization evidence. Teams, organizations, membership tables, invitations, roles, and sharing remain deliberately absent.
+Every authenticated request resolves the user and private workspace from the server-side session or OAuth subject. Caller-supplied workspace identifiers are never authorization evidence. Migration `010_project_memberships.sql` adds explicit project memberships without merging private workspaces: each project remains anchored to one workspace, and each collaborator remains a separate alice. user with separate sessions and AI connections.
 
 Project creation accepts only a bounded name and brief. The server generates the project identifier and resolves the destination workspace from the authenticated user. Project listing and detail reads include the resolved workspace in the query, so a valid but foreign or guessed project identifier returns the same not-found response as an unknown identifier. Project names are unique only within a workspace; separate users may use the same name.
+
+Every project insert automatically creates its originating Owner membership. Owners may issue an expiring Editor or Viewer invitation to one normalized email. Only a SHA-256 token digest is stored, and only the signed-in exact recipient can see the project preview and accept or decline. A signed-out invitation request does not copy the token into a login redirect; the user signs in and reopens the original link. Revocation and replacement invalidate old links. Accepted collaborators can see only the project summary and their role in this foundation; existing context and intelligence paths remain private-workspace scoped until the context-permission refactor. This intentional limit prevents a membership badge from silently granting content access.
+
+Non-owner role changes and removals require a current Owner membership and preserve the ended row plus safe audit history. The database denies membership deletion, terminal invitation rewrites, ended-membership rewrites, and demotion of the last active Owner. Ownership transfer and Owner departure are not exposed yet because the originating private workspace is still authorization evidence on older paths; they require the complete membership/context authorization conversion first.
 
 ## Deny-by-default authorization policy
 

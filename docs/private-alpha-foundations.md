@@ -123,6 +123,10 @@ Initial project roles are:
 
 Invitations are explicit, expiring, single-recipient grants with accept, decline, revoke, and resend lifecycle. The final owner cannot leave or be removed until ownership transfers or the project is safely archived/deleted under policy.
 
+Migration `010_project_memberships.sql` implements the first safe collaboration boundary. Every existing and new project has a protected Owner membership. Owners can issue hash-only Editor/Viewer invitation links, replace or revoke pending links, change a non-owner role, and remove a non-owner while retaining the membership row and append-only safe audit history. Only the exact signed-in recipient email can preview, accept, or decline; foreign and guessed tokens disclose no project or recipient metadata, and concurrent PostgreSQL acceptance creates one membership.
+
+This is deliberately a membership lifecycle foundation, not completed collaboration authorization. Accepted collaborators can see the bounded project summary and their role, but cannot read project contexts or intelligence yet. Ownership transfer and Owner departure are withheld until every legacy workspace-scoped project/context path authorizes from active membership and context capability; displaying them earlier would falsely imply that the originating workspace user had lost access.
+
 ### Context permissions
 
 A context can be visible to:

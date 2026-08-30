@@ -4,6 +4,7 @@ import {
   createProject,
   createWorkContext,
   getProject,
+  listSharedProjects,
   listProjects,
   listWorkContexts,
   suggestSimilarWorkContexts,
@@ -11,6 +12,7 @@ import {
 import { createAuthRouter, renderPage, requireAuthenticatedUser } from "./auth.ts";
 import { createConnectionsRouter } from "./connections.ts";
 import { createFilesRouter } from "./files.ts";
+import { createProjectMembershipRouter } from "./project-memberships.ts";
 import { createReviewRouter } from "./review.ts";
 import { createSavedContextRouter } from "./saved-context.ts";
 import type { PrivateFileStore } from "@alice/domain";
@@ -46,12 +48,20 @@ export async function createApp({
   });
   app.use("/auth", createAuthRouter({ database, publicUrl }));
   app.use("/connections", createConnectionsRouter({ database, mcpPublicUrl }));
+  app.use(createProjectMembershipRouter({ database, publicUrl }));
   app.get("/", requireAuthenticatedUser(database), async (request, response) => {
     const projects = await listProjects(database, request.aliceUser!.id);
+    const sharedProjects = await listSharedProjects(database, request.aliceUser!.id);
     const projectList = projects
       .map(
         (project) =>
           `<article><h2><a href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p></article>`,
+      )
+      .join("");
+    const sharedProjectList = sharedProjects
+      .map(
+        (project) =>
+          `<article><h2><a href="/projects/${encodeURIComponent(project.id)}/access">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p class="muted">Shared with you · ${escapeHtml(project.role)}</p></article>`,
       )
       .join("");
     response
@@ -59,7 +69,7 @@ export async function createApp({
       .send(
         renderPage(
           "alice. private workspace",
-          `<nav><strong>alice.</strong><span>${escapeHtml(request.aliceUser!.email)}</span><a href="/connections">AI connections</a><a href="/review">Review queue</a><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></nav><h1>Private workspace</h1><p>Projects remain private to this account.</p>${projectList || "<p>No projects yet.</p>"}<h2>Create project</h2><form method="post" action="/projects"><label>Name<input name="name" maxlength="120" required></label><label>Brief<textarea name="brief" maxlength="4000" required></textarea></label><button type="submit">Create project</button></form>`,
+          `<nav><strong>alice.</strong><span>${escapeHtml(request.aliceUser!.email)}</span><a href="/connections">AI connections</a><a href="/review">Review queue</a><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></nav><h1>Private workspace</h1><p>Projects you create remain anchored to this account and can be shared only through explicit membership.</p>${projectList || "<p>No projects yet.</p>"}<h2>Shared with you</h2>${sharedProjectList || "<p>No shared projects.</p>"}<h2>Create project</h2><form method="post" action="/projects"><label>Name<input name="name" maxlength="120" required></label><label>Brief<textarea name="brief" maxlength="4000" required></textarea></label><button type="submit">Create project</button></form>`,
         ),
       );
   });
@@ -104,7 +114,7 @@ export async function createApp({
       .send(
         renderPage(
           project.name,
-          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a></nav><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><p><a href="/review?project_id=${encodeURIComponent(project.id)}">Review candidate claims</a></p><h2>Project and work contexts</h2><p>Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}<h2>Create a work context</h2><form method="post" action="/projects/${encodeURIComponent(project.id)}/contexts/preview"><label>Name<input name="name" maxlength="120" required></label><label>Description<textarea name="description" maxlength="2000" required></textarea></label><button type="submit">Check for similar contexts</button></form>`,
+          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a><a href="/projects/${encodeURIComponent(project.id)}/collaborators">Collaborators</a></nav><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><p><a href="/review?project_id=${encodeURIComponent(project.id)}">Review candidate claims</a></p><h2>Project and work contexts</h2><p>Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}<h2>Create a work context</h2><form method="post" action="/projects/${encodeURIComponent(project.id)}/contexts/preview"><label>Name<input name="name" maxlength="120" required></label><label>Description<textarea name="description" maxlength="2000" required></textarea></label><button type="submit">Check for similar contexts</button></form>`,
         ),
       );
   });
