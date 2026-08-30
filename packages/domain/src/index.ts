@@ -53,6 +53,7 @@ export {
   userForSession,
 } from "./authentication.ts";
 export { ContextBudgetError, getProjectContext, listProjects } from "./project-context.ts";
+export { getPrivateAlphaSignals } from "./product-signals.ts";
 export { createProject, getProject } from "./projects.ts";
 export {
   acceptProjectInvitation,

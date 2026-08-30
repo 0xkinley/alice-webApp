@@ -94,6 +94,10 @@ Migration `012_context_read_events.sql` adds immutable receipts for MCP context-
 
 Read receipts intentionally omit task text, package contents, accepted values, evidence/candidate content, emails, and bearer material. Only the connection owner can list their receipts, and current project/context authorization is rechecked before historical destination metadata is shown. The authenticated package-preview path assembles the same deterministic JSON but creates no receipt, because a browser preview is not an AI-host retrieval. Database triggers and the constrained application role reject receipt updates and deletes.
 
+### Derived product signals
+
+Private-alpha workflow signals add no mutable analytics authority and no content event table. They aggregate existing connection ownership, read-receipt status/timestamps, candidate terminal status/counts, and content-free exact-decision/repair audits. Queries deliberately do not select evidence payloads, candidate/accepted values or summaries, removal explanations, task text, project/context display metadata, emails, or credentials. Cross-host project identifiers are used only as in-memory grouping keys and are never returned by the signals view.
+
 ### Audit events
 
 Append-only records of security- and state-relevant actions. Store identifiers, safe metadata, and correlation IDs rather than unsaved conversation content.

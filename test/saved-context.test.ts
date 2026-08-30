@@ -485,6 +485,19 @@ test("an exact repair classifies stale context and removes it without rewriting 
     .prepare("SELECT reason FROM context_entry_exclusions WHERE accepted_state_id = ?")
     .get(accepted.acceptedStateId);
   assert.equal(exclusion.reason, "Stale — Launch moved to October.");
+  const repairAudit = created.database
+    .prepare(
+      `SELECT safe_metadata_json FROM audit_events
+       WHERE action = 'saved_context_removed'`,
+    )
+    .all()
+    .find(
+      ({ safe_metadata_json: metadata }) =>
+        JSON.parse(metadata).accepted_state_id === accepted.acceptedStateId,
+    );
+  const repairMetadata = JSON.parse(repairAudit.safe_metadata_json);
+  assert.equal(repairMetadata.repair_type, "stale");
+  assert.doesNotMatch(repairAudit.safe_metadata_json, /Launch moved to October/);
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
     acceptedCount,

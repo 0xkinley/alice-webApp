@@ -267,6 +267,8 @@ Do not promise that providers do not train on submitted context, that data remai
 
 Privacy-preserving instrumentation records events and bounded identifiers needed to measure setup, selection, retrieval, save offers, confirmation/cancellation, removal, restatement, and repeat use. It must not record passwords, bearer tokens, exact evidence payloads, complete prompts, model responses, or restricted-context metadata.
 
+The implemented `Alpha signals` view derives content-free aggregates from existing connection ownership, immutable read receipts, candidate statuses, and decision/repair audits. It measures observed read outcomes, save-offer completion, proposed entries per offer, decision time, cross-host reuse within seven days, and repeat UTC-week use without selecting project values or evidence payloads. It explicitly does not report a host invocation rate because a host turn that never calls alice. produces no observable event. The remaining denominator problem must be solved per supported surface without adding conversation surveillance or pretending absence is a recorded failure. Detailed definitions are in `docs/product-signals.md`.
+
 ## Verification boundary
 
 Milestone 06 is not complete on local happy paths alone. Verification must cover:

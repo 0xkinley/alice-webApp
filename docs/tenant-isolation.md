@@ -34,6 +34,7 @@ The integration fixture creates two authenticated users, separate private worksp
 | MCP | `list_projects` | Other project ID, name, and brief are absent | None |
 | MCP | `get_project_context` | Foreign and random project IDs return the same not-found tool error | No accepted value, pending value, candidate, or evidence leaks |
 | Web/MCP | Package preview and context-read receipts | Preview requires current project/context access; inaccessible explicit reads retain no foreign destination metadata; historical destination details disappear when context access ends | Preview creates no receipt; successful/failed receipts are append-only and contain no task or package content |
+| Web | Private-alpha product signals | Aggregates select only the signed-in user's connection-bound read/capture metadata; foreign project and collaborator identifiers, names, and content are never returned | Read-only derivation creates no analytics or project-state write |
 | MCP | `save_project_update` | Foreign and random project IDs return the same not-found tool error | Evidence, candidate, accepted-state, and audit counts do not change |
 | MCP | Own accepted context | Other tenant values are absent; own pending value is excluded | None |
 | Database | Evidence reference | Foreign workspace/project/connection combination is rejected | No evidence row is inserted |

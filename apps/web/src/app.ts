@@ -6,6 +6,7 @@ import {
   createWorkContext,
   getProject,
   getProjectContext,
+  getPrivateAlphaSignals,
   listContextReadEvents,
   listSharedProjects,
   listProjects,
@@ -86,7 +87,26 @@ export async function createApp({
       .send(
         renderPage(
           "alice. private workspace",
-          `<nav><strong>alice.</strong><span>${escapeHtml(request.aliceUser!.email)}</span><a href="/connections">AI connections</a><a href="/review">Review queue</a><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></nav><h1>Private workspace</h1><p>Projects you create remain anchored to this account and can be shared only through explicit membership.</p>${projectList || "<p>No projects yet.</p>"}<h2>Shared with you</h2>${sharedProjectList || "<p>No shared projects.</p>"}<h2>Create project</h2><form method="post" action="/projects"><label>Name<input name="name" maxlength="120" required></label><label>Brief<textarea name="brief" maxlength="4000" required></textarea></label><button type="submit">Create project</button></form>`,
+          `<nav><strong>alice.</strong><span>${escapeHtml(request.aliceUser!.email)}</span><a href="/connections">AI connections</a><a href="/review">Review queue</a><a href="/signals">Alpha signals</a><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></nav><h1>Private workspace</h1><p>Projects you create remain anchored to this account and can be shared only through explicit membership.</p>${projectList || "<p>No projects yet.</p>"}<h2>Shared with you</h2>${sharedProjectList || "<p>No shared projects.</p>"}<h2>Create project</h2><form method="post" action="/projects"><label>Name<input name="name" maxlength="120" required></label><label>Brief<textarea name="brief" maxlength="4000" required></textarea></label><button type="submit">Create project</button></form>`,
+        ),
+      );
+  });
+  app.get("/signals", requireAuthenticatedUser(database), async (request, response) => {
+    const signals = await getPrivateAlphaSignals(database, request.aliceUser!.id);
+    if (!signals) {
+      return response
+        .status(404)
+        .type("html")
+        .send(renderPage("Not found", "<h1>Signals not found</h1>"));
+    }
+    const percentage = (value) => (value === null ? "Not enough data" : `${value}%`);
+    const duration = (value) => (value === null ? "Not enough data" : `${value} seconds`);
+    response
+      .type("html")
+      .send(
+        renderPage(
+          "Private alpha signals",
+          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a></nav><h1>Private alpha signals</h1><p>These aggregate signals use identifiers, status, counts, and timestamps. They do not inspect prompts, model responses, candidate values, evidence payloads, or saved project content.</p><section><h2>Context retrieval</h2><dl><dt>Observed MCP read attempts</dt><dd>${signals.consumption.observed_attempts}</dd><dt>Successful package reads</dt><dd>${signals.consumption.successful_reads}</dd><dt>Failed package reads</dt><dd>${signals.consumption.failed_reads}</dd><dt>Success among observed attempts</dt><dd>${percentage(signals.consumption.success_rate_percent)}</dd><dt>Successful host classifications</dt><dd>${signals.consumption.successful_host_surfaces}</dd><dt>Projects reused across hosts within 7 days</dt><dd>${signals.consumption.projects_reused_across_hosts_within_7_days}</dd><dt>UTC weeks with a successful read</dt><dd>${signals.consumption.active_utc_weeks}</dd><dt>Repeated weekly use</dt><dd>${signals.consumption.repeated_weekly_use ? "Observed" : "Not yet observed"}</dd></dl><p class="muted"><strong>Important limitation:</strong> ${escapeHtml(signals.privacy.limitation)} Therefore this page does not call the observed-attempt success percentage a host invocation rate.</p></section><section><h2>Save and confirmation burden</h2><dl><dt>Save offers received</dt><dd>${signals.saving.offers}</dd><dt>Proposed entries</dt><dd>${signals.saving.proposals}</dd><dt>Confirmed offers</dt><dd>${signals.saving.confirmed_offers}</dd><dt>Cancelled offers</dt><dd>${signals.saving.cancelled_offers}</dd><dt>Still pending</dt><dd>${signals.saving.pending_offers}</dd><dt>Offer completion</dt><dd>${percentage(signals.saving.completion_rate_percent)}</dd><dt>Average entries per offer</dt><dd>${signals.saving.average_proposals_per_offer ?? "Not enough data"}</dd><dt>Median time to confirm or cancel</dt><dd>${duration(signals.saving.median_decision_seconds)}</dd><dt>Saved-context repairs</dt><dd>${signals.saving.repairs}</dd></dl></section>`,
         ),
       );
   });

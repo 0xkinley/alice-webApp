@@ -128,7 +128,15 @@ export async function getRemovalPreview(
 
 export async function removeSavedContextEntry(
   database,
-  { userId, projectId, contextId, acceptedStateId, expectedPreviewVersion, reason = "" },
+  {
+    userId,
+    projectId,
+    contextId,
+    acceptedStateId,
+    expectedPreviewVersion,
+    reason = "",
+    repairType = "",
+  },
 ) {
   const access = await contextScopeForUser(database, {
     userId,
@@ -140,6 +148,9 @@ export async function removeSavedContextEntry(
   const tenant = { workspaceId: access.projectWorkspaceId, userId: access.userId };
   const normalizedReason = String(reason).trim();
   if (normalizedReason.length > 500) throw new Error("Removal reason exceeds 500 characters.");
+  if (repairType && !["stale", "contradicted", "wrong"].includes(repairType)) {
+    throw new Error("Invalid saved-context repair classification.");
+  }
   const initial = await buildRemovalPreview(database, tenant, {
     projectId,
     contextId,
@@ -192,7 +203,11 @@ export async function removeSavedContextEntry(
           projectId,
           contextId,
           tenant.userId,
-          JSON.stringify({ accepted_state_id: acceptedStateId, exclusion_id: exclusionId }),
+          JSON.stringify({
+            accepted_state_id: acceptedStateId,
+            exclusion_id: exclusionId,
+            ...(repairType ? { repair_type: repairType } : {}),
+          }),
           removedAt,
         );
       await database
@@ -214,6 +229,7 @@ export async function removeSavedContextEntry(
           exclusion_id: exclusionId,
           state_key: preview.entry.state_key,
           version: preview.entry.version,
+          ...(repairType ? { repair_type: repairType } : {}),
         },
       });
       return {

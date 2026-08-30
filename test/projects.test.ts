@@ -161,7 +161,15 @@ test("creates and revisits a project in the authenticated private workspace", as
   const revisitingCookie = login.headers.get("set-cookie").split(";")[0];
   const workspace = await fetch(baseUrl, { headers: { cookie: revisitingCookie } });
   assert.equal(workspace.status, 200);
-  assert.match(await workspace.text(), new RegExp(ownerProjectId));
+  const workspaceHtml = await workspace.text();
+  assert.match(workspaceHtml, new RegExp(ownerProjectId));
+  assert.match(workspaceHtml, /Alpha signals/);
+  const signals = await fetch(`${baseUrl}/signals`, { headers: { cookie: revisitingCookie } });
+  assert.equal(signals.status, 200);
+  const signalsHtml = await signals.text();
+  assert.match(signalsHtml, /Private alpha signals/);
+  assert.match(signalsHtml, /cannot observe host turns where the host never called alice/);
+  assert.match(signalsHtml, /do not inspect prompts, model responses, candidate values/);
 });
 
 test("does not reveal a guessed project identifier to another user", async () => {

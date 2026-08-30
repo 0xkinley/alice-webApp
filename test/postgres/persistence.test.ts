@@ -10,6 +10,7 @@ import {
   createProjectInvitation,
   getCapturePreview,
   getProjectContext,
+  getPrivateAlphaSignals,
   getProjectFileRemovalPreview,
   getProjectFileDownload,
   getRemovalPreview,
@@ -941,4 +942,12 @@ test("cross-tenant and mismatched-connection access disclose nothing and mutate 
   assert.match(denied.error, /tenant context is missing/i);
   const afterCount = await database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get();
   assert.equal(afterCount.count, before.count);
+
+  const ownerSignals = await getPrivateAlphaSignals(database, owner.id);
+  const otherSignals = await getPrivateAlphaSignals(database, other.id);
+  assert.ok(ownerSignals.saving.offers > 0);
+  assert.ok(ownerSignals.saving.proposals >= ownerSignals.saving.offers);
+  assert.equal(ownerSignals.privacy.content_fields_read, false);
+  assert.equal(otherSignals.saving.offers, 0);
+  assert.equal(otherSignals.consumption.observed_attempts, 0);
 });

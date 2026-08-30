@@ -164,6 +164,7 @@ export function createSavedContextRouter({ database }) {
         acceptedStateId: request.params.acceptedStateId,
         expectedPreviewVersion: String(request.body.preview_version || ""),
         reason: `${label}${note ? ` — ${note}` : ""}`,
+        repairType,
       });
     } catch (error) {
       return response
