@@ -13,22 +13,27 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-export function createApp({
+export async function createApp({
   database: suppliedDatabase = undefined,
-  databaseFilename = ":memory:",
+  databaseUrl,
   publicUrl,
 }) {
-  const database = suppliedDatabase || openDatabase(databaseFilename);
+  const database = suppliedDatabase || (await openDatabase({ connectionString: databaseUrl }));
   const app = express();
 
   app.disable("x-powered-by");
   app.use(express.urlencoded({ extended: false, limit: "16kb" }));
-  app.get("/health", (_request, response) => {
-    response.json({ service: "alice-web", status: "ok" });
+  app.get("/health", async (_request, response) => {
+    try {
+      await database.query("SELECT 1");
+      response.json({ database: "reachable", service: "alice-web", status: "ok" });
+    } catch {
+      response.status(503).json({ database: "unreachable", service: "alice-web", status: "error" });
+    }
   });
   app.use("/auth", createAuthRouter({ database, publicUrl }));
-  app.get("/", requireAuthenticatedUser(database), (request, response) => {
-    const projects = listProjects(database, request.aliceUser!.id);
+  app.get("/", requireAuthenticatedUser(database), async (request, response) => {
+    const projects = await listProjects(database, request.aliceUser!.id);
     const projectList = projects
       .map(
         (project) =>
@@ -44,9 +49,9 @@ export function createApp({
         ),
       );
   });
-  app.post("/projects", requireAuthenticatedUser(database), (request, response) => {
+  app.post("/projects", requireAuthenticatedUser(database), async (request, response) => {
     try {
-      const project = createProject(database, request.aliceUser!.id, request.body);
+      const project = await createProject(database, request.aliceUser!.id, request.body);
       if (!project) return response.status(403).send("Authorization denied.");
       response.redirect(303, `/projects/${encodeURIComponent(project.id)}`);
     } catch (error) {
@@ -61,8 +66,8 @@ export function createApp({
         );
     }
   });
-  app.get("/projects/:projectId", requireAuthenticatedUser(database), (request, response) => {
-    const project = getProject(database, request.aliceUser!.id, request.params.projectId);
+  app.get("/projects/:projectId", requireAuthenticatedUser(database), async (request, response) => {
+    const project = await getProject(database, request.aliceUser!.id, request.params.projectId);
     if (!project) {
       return response
         .status(404)

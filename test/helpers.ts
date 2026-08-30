@@ -4,13 +4,13 @@ import { registerUser } from "@alice/domain";
 export const TEST_EMAIL = "tester@alice.example";
 export const TEST_PASSWORD = "correct horse battery staple";
 
-export function createTestIdentity(
+export async function createTestIdentity(
   database,
   { email = TEST_EMAIL, password = TEST_PASSWORD, projectId = "project_switchboard_launch" } = {},
 ) {
-  const user = registerUser(database, { email, password });
+  const user = await registerUser(database, { email, password });
   const now = new Date().toISOString();
-  database
+  await database
     .prepare(
       `INSERT INTO projects (id, workspace_id, name, brief, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)`,

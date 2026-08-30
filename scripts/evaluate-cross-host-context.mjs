@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { openDatabase } from "@alice/database";
+import { openSqliteTestDatabase } from "@alice/database/testing";
 import { getProjectContext, registerUser } from "@alice/domain";
 
 const fixturePath = resolve(import.meta.dirname, "../evals/cross-host-context.json");
 const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
 const timestamp = "2026-08-30T10:00:00.000Z";
 
-function seedCase(evaluationCase) {
-  const database = openDatabase(":memory:");
-  const identity = registerUser(database, {
+async function seedCase(evaluationCase) {
+  const database = openSqliteTestDatabase();
+  const identity = await registerUser(database, {
     email: `${evaluationCase.host}@context-eval.alice.example`,
     password: "context evaluation fixture password",
   });
@@ -144,17 +144,17 @@ function seedCase(evaluationCase) {
   return { database, identity };
 }
 
-function scoreCase(evaluationCase) {
+async function scoreCase(evaluationCase) {
   const failures = [];
-  const { database, identity } = seedCase(evaluationCase);
+  const { database, identity } = await seedCase(evaluationCase);
   const request = {
     userId: identity.id,
     projectId: fixture.project.id,
     task: evaluationCase.prompt,
     contextBudget: 16_000,
   };
-  const context = getProjectContext(database, request);
-  const repeated = getProjectContext(database, request);
+  const context = await getProjectContext(database, request);
+  const repeated = await getProjectContext(database, request);
   const acceptedByKey = new Map(
     context.accepted_decisions.map((decision) => [decision.state_key, decision]),
   );
@@ -207,6 +207,7 @@ function scoreCase(evaluationCase) {
     }
   }
 
+  database.close();
   return failures;
 }
 
@@ -221,11 +222,13 @@ if (new Set(fixture.cases.map(({ host }) => host)).size !== 2) {
   structuralErrors.push("The cross-host evaluation must cover distinct ChatGPT and Claude cases.");
 }
 
-const results = fixture.cases.map((evaluationCase) => ({
-  host: evaluationCase.host,
-  id: evaluationCase.id,
-  failures: scoreCase(evaluationCase),
-}));
+const results = await Promise.all(
+  fixture.cases.map(async (evaluationCase) => ({
+    host: evaluationCase.host,
+    id: evaluationCase.id,
+    failures: await scoreCase(evaluationCase),
+  })),
+);
 const failed = results.filter(({ failures }) => failures.length > 0);
 if (structuralErrors.length > 0 || failed.length > 0) {
   for (const error of structuralErrors) console.error(`Fixture error: ${error}`);

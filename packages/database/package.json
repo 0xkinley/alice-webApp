@@ -8,6 +8,14 @@
       "types": "./src/index.ts",
       "development": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./src/testing.ts",
+      "development": "./src/testing.ts",
+      "default": "./dist/testing.js"
     }
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
   }
 }

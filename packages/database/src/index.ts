@@ -1,267 +1,186 @@
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { readFile, readdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import pg from "pg";
+import type { PoolClient, QueryResultRow } from "pg";
 
-const SCHEMA_VERSION = 3;
+const { Pool, types } = pg;
 
-function hasApplicationTables(database) {
-  return Boolean(
-    database
-      .prepare(
-        `SELECT 1 FROM sqlite_master
-         WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
-         LIMIT 1`,
+types.setTypeParser(20, Number);
+types.setTypeParser(1114, (value) => value);
+types.setTypeParser(1184, (value) => value);
+
+const migrationsDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../migrations");
+const identifierPattern = /^[a-z][a-z0-9_]{0,62}$/;
+
+function quoteIdentifier(identifier: string): string {
+  if (!identifierPattern.test(identifier)) {
+    throw new Error("Database schema names must be lowercase SQL identifiers.");
+  }
+  return `"${identifier}"`;
+}
+
+function postgresSql(sql: string): string {
+  let parameter = 0;
+  return sql.replaceAll("?", () => `$${++parameter}`);
+}
+
+export type RunResult = Readonly<{ changes: number }>;
+
+export class PreparedStatement {
+  private readonly database: AliceDatabase;
+  private readonly sql: string;
+
+  constructor(database: AliceDatabase, sql: string) {
+    this.database = database;
+    this.sql = sql;
+  }
+
+  async get(...parameters: unknown[]): Promise<any | undefined> {
+    const result = await this.database.query(this.sql, parameters);
+    return result[0];
+  }
+
+  async all(...parameters: unknown[]): Promise<any[]> {
+    return this.database.query(this.sql, parameters);
+  }
+
+  async run(...parameters: unknown[]): Promise<RunResult> {
+    const result = await this.database.execute(this.sql, parameters);
+    return { changes: result };
+  }
+}
+
+export class AliceDatabase {
+  readonly #pool: InstanceType<typeof Pool>;
+  readonly #schema: string;
+  readonly #transactionClient = new AsyncLocalStorage<PoolClient>();
+
+  constructor(pool: InstanceType<typeof Pool>, schema: string) {
+    this.#pool = pool;
+    this.#schema = schema;
+  }
+
+  prepare(sql: string): PreparedStatement {
+    return new PreparedStatement(this, sql);
+  }
+
+  async query(sql: string, parameters: unknown[] = []): Promise<QueryResultRow[]> {
+    const executor = this.#transactionClient.getStore() || this.#pool;
+    const result = await executor.query(postgresSql(sql), parameters);
+    return result.rows;
+  }
+
+  async execute(sql: string, parameters: unknown[] = []): Promise<number> {
+    const executor = this.#transactionClient.getStore() || this.#pool;
+    const result = await executor.query(postgresSql(sql), parameters);
+    return result.rowCount || 0;
+  }
+
+  async exec(sql: string): Promise<void> {
+    const executor = this.#transactionClient.getStore() || this.#pool;
+    await executor.query(sql);
+  }
+
+  async transaction<T>(
+    operation: () => Promise<T>,
+    { isolation = "SERIALIZABLE" }: { isolation?: "READ COMMITTED" | "SERIALIZABLE" } = {},
+  ): Promise<T> {
+    if (this.#transactionClient.getStore()) return operation();
+    const client = await this.#pool.connect();
+    try {
+      await client.query(`BEGIN ISOLATION LEVEL ${isolation}`);
+      const result = await this.#transactionClient.run(client, operation);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.#pool.end();
+  }
+
+  get schema(): string {
+    return this.#schema;
+  }
+}
+
+async function applyMigrations(database: AliceDatabase): Promise<void> {
+  await database.transaction(async () => {
+    await database.exec("SELECT pg_advisory_xact_lock(hashtext('alice-schema-migrations'))");
+    await database.exec(`
+      CREATE TABLE IF NOT EXISTS alice_schema_migrations (
+        version integer PRIMARY KEY,
+        filename text NOT NULL UNIQUE,
+        applied_at timestamptz NOT NULL DEFAULT now()
       )
-      .get(),
-  );
-}
-
-function createSchema(database) {
-  database.exec(`
-    CREATE TABLE users (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL COLLATE NOCASE UNIQUE,
-      password_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    ) STRICT;
-
-    CREATE TABLE workspaces (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE RESTRICT,
-      name TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      UNIQUE (id, user_id)
-    ) STRICT;
-
-    CREATE TABLE web_sessions (
-      token_hash TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      expires_at INTEGER NOT NULL,
-      created_at TEXT NOT NULL
-    ) STRICT;
-
-    CREATE TABLE oauth_clients (
-      client_id TEXT PRIMARY KEY,
-      client_secret_hash TEXT,
-      client_name TEXT NOT NULL,
-      redirect_uris_json TEXT NOT NULL,
-      token_endpoint_auth_method TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    ) STRICT;
-
-    CREATE TABLE integration_connections (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-      workspace_id TEXT NOT NULL,
-      client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE RESTRICT,
-      client_classification TEXT NOT NULL,
-      granted_scopes TEXT NOT NULL,
-      first_connected_at TEXT NOT NULL,
-      last_used_at TEXT NOT NULL,
-      revoked_at TEXT,
-      FOREIGN KEY (workspace_id, user_id) REFERENCES workspaces(id, user_id),
-      UNIQUE (workspace_id, id)
-    ) STRICT;
-
-    CREATE TABLE oauth_authorization_codes (
-      code_hash TEXT PRIMARY KEY,
-      client_id TEXT NOT NULL REFERENCES oauth_clients(client_id),
-      user_id TEXT NOT NULL REFERENCES users(id),
-      connection_id TEXT NOT NULL REFERENCES integration_connections(id),
-      redirect_uri TEXT NOT NULL,
-      code_challenge TEXT NOT NULL,
-      scope TEXT NOT NULL,
-      resource TEXT NOT NULL,
-      expires_at INTEGER NOT NULL,
-      consumed_at TEXT
-    ) STRICT;
-
-    CREATE TABLE oauth_access_tokens (
-      token_hash TEXT PRIMARY KEY,
-      client_id TEXT NOT NULL REFERENCES oauth_clients(client_id),
-      user_id TEXT NOT NULL REFERENCES users(id),
-      connection_id TEXT NOT NULL REFERENCES integration_connections(id),
-      scope TEXT NOT NULL,
-      resource TEXT NOT NULL,
-      expires_at INTEGER NOT NULL,
-      revoked_at TEXT
-    ) STRICT;
-
-    CREATE TABLE oauth_refresh_tokens (
-      token_hash TEXT PRIMARY KEY,
-      client_id TEXT NOT NULL REFERENCES oauth_clients(client_id),
-      user_id TEXT NOT NULL REFERENCES users(id),
-      connection_id TEXT NOT NULL REFERENCES integration_connections(id),
-      scope TEXT NOT NULL,
-      resource TEXT NOT NULL,
-      expires_at INTEGER NOT NULL,
-      revoked_at TEXT
-    ) STRICT;
-
-    CREATE TABLE projects (
-      id TEXT PRIMARY KEY,
-      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
-      name TEXT NOT NULL,
-      brief TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      UNIQUE (workspace_id, name),
-      UNIQUE (workspace_id, id)
-    ) STRICT;
-
-    CREATE TABLE evidence_events (
-      id TEXT PRIMARY KEY,
-      workspace_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      exact_payload_json TEXT NOT NULL,
-      actor_type TEXT NOT NULL,
-      connection_id TEXT NOT NULL,
-      client_id TEXT NOT NULL,
-      client_classification TEXT NOT NULL,
-      tool_name TEXT NOT NULL,
-      idempotency_key TEXT NOT NULL,
-      payload_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
-      FOREIGN KEY (workspace_id, connection_id) REFERENCES integration_connections(workspace_id, id),
-      UNIQUE (connection_id, project_id, idempotency_key),
-      UNIQUE (workspace_id, project_id, id)
-    ) STRICT;
-
-    CREATE TABLE candidate_claims (
-      id TEXT PRIMARY KEY,
-      workspace_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      evidence_id TEXT NOT NULL,
-      state_key TEXT NOT NULL,
-      value_json TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'rejected')),
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
-      FOREIGN KEY (workspace_id, project_id, evidence_id)
-        REFERENCES evidence_events(workspace_id, project_id, id),
-      UNIQUE (workspace_id, project_id, id),
-      UNIQUE (workspace_id, project_id, id, evidence_id)
-    ) STRICT;
-
-    CREATE TABLE accepted_project_state (
-      id TEXT PRIMARY KEY,
-      workspace_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      candidate_id TEXT NOT NULL UNIQUE,
-      evidence_id TEXT NOT NULL,
-      state_key TEXT NOT NULL,
-      value_json TEXT NOT NULL,
-      version INTEGER NOT NULL CHECK (version > 0),
-      accepted_at TEXT NOT NULL,
-      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
-      FOREIGN KEY (workspace_id, project_id, candidate_id)
-        REFERENCES candidate_claims(workspace_id, project_id, id),
-      FOREIGN KEY (workspace_id, project_id, candidate_id, evidence_id)
-        REFERENCES candidate_claims(workspace_id, project_id, id, evidence_id),
-      FOREIGN KEY (workspace_id, project_id, evidence_id)
-        REFERENCES evidence_events(workspace_id, project_id, id),
-      UNIQUE (project_id, state_key, version)
-    ) STRICT;
-
-    CREATE TABLE audit_events (
-      id TEXT PRIMARY KEY,
-      workspace_id TEXT NOT NULL,
-      project_id TEXT,
-      action TEXT NOT NULL,
-      actor_type TEXT NOT NULL,
-      actor_id TEXT NOT NULL,
-      correlation_id TEXT NOT NULL,
-      safe_metadata_json TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
-      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id)
-    ) STRICT;
-
-    CREATE TRIGGER evidence_events_no_update
-    BEFORE UPDATE ON evidence_events
-    BEGIN
-      SELECT RAISE(ABORT, 'evidence events are immutable');
-    END;
-
-    CREATE TRIGGER evidence_events_no_delete
-    BEFORE DELETE ON evidence_events
-    BEGIN
-      SELECT RAISE(ABORT, 'evidence events are immutable');
-    END;
-
-    CREATE TRIGGER audit_events_no_update
-    BEFORE UPDATE ON audit_events
-    BEGIN
-      SELECT RAISE(ABORT, 'audit events are append-only');
-    END;
-
-    CREATE TRIGGER audit_events_no_delete
-    BEFORE DELETE ON audit_events
-    BEGIN
-      SELECT RAISE(ABORT, 'audit events are append-only');
-    END;
-
-    CREATE TRIGGER candidate_claims_status_only_update
-    BEFORE UPDATE ON candidate_claims
-    WHEN OLD.status <> 'pending'
-      OR NEW.status NOT IN ('accepted', 'rejected')
-      OR NEW.id IS NOT OLD.id
-      OR NEW.workspace_id IS NOT OLD.workspace_id
-      OR NEW.project_id IS NOT OLD.project_id
-      OR NEW.evidence_id IS NOT OLD.evidence_id
-      OR NEW.state_key IS NOT OLD.state_key
-      OR NEW.value_json IS NOT OLD.value_json
-      OR NEW.summary IS NOT OLD.summary
-      OR NEW.created_at IS NOT OLD.created_at
-    BEGIN
-      SELECT RAISE(ABORT, 'candidate claims preserve submitted content and terminal status');
-    END;
-
-    CREATE TRIGGER candidate_claims_no_delete
-    BEFORE DELETE ON candidate_claims
-    BEGIN
-      SELECT RAISE(ABORT, 'candidate claims preserve history');
-    END;
-
-    CREATE TRIGGER accepted_project_state_no_update
-    BEFORE UPDATE ON accepted_project_state
-    BEGIN
-      SELECT RAISE(ABORT, 'accepted project state is versioned and immutable');
-    END;
-
-    CREATE TRIGGER accepted_project_state_no_delete
-    BEFORE DELETE ON accepted_project_state
-    BEGIN
-      SELECT RAISE(ABORT, 'accepted project state is versioned and immutable');
-    END;
-
-    PRAGMA user_version = ${SCHEMA_VERSION};
-  `);
-}
-
-export function openDatabase(filename) {
-  if (filename !== ":memory:") {
-    mkdirSync(dirname(filename), { recursive: true });
-  }
-
-  const database = new DatabaseSync(filename);
-  database.exec("PRAGMA foreign_keys = ON");
-  database.exec("PRAGMA journal_mode = WAL");
-  const version = Number(database.prepare("PRAGMA user_version").get()?.user_version);
-
-  if (version === 0 && hasApplicationTables(database)) {
-    database.close();
-    throw new Error(
-      "This database predates the Milestone 03 tenant schema. Preserve it as spike evidence and start with a new ALICE_DATABASE_PATH.",
+    `);
+    const applied = new Set(
+      (await database.prepare("SELECT version FROM alice_schema_migrations").all()).map((row) =>
+        Number(row.version),
+      ),
     );
+    const filenames = (await readdir(migrationsDirectory))
+      .filter((filename) => /^\d{3}_[a-z0-9_]+\.sql$/.test(filename))
+      .sort();
+    for (const filename of filenames) {
+      const version = Number(filename.slice(0, 3));
+      if (applied.has(version)) continue;
+      await database.exec(await readFile(resolve(migrationsDirectory, filename), "utf8"));
+      await database
+        .prepare("INSERT INTO alice_schema_migrations (version, filename) VALUES (?, ?)")
+        .run(version, filename);
+    }
+  });
+}
+
+export type OpenDatabaseOptions = Readonly<{
+  connectionString: string;
+  schema?: string;
+  maxConnections?: number;
+  migrate?: boolean;
+}>;
+
+export async function openDatabase({
+  connectionString,
+  schema = "public",
+  maxConnections = 10,
+  migrate = true,
+}: OpenDatabaseOptions): Promise<AliceDatabase> {
+  if (!/^postgres(?:ql)?:\/\//.test(connectionString)) {
+    throw new Error("ALICE_DATABASE_URL must be a PostgreSQL connection URL.");
   }
-  if (version === 0) createSchema(database);
-  if (version !== 0 && version !== SCHEMA_VERSION) {
-    database.close();
-    throw new Error(`Unsupported alice. database schema version: ${version}.`);
+  const quotedSchema = quoteIdentifier(schema);
+  const bootstrapPool = new Pool({
+    connectionString,
+    max: 1,
+    application_name: "alice-migrations",
+  });
+  try {
+    await bootstrapPool.query(`CREATE SCHEMA IF NOT EXISTS ${quotedSchema}`);
+  } finally {
+    await bootstrapPool.end();
   }
 
-  return database;
+  const pool = new Pool({
+    connectionString,
+    max: maxConnections,
+    application_name: "alice",
+    options: `-c search_path=${schema}`,
+  });
+  const database = new AliceDatabase(pool, schema);
+  try {
+    await database.query("SELECT 1");
+    if (migrate) await applyMigrations(database);
+    return database;
+  } catch (error) {
+    await database.close();
+    throw error;
+  }
 }

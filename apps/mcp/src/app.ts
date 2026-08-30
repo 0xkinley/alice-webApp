@@ -75,7 +75,7 @@ function createProtocolServer(database, publicUrl) {
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (_input, context) => {
-      const projects = listProjects(database, authenticatedUserId(context));
+      const projects = await listProjects(database, authenticatedUserId(context));
       const output = { contract_version: consumptionContractVersion, projects };
       return {
         content: [{ type: "text", text: JSON.stringify(output) }],
@@ -98,7 +98,7 @@ function createProtocolServer(database, publicUrl) {
     async ({ project_id: projectId, task, context_budget: contextBudget }, context) => {
       let projectContext;
       try {
-        projectContext = getProjectContext(database, {
+        projectContext = await getProjectContext(database, {
           userId: authenticatedUserId(context),
           projectId,
           task,
@@ -146,7 +146,7 @@ function createProtocolServer(database, publicUrl) {
           isError: true,
         };
       }
-      const result = saveCandidateUpdate(database, {
+      const result = await saveCandidateUpdate(database, {
         clientId: authInfo.clientId,
         connectionId: authenticatedConnectionId(context),
         publicUrl,
@@ -171,13 +171,13 @@ function createProtocolServer(database, publicUrl) {
   return server;
 }
 
-export function createApp({
+export async function createApp({
   database: suppliedDatabase = undefined,
-  databaseFilename = ":memory:",
+  databaseUrl,
   publicUrl,
   reviewUrl = publicUrl,
 }) {
-  const database = suppliedDatabase || openDatabase(databaseFilename);
+  const database = suppliedDatabase || (await openDatabase({ connectionString: databaseUrl }));
   const oauth = createOAuth({ database, publicUrl });
   const publicHostname = new URL(publicUrl).hostname;
   const app = createMcpExpressApp({
@@ -196,8 +196,13 @@ export function createApp({
     }),
   );
 
-  app.get("/health", (_request, response) => {
-    response.json({ service: "alice-mcp", status: "ok" });
+  app.get("/health", async (_request, response) => {
+    try {
+      await database.query("SELECT 1");
+      response.json({ database: "reachable", service: "alice-mcp", status: "ok" });
+    } catch {
+      response.status(503).json({ database: "unreachable", service: "alice-mcp", status: "error" });
+    }
   });
   app.post("/register", (request, response) => oauth.register(request, response));
   app.get("/authorize", (request, response) => oauth.authorizeForm(request, response));

@@ -43,32 +43,31 @@ function validateCredentials(email, password) {
   return normalizedEmail;
 }
 
-export function registerUser(database, { email, password }) {
+export async function registerUser(database, { email, password }) {
   const normalizedEmail = validateCredentials(email, password);
   const userId = `user_${randomUUID()}`;
   const workspaceId = `workspace_${randomUUID()}`;
   const createdAt = new Date().toISOString();
 
-  database.exec("BEGIN IMMEDIATE");
   try {
-    database
-      .prepare("INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)")
-      .run(userId, normalizedEmail, encodePassword(password), createdAt);
-    database
-      .prepare("INSERT INTO workspaces (id, user_id, name, created_at) VALUES (?, ?, ?, ?)")
-      .run(workspaceId, userId, "Private workspace", createdAt);
-    appendAuditEvent(database, {
-      workspaceId,
-      action: "user_registered",
-      actorType: "human_user",
-      actorId: userId,
-      correlationId: `registration_${randomUUID()}`,
-      metadata: { user_id: userId, workspace_id: workspaceId },
+    await database.transaction(async () => {
+      await database
+        .prepare("INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)")
+        .run(userId, normalizedEmail, encodePassword(password), createdAt);
+      await database
+        .prepare("INSERT INTO workspaces (id, user_id, name, created_at) VALUES (?, ?, ?, ?)")
+        .run(workspaceId, userId, "Private workspace", createdAt);
+      await appendAuditEvent(database, {
+        workspaceId,
+        action: "user_registered",
+        actorType: "human_user",
+        actorId: userId,
+        correlationId: `registration_${randomUUID()}`,
+        metadata: { user_id: userId, workspace_id: workspaceId },
+      });
     });
-    database.exec("COMMIT");
   } catch (error) {
-    database.exec("ROLLBACK");
-    if (String(error).includes("UNIQUE constraint failed: users.email")) {
+    if (typeof error === "object" && error && "code" in error && error.code === "23505") {
       throw new Error("An account already exists for this email address.", { cause: error });
     }
     throw error;
@@ -77,9 +76,9 @@ export function registerUser(database, { email, password }) {
   return { id: userId, email: normalizedEmail, workspace_id: workspaceId, created_at: createdAt };
 }
 
-export function authenticateUser(database, { email, password }) {
+export async function authenticateUser(database, { email, password }) {
   const normalizedEmail = normalizeEmail(email);
-  const user = database
+  const user = await database
     .prepare(
       `SELECT users.id, users.email, users.password_hash, workspaces.id AS workspace_id
        FROM users
@@ -91,35 +90,32 @@ export function authenticateUser(database, { email, password }) {
   return { id: user.id, email: user.email, workspace_id: user.workspace_id };
 }
 
-export function createUserSession(database, userId) {
+export async function createUserSession(database, userId) {
   const token = `alice_session_${randomBytes(32).toString("base64url")}`;
   const now = Math.floor(Date.now() / 1000);
-  const workspace = database.prepare("SELECT id FROM workspaces WHERE user_id = ?").get(userId);
-  database.exec("BEGIN IMMEDIATE");
-  try {
-    database
+  const workspace = await database
+    .prepare("SELECT id FROM workspaces WHERE user_id = ?")
+    .get(userId);
+  await database.transaction(async () => {
+    await database
       .prepare(
         "INSERT INTO web_sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
       )
       .run(sha256(token), userId, now + SESSION_TTL_SECONDS, new Date().toISOString());
-    appendAuditEvent(database, {
+    await appendAuditEvent(database, {
       workspaceId: workspace.id,
       action: "user_session_created",
       actorType: "human_user",
       actorId: userId,
       correlationId: `session_${randomUUID()}`,
     });
-    database.exec("COMMIT");
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
-  }
+  });
   return { token, maxAge: SESSION_TTL_SECONDS };
 }
 
-export function userForSession(database, token) {
+export async function userForSession(database, token) {
   if (!token) return undefined;
-  return database
+  return await database
     .prepare(
       `SELECT users.id, users.email, workspaces.id AS workspace_id
        FROM web_sessions
@@ -130,10 +126,10 @@ export function userForSession(database, token) {
     .get(sha256(token), Math.floor(Date.now() / 1000));
 }
 
-export function revokeUserSession(database, token) {
+export async function revokeUserSession(database, token) {
   if (!token) return;
   const tokenHash = sha256(token);
-  const session = database
+  const session = await database
     .prepare(
       `SELECT web_sessions.user_id, workspaces.id AS workspace_id
        FROM web_sessions
@@ -142,19 +138,14 @@ export function revokeUserSession(database, token) {
     )
     .get(tokenHash);
   if (!session) return;
-  database.exec("BEGIN IMMEDIATE");
-  try {
-    database.prepare("DELETE FROM web_sessions WHERE token_hash = ?").run(tokenHash);
-    appendAuditEvent(database, {
+  await database.transaction(async () => {
+    await database.prepare("DELETE FROM web_sessions WHERE token_hash = ?").run(tokenHash);
+    await appendAuditEvent(database, {
       workspaceId: session.workspace_id,
       action: "user_session_revoked",
       actorType: "human_user",
       actorId: session.user_id,
       correlationId: `session_${randomUUID()}`,
     });
-    database.exec("COMMIT");
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }

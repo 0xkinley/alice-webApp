@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { openSqliteTestDatabase } from "@alice/database/testing";
 import { createApp } from "../apps/web/src/app.ts";
 
 let baseUrl;
@@ -25,7 +26,10 @@ async function register(identity) {
 }
 
 before(async () => {
-  created = createApp({ databaseFilename: ":memory:", publicUrl: "http://127.0.0.1" });
+  created = await createApp({
+    database: openSqliteTestDatabase(),
+    publicUrl: "http://127.0.0.1",
+  });
   server = created.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -36,6 +40,7 @@ after(async () => {
   await new Promise((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
   );
+  created.database.close();
 });
 
 test("creates and revisits a project in the authenticated private workspace", async () => {

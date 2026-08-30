@@ -15,10 +15,10 @@ function captureDetails(exactPayloadJson) {
   }
 }
 
-export function listReviewProjects(database, userId) {
-  const tenant = tenantScopeForUser(database, userId);
+export async function listReviewProjects(database, userId) {
+  const tenant = await tenantScopeForUser(database, userId);
   if (!tenant) return [];
-  return database
+  return await database
     .prepare(
       `SELECT project.id, project.name, project.brief,
               COUNT(candidate.id) AS total_count,
@@ -40,13 +40,13 @@ export function listReviewProjects(database, userId) {
     .all(tenant.workspaceId);
 }
 
-export function getReviewQueue(
+export async function getReviewQueue(
   database,
   { userId, projectId, status = "pending", page = 1, pageSize = 20 },
 ) {
-  const tenant = tenantScopeForUser(database, userId);
+  const tenant = await tenantScopeForUser(database, userId);
   if (!tenant || !REVIEW_STATUSES.has(status)) return undefined;
-  const project = database
+  const project = await database
     .prepare(
       `SELECT id, name, brief, created_at, updated_at
        FROM projects WHERE id = ? AND workspace_id = ?`,
@@ -54,7 +54,7 @@ export function getReviewQueue(
     .get(projectId, tenant.workspaceId);
   if (!project) return undefined;
 
-  const counts = database
+  const counts = await database
     .prepare(
       `SELECT COUNT(*) AS total,
               COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
@@ -79,9 +79,10 @@ export function getReviewQueue(
           boundedPageSize,
           (boundedPage - 1) * boundedPageSize,
         ];
-  const candidates = database
-    .prepare(
-      `SELECT candidate.id, candidate.state_key, candidate.value_json, candidate.summary,
+  const candidates = (
+    await database
+      .prepare(
+        `SELECT candidate.id, candidate.state_key, candidate.value_json, candidate.summary,
               candidate.status, candidate.created_at,
               evidence.id AS evidence_id, evidence.exact_payload_json,
               evidence.actor_type, evidence.connection_id, evidence.client_id,
@@ -109,28 +110,28 @@ export function getReviewQueue(
                  AND audit.project_id = candidate.project_id
                  AND audit.action IN
                    ('candidate_accepted', 'candidate_rejected', 'accepted_state_superseded')
-                 AND json_extract(audit.safe_metadata_json, '$.candidate_id') = candidate.id
+                 AND audit.safe_metadata_json::jsonb ->> 'candidate_id' = candidate.id
                ORDER BY audit.created_at, audit.id LIMIT 1) AS review_audit_id,
               (SELECT audit.actor_id FROM audit_events audit
                WHERE audit.workspace_id = candidate.workspace_id
                  AND audit.project_id = candidate.project_id
                  AND audit.action IN
                    ('candidate_accepted', 'candidate_rejected', 'accepted_state_superseded')
-                 AND json_extract(audit.safe_metadata_json, '$.candidate_id') = candidate.id
+                 AND audit.safe_metadata_json::jsonb ->> 'candidate_id' = candidate.id
                ORDER BY audit.created_at, audit.id LIMIT 1) AS reviewer_user_id,
               (SELECT audit.correlation_id FROM audit_events audit
                WHERE audit.workspace_id = candidate.workspace_id
                  AND audit.project_id = candidate.project_id
                  AND audit.action IN
                    ('candidate_accepted', 'candidate_rejected', 'accepted_state_superseded')
-                 AND json_extract(audit.safe_metadata_json, '$.candidate_id') = candidate.id
+                 AND audit.safe_metadata_json::jsonb ->> 'candidate_id' = candidate.id
                ORDER BY audit.created_at, audit.id LIMIT 1) AS review_correlation_id,
               (SELECT audit.created_at FROM audit_events audit
                WHERE audit.workspace_id = candidate.workspace_id
                  AND audit.project_id = candidate.project_id
                  AND audit.action IN
                    ('candidate_accepted', 'candidate_rejected', 'accepted_state_superseded')
-                 AND json_extract(audit.safe_metadata_json, '$.candidate_id') = candidate.id
+                 AND audit.safe_metadata_json::jsonb ->> 'candidate_id' = candidate.id
                ORDER BY audit.created_at, audit.id LIMIT 1) AS reviewed_at
        FROM candidate_claims candidate
        JOIN evidence_events evidence
@@ -146,13 +147,13 @@ export function getReviewQueue(
        ORDER BY CASE WHEN candidate.status = 'pending' THEN 0 ELSE 1 END,
                 candidate.created_at DESC, candidate.id
        LIMIT ? OFFSET ?`,
-    )
-    .all(...parameters)
-    .map((candidate) => ({
-      ...candidate,
-      ...captureDetails(candidate.exact_payload_json),
-      exact_payload_json: undefined,
-    }));
+      )
+      .all(...parameters)
+  ).map((candidate) => ({
+    ...candidate,
+    ...captureDetails(candidate.exact_payload_json),
+    exact_payload_json: undefined,
+  }));
   return {
     project,
     candidates,

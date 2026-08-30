@@ -259,7 +259,7 @@ Make alice. safe and low-friction enough for an invite-only friend alpha without
 
 Tasks:
 
-- [ ] Replace production SQLite persistence with PostgreSQL and an async database boundary while preserving the complete accepted-state, evidence, candidate, audit, idempotency, supersession, and tenant-isolation model.
+- [x] Replace production SQLite persistence with PostgreSQL and an async database boundary while preserving the complete accepted-state, evidence, candidate, audit, idempotency, supersession, and tenant-isolation model.
 - [ ] Add versioned PostgreSQL migrations, real PostgreSQL CI coverage, backup/restore verification, and a documented SQLite development-data disposition; keep exact immutable evidence payload bytes in text rather than normalizing them through JSON storage.
 - [ ] Deploy stable HTTPS web and MCP origins backed by the same managed PostgreSQL database, with server-only secrets, encryption in transit and at rest, redacted logs, health checks, migration controls, and no reliance on ephemeral local filesystems or quick tunnels.
 - [ ] Add an invite-only alpha gate and an alice. connection center for ChatGPT and Claude with per-user OAuth connection status, stable setup instructions, recovery, and revocation; never share host credentials or integration bearer tokens between collaborators.
@@ -311,6 +311,7 @@ Success criteria:
 Notes:
 
 - Started on 2026-08-30 after verifying Milestone 05 complete. Merge `08717cd` and private-alpha planning commit `377cfd0` are present on synchronized local and remote `main`, the starting tree was clean, and GitHub Actions run `33279054848` passed commit `377cfd0`. Implementation is sequenced to verify the single-user project/read/save/repair loop before collaboration and final presentation work.
+- Production persistence now uses the pooled asynchronous `pg` adapter and PostgreSQL migration `001_initial.sql`; runtime configuration accepts no SQLite path and requires database TLS away from loopback. PostgreSQL-native advisory and row locks replace `BEGIN IMMEDIATE` for capture, review, and credential-consumption races. The real-PostgreSQL gate verifies repeatable migration, twelve-way identical capture, conflicting idempotency reuse, concurrent supersession, byte-exact evidence text/hashes, immutable-history DML rejection, and tenant denial. The fast in-memory SQLite adapter is isolated to `@alice/database/testing` and is unreachable from production configuration.
 - This milestone intentionally changes the pre-alpha roadmap based on direct product testing. It does not retroactively alter what Milestones 01-05 proved.
 - PostgreSQL is the production system of record. A local SQLite adapter may remain only if its supported purpose and semantic differences are explicit and it cannot be selected accidentally in production.
 - Vercel is an acceptable target only after both deployables, long-lived protocol behavior, PostgreSQL connectivity, migrations, and stable OAuth origins pass hosted verification. Another platform may be selected if those requirements cannot be satisfied; the decision must be recorded before deployment.

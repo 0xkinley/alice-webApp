@@ -57,13 +57,13 @@ function clearSessionCookie(response, publicUrl) {
   );
 }
 
-export function authenticatedUser(database, request) {
-  return userForSession(database, parseCookies(request.get("cookie"))[SESSION_COOKIE]);
+export async function authenticatedUser(database, request) {
+  return await userForSession(database, parseCookies(request.get("cookie"))[SESSION_COOKIE]);
 }
 
 export function requireAuthenticatedUser(database) {
-  return (request, response, next) => {
-    const user = authenticatedUser(database, request);
+  return async (request, response, next) => {
+    const user = await authenticatedUser(database, request);
     if (!user) {
       const nextUrl = request.originalUrl.startsWith("/") ? request.originalUrl : "/";
       return response.redirect(303, `/auth/login?next=${encodeURIComponent(nextUrl)}`);
@@ -92,10 +92,10 @@ export function createAuthRouter({ database, publicUrl }) {
       );
   });
 
-  router.post("/register", (request, response) => {
+  router.post("/register", async (request, response) => {
     try {
-      const user = registerUser(database, request.body);
-      setSessionCookie(response, publicUrl, createUserSession(database, user.id));
+      const user = await registerUser(database, request.body);
+      setSessionCookie(response, publicUrl, await createUserSession(database, user.id));
       response.redirect(303, "/");
     } catch (error) {
       response
@@ -122,20 +122,20 @@ export function createAuthRouter({ database, publicUrl }) {
       );
   });
 
-  router.post("/login", (request, response) => {
-    const user = authenticateUser(database, request.body);
+  router.post("/login", async (request, response) => {
+    const user = await authenticateUser(database, request.body);
     if (!user) {
       return response
         .status(403)
         .type("html")
         .send(renderPage("Sign in denied", "<h1>Email or password is incorrect.</h1>"));
     }
-    setSessionCookie(response, publicUrl, createUserSession(database, user.id));
+    setSessionCookie(response, publicUrl, await createUserSession(database, user.id));
     response.redirect(303, safeNext(request.body.next));
   });
 
-  router.post("/logout", (request, response) => {
-    revokeUserSession(database, parseCookies(request.get("cookie"))[SESSION_COOKIE]);
+  router.post("/logout", async (request, response) => {
+    await revokeUserSession(database, parseCookies(request.get("cookie"))[SESSION_COOKIE]);
     clearSessionCookie(response, publicUrl);
     response.redirect(303, "/auth/login");
   });

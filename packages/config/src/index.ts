@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import { z } from "zod";
 
 type Environment = Record<string, string | undefined>;
@@ -23,14 +22,38 @@ function parseServerOrigin(name: string, value: string): string {
   return url.origin;
 }
 
+function parseDatabaseUrl(value: string | undefined): string {
+  let url: URL;
+  try {
+    url = new URL(value || "");
+  } catch {
+    throw new Error("ALICE_DATABASE_URL must be a valid PostgreSQL connection URL.");
+  }
+  if (
+    !["postgres:", "postgresql:"].includes(url.protocol) ||
+    !url.hostname ||
+    !url.pathname.slice(1)
+  ) {
+    throw new Error("ALICE_DATABASE_URL must use postgresql:// and name a database.");
+  }
+  const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
+  if (
+    !loopback &&
+    !["require", "verify-ca", "verify-full"].includes(url.searchParams.get("sslmode") || "")
+  ) {
+    throw new Error("ALICE_DATABASE_URL must require TLS outside loopback development.");
+  }
+  return url.href;
+}
+
 function loadCommon(environment: Environment, defaultPort: number) {
   const host = z
     .string()
     .min(1)
     .parse(environment.HOST || "127.0.0.1");
   const port = portSchema.parse(environment.PORT || defaultPort);
-  const databaseFilename = resolve(environment.ALICE_DATABASE_PATH || ".data/alice.sqlite");
-  return { databaseFilename, host, port };
+  const databaseUrl = parseDatabaseUrl(environment.ALICE_DATABASE_URL);
+  return { databaseUrl, host, port };
 }
 
 export function loadMcpConfig(environment: Environment = process.env) {

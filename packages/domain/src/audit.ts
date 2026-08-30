@@ -10,7 +10,7 @@ type AuditEvent = {
   metadata?: unknown;
 };
 
-export function appendAuditEvent(database, event: AuditEvent) {
+export async function appendAuditEvent(database, event: AuditEvent) {
   const {
     workspaceId,
     projectId = null,
@@ -22,7 +22,7 @@ export function appendAuditEvent(database, event: AuditEvent) {
   } = event;
   const id = `audit_${randomUUID()}`;
   const createdAt = new Date().toISOString();
-  database
+  await database
     .prepare(
       `INSERT INTO audit_events
         (id, workspace_id, project_id, action, actor_type, actor_id,

@@ -4,8 +4,8 @@ import { tenantScopeForConnection } from "./authorization.ts";
 
 // Host submissions remain candidate-only domain operations.
 
-function clientClassification(database, clientId) {
-  const row = database
+async function clientClassification(database, clientId) {
+  const row = await database
     .prepare("SELECT client_name FROM oauth_clients WHERE client_id = ?")
     .get(clientId);
   const name = String(row?.client_name || "unknown").toLowerCase();
@@ -14,7 +14,7 @@ function clientClassification(database, clientId) {
   return "unknown_mcp_client";
 }
 
-function existingSubmission(
+async function existingSubmission(
   database,
   workspaceId,
   connectionId,
@@ -23,7 +23,7 @@ function existingSubmission(
   payloadHash,
   reviewUrl,
 ) {
-  const evidence = database
+  const evidence = await database
     .prepare(
       `SELECT id, exact_payload_json, actor_type, connection_id, client_id,
               client_classification, tool_name, payload_hash, created_at
@@ -36,18 +36,18 @@ function existingSubmission(
     return { error: "The idempotency key was already used with a different payload." };
   }
 
-  const candidates = database
+  const candidates = await database
     .prepare(
       `SELECT id, state_key, status FROM candidate_claims
        WHERE workspace_id = ? AND project_id = ? AND evidence_id = ?
        ORDER BY created_at, id`,
     )
     .all(workspaceId, projectId, evidence.id);
-  const auditEvents = database
+  const auditEvents = await database
     .prepare(
       `SELECT id, correlation_id FROM audit_events
        WHERE workspace_id = ? AND project_id = ? AND action = 'candidate_update_submitted'
-         AND json_extract(safe_metadata_json, '$.evidence_id') = ?
+         AND safe_metadata_json::jsonb ->> 'evidence_id' = ?
        ORDER BY created_at, id`,
     )
     .all(workspaceId, projectId, evidence.id);
@@ -113,15 +113,15 @@ function existingSubmission(
   };
 }
 
-export function saveCandidateUpdate(
+export async function saveCandidateUpdate(
   database,
   { clientId, connectionId, publicUrl, userId, payload },
 ) {
-  const tenant = tenantScopeForConnection(database, { userId, connectionId });
+  const tenant = await tenantScopeForConnection(database, { userId, connectionId });
   if (!tenant || tenant.clientId !== clientId) {
     return { error: "Authenticated tenant context is missing." };
   }
-  const project = database
+  const project = await database
     .prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ?")
     .get(payload.project_id, tenant.workspaceId);
   if (!project) return { error: "Project not found in the authenticated workspace." };
@@ -134,91 +134,91 @@ export function saveCandidateUpdate(
   const correlationId = `capture_${randomUUID()}`;
   const createdAt = new Date().toISOString();
 
-  database.exec("BEGIN IMMEDIATE");
-  try {
-    const duplicate = existingSubmission(
-      database,
-      tenant.workspaceId,
-      connectionId,
-      project.id,
-      payload.idempotency_key,
-      payloadHash,
-      reviewUrl,
-    );
-    if (duplicate) {
-      database.exec("COMMIT");
-      return duplicate;
-    }
+  return database.transaction(
+    async () => {
+      await database
+        .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
+        .get(`${connectionId}:${project.id}:${payload.idempotency_key}`);
+      const duplicate = await existingSubmission(
+        database,
+        tenant.workspaceId,
+        connectionId,
+        project.id,
+        payload.idempotency_key,
+        payloadHash,
+        reviewUrl,
+      );
+      if (duplicate) {
+        return duplicate;
+      }
 
-    database
-      .prepare(
-        `INSERT INTO evidence_events
+      await database
+        .prepare(
+          `INSERT INTO evidence_events
           (id, workspace_id, project_id, exact_payload_json, actor_type, connection_id,
            client_id, client_classification, tool_name, idempotency_key, payload_hash, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        evidenceId,
-        tenant.workspaceId,
-        project.id,
-        exactPayloadJson,
-        "mcp_host",
-        connectionId,
-        clientId,
-        clientClassification(database, clientId),
-        "save_project_update",
-        payload.idempotency_key,
-        payloadHash,
-        createdAt,
-      );
+        )
+        .run(
+          evidenceId,
+          tenant.workspaceId,
+          project.id,
+          exactPayloadJson,
+          "mcp_host",
+          connectionId,
+          clientId,
+          await clientClassification(database, clientId),
+          "save_project_update",
+          payload.idempotency_key,
+          payloadHash,
+          createdAt,
+        );
 
-    const insertCandidate = database.prepare(
-      `INSERT INTO candidate_claims
+      const insertCandidate = database.prepare(
+        `INSERT INTO candidate_claims
         (id, workspace_id, project_id, evidence_id, state_key, value_json, summary, status, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    );
-    payload.candidate_claims.forEach((claim, index) => {
-      insertCandidate.run(
-        candidateIds[index],
-        tenant.workspaceId,
-        project.id,
-        evidenceId,
-        claim.state_key,
-        JSON.stringify(claim.value),
-        claim.summary,
-        createdAt,
       );
-    });
+      for (const [index, claim] of payload.candidate_claims.entries()) {
+        await insertCandidate.run(
+          candidateIds[index],
+          tenant.workspaceId,
+          project.id,
+          evidenceId,
+          claim.state_key,
+          JSON.stringify(claim.value),
+          claim.summary,
+          createdAt,
+        );
+      }
 
-    appendAuditEvent(database, {
-      workspaceId: tenant.workspaceId,
-      projectId: project.id,
-      action: "candidate_update_submitted",
-      actorType: "mcp_host",
-      actorId: clientId,
-      correlationId,
-      metadata: {
-        evidence_id: evidenceId,
-        candidate_ids: candidateIds,
-        candidate_count: candidateIds.length,
-        connection_id: connectionId,
-        payload_hash: payloadHash,
-      },
-    });
-    const result = existingSubmission(
-      database,
-      tenant.workspaceId,
-      connectionId,
-      project.id,
-      payload.idempotency_key,
-      payloadHash,
-      reviewUrl,
-    );
-    if (!result || result.error) throw new Error("Capture receipt was not created atomically.");
-    database.exec("COMMIT");
-    return { ...result, deduplicated: false };
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
-  }
+      await appendAuditEvent(database, {
+        workspaceId: tenant.workspaceId,
+        projectId: project.id,
+        action: "candidate_update_submitted",
+        actorType: "mcp_host",
+        actorId: clientId,
+        correlationId,
+        metadata: {
+          evidence_id: evidenceId,
+          candidate_ids: candidateIds,
+          candidate_count: candidateIds.length,
+          connection_id: connectionId,
+          payload_hash: payloadHash,
+        },
+      });
+      const result = await existingSubmission(
+        database,
+        tenant.workspaceId,
+        connectionId,
+        project.id,
+        payload.idempotency_key,
+        payloadHash,
+        reviewUrl,
+      );
+      if (!result || result.error) throw new Error("Capture receipt was not created atomically.");
+      return { ...result, deduplicated: false };
+    },
+    { isolation: "READ COMMITTED" },
+  );
 }

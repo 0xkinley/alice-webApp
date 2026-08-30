@@ -9,9 +9,9 @@ export type ConnectionScope = TenantScope &
     clientId: string;
   }>;
 
-export function tenantScopeForUser(database, userId): TenantScope | undefined {
+export async function tenantScopeForUser(database, userId): Promise<TenantScope | undefined> {
   if (typeof userId !== "string" || !userId) return undefined;
-  const row = database
+  const row = await database
     .prepare(
       `SELECT users.id AS user_id, workspaces.id AS workspace_id
        FROM users
@@ -23,14 +23,14 @@ export function tenantScopeForUser(database, userId): TenantScope | undefined {
   return Object.freeze({ userId: row.user_id, workspaceId: row.workspace_id });
 }
 
-export function tenantScopeForConnection(
+export async function tenantScopeForConnection(
   database,
   { userId, connectionId },
-): ConnectionScope | undefined {
+): Promise<ConnectionScope | undefined> {
   if (typeof connectionId !== "string" || !connectionId) return undefined;
-  const tenant = tenantScopeForUser(database, userId);
+  const tenant = await tenantScopeForUser(database, userId);
   if (!tenant) return undefined;
-  const row = database
+  const row = await database
     .prepare(
       `SELECT id, client_id
        FROM integration_connections

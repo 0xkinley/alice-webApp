@@ -108,7 +108,7 @@ packages/
   database/  persistence access and schema bootstrap
 ```
 
-The web and MCP processes are server-only applications. The MCP deployable can append immutable evidence and pending candidates through the domain package, but it imports no review route and exposes no trusted-state mutation tool. The web deployable owns authentication, private project management, and the explicit human review route. Both use the Milestone 03 versioned tenant schema through the SQLite persistence adapter. A shared hosted database topology remains a deployment decision, and any replacement must preserve the same constraints and authorization boundaries.
+The web and MCP processes are server-only applications. The MCP deployable can append immutable evidence and pending candidates through the domain package, but it imports no review route and exposes no trusted-state mutation tool. The web deployable owns authentication, private project management, and the explicit human review route. Both now use the Milestone 06 asynchronous PostgreSQL adapter and one shared production database. PostgreSQL-native transactions, locks, constraints, and triggers preserve the same authorization, evidence, candidate, accepted-state, and audit boundaries. The in-memory SQLite adapter remains available only through the explicit testing subpath and cannot be selected by production configuration.
 
 This split changes endpoint topology, not trust behavior. `ALICE_WEB_URL` supplies the review origin returned by MCP capture results, while `ALICE_PUBLIC_URL` remains the OAuth issuer and MCP resource origin.
 

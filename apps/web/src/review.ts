@@ -90,10 +90,10 @@ export function createReviewRouter({ database }) {
   const router = express.Router();
   router.use(requireAuthenticatedUser(database));
 
-  router.get("/", (request, response) => {
+  router.get("/", async (request, response) => {
     const requestedProjectId = String(request.query.project_id || "");
     if (!requestedProjectId) {
-      const projects = listReviewProjects(database, request.aliceUser!.id);
+      const projects = await listReviewProjects(database, request.aliceUser!.id);
       return response
         .type("html")
         .send(renderPage("Candidate review queue", reviewProjectIndex(projects)));
@@ -105,7 +105,7 @@ export function createReviewRouter({ database }) {
         .type("html")
         .send(renderPage("Invalid review filter", "<h1>Invalid review filter</h1>"));
     }
-    const queue = getReviewQueue(database, {
+    const queue = await getReviewQueue(database, {
       userId: request.aliceUser!.id,
       projectId: requestedProjectId,
       status,
@@ -137,8 +137,8 @@ export function createReviewRouter({ database }) {
       );
   });
 
-  router.post("/candidates/:candidateId/accept", (request, response) => {
-    const result = acceptCandidate(database, {
+  router.post("/candidates/:candidateId/accept", async (request, response) => {
+    const result = await acceptCandidate(database, {
       candidateId: request.params.candidateId,
       userId: request.aliceUser!.id,
     });
@@ -150,8 +150,8 @@ export function createReviewRouter({ database }) {
     response.redirect(303, `/review?project_id=${encodeURIComponent(result.projectId)}`);
   });
 
-  router.post("/candidates/:candidateId/reject", (request, response) => {
-    const result = rejectCandidate(database, {
+  router.post("/candidates/:candidateId/reject", async (request, response) => {
+    const result = await rejectCandidate(database, {
       candidateId: request.params.candidateId,
       userId: request.aliceUser!.id,
     });
@@ -163,8 +163,8 @@ export function createReviewRouter({ database }) {
     response.redirect(303, `/review?project_id=${encodeURIComponent(result.projectId)}`);
   });
 
-  router.post("/candidates/:candidateId/supersede", (request, response) => {
-    const result = supersedeAcceptedState(database, {
+  router.post("/candidates/:candidateId/supersede", async (request, response) => {
+    const result = await supersedeAcceptedState(database, {
       candidateId: request.params.candidateId,
       supersededAcceptedStateId: String(request.body.superseded_accepted_state_id || ""),
       userId: request.aliceUser!.id,

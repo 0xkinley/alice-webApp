@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { openDatabase } from "@alice/database";
+import { openSqliteTestDatabase } from "@alice/database/testing";
 import { ContextBudgetError, getProjectContext } from "@alice/domain";
 import { createTestIdentity } from "./helpers.ts";
 
-function createContextFixture() {
-  const database = openDatabase(":memory:");
-  const identity = createTestIdentity(database);
+async function createContextFixture() {
+  const database = openSqliteTestDatabase();
+  const identity = await createTestIdentity(database);
   const timestamp = "2026-08-30T08:00:00.000Z";
   database
     .prepare(
@@ -147,8 +147,8 @@ function createContextFixture() {
   return { addClaim, database, identity };
 }
 
-test("deterministically prioritizes task-relevant latest accepted state", () => {
-  const { addClaim, database, identity } = createContextFixture();
+test("deterministically prioritizes task-relevant latest accepted state", async () => {
+  const { addClaim, database, identity } = await createContextFixture();
   const request = {
     userId: identity.id,
     projectId: identity.project_id,
@@ -156,8 +156,8 @@ test("deterministically prioritizes task-relevant latest accepted state", () => 
     contextBudget: 2_000,
   };
 
-  const first = getProjectContext(database, request);
-  const second = getProjectContext(database, request);
+  const first = await getProjectContext(database, request);
+  const second = await getProjectContext(database, request);
 
   assert.deepEqual(second, first);
   assert.equal(first.accepted_decisions[0].state_key, "launch.monthly_price_usd");
@@ -181,14 +181,14 @@ test("deterministically prioritizes task-relevant latest accepted state", () => 
     value: `Legal ${"z".repeat(1_300)}`,
     version: 1,
   });
-  const changed = getProjectContext(database, request);
+  const changed = await getProjectContext(database, request);
   assert.notEqual(changed.package.version, first.package.version);
   assert.equal(changed.accepted_decisions[0].state_key, "launch.monthly_price_usd");
 });
 
-test("separates accepted questions, artifact references, and unresolved conflict notices", () => {
-  const { database, identity } = createContextFixture();
-  const context = getProjectContext(database, {
+test("separates accepted questions, artifact references, and unresolved conflict notices", async () => {
+  const { database, identity } = await createContextFixture();
+  const context = await getProjectContext(database, {
     userId: identity.id,
     projectId: identity.project_id,
     task: "Review launch price, launch copy question, and launch brief artifact",
@@ -220,8 +220,8 @@ test("separates accepted questions, artifact references, and unresolved conflict
   assert.match(context.unresolved_conflicts[0].notice, /not alice\.-verified/);
 });
 
-test("context assembly does not mutate captured or trusted project state", () => {
-  const { database, identity } = createContextFixture();
+test("context assembly does not mutate captured or trusted project state", async () => {
+  const { database, identity } = await createContextFixture();
   const snapshot = () =>
     database
       .prepare(
@@ -235,7 +235,7 @@ test("context assembly does not mutate captured or trusted project state", () =>
       .get();
   const before = snapshot();
 
-  const context = getProjectContext(database, {
+  const context = await getProjectContext(database, {
     userId: identity.id,
     projectId: identity.project_id,
     task: "Read the complete launch context",
@@ -247,14 +247,14 @@ test("context assembly does not mutate captured or trusted project state", () =>
   assert.ok(context.package.budget.used <= context.package.budget.limit);
 });
 
-test("fails closed when the required package envelope cannot fit", () => {
-  const { database, identity } = createContextFixture();
+test("fails closed when the required package envelope cannot fit", async () => {
+  const { database, identity } = await createContextFixture();
   database
     .prepare("UPDATE projects SET brief = ? WHERE id = ?")
     .run("b".repeat(4_000), identity.project_id);
   const before = database.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count;
 
-  assert.throws(
+  await assert.rejects(
     () =>
       getProjectContext(database, {
         userId: identity.id,

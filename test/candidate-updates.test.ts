@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
+import { openSqliteTestDatabase } from "@alice/database/testing";
 import { createApp } from "../apps/mcp/src/app.ts";
 import { saveCandidateUpdate } from "@alice/domain";
 import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
@@ -49,11 +50,11 @@ function authenticatedCaptureSubject() {
 }
 
 before(async () => {
-  created = createApp({
-    databaseFilename: ":memory:",
+  created = await createApp({
+    database: openSqliteTestDatabase(),
     publicUrl: "http://127.0.0.1",
   });
-  createTestIdentity(created.database);
+  await createTestIdentity(created.database);
   server = created.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -66,6 +67,7 @@ after(async () => {
   await new Promise((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
   );
+  created.database.close();
 });
 
 test("explicit save creates pending candidates without changing trusted state", async () => {
@@ -204,7 +206,7 @@ test("idempotency-key reuse with different evidence is rejected", async () => {
   );
 });
 
-test("candidate insertion failure rolls back evidence and audit creation", () => {
+test("candidate insertion failure rolls back evidence and audit creation", async () => {
   const beforeFailure = captureCounts();
   created.database.exec(`
     CREATE TRIGGER force_candidate_capture_failure
@@ -215,7 +217,7 @@ test("candidate insertion failure rolls back evidence and audit creation", () =>
   `);
   try {
     const subject = authenticatedCaptureSubject();
-    assert.throws(
+    await assert.rejects(
       () =>
         saveCandidateUpdate(created.database, {
           clientId: subject.client_id,
@@ -232,7 +234,7 @@ test("candidate insertion failure rolls back evidence and audit creation", () =>
   assert.deepEqual(captureCounts(), beforeFailure);
 });
 
-test("audit insertion failure rolls back evidence and every candidate", () => {
+test("audit insertion failure rolls back evidence and every candidate", async () => {
   const beforeFailure = captureCounts();
   created.database.exec(`
     CREATE TRIGGER force_capture_audit_failure
@@ -244,7 +246,7 @@ test("audit insertion failure rolls back evidence and every candidate", () => {
   `);
   try {
     const subject = authenticatedCaptureSubject();
-    assert.throws(
+    await assert.rejects(
       () =>
         saveCandidateUpdate(created.database, {
           clientId: subject.client_id,

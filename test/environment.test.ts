@@ -7,6 +7,7 @@ test("loads bounded server-only configuration for both deployables", () => {
   const mcp = loadMcpConfig({
     ALICE_PUBLIC_URL: "https://mcp.alice.example",
     ALICE_WEB_URL: "https://app.alice.example",
+    ALICE_DATABASE_URL: "postgresql://alice:test@database.example/alice?sslmode=require",
     PORT: "9000",
   });
   assert.equal(mcp.port, 9000);
@@ -15,6 +16,7 @@ test("loads bounded server-only configuration for both deployables", () => {
 
   const web = loadWebConfig({
     ALICE_WEB_URL: "http://127.0.0.1:8788",
+    ALICE_DATABASE_URL: "postgresql://alice:test@127.0.0.1/alice",
   });
   assert.equal(web.publicUrl, "http://127.0.0.1:8788");
   assert.equal(web.port, 8788);
@@ -25,6 +27,7 @@ test("rejects insecure server configuration", () => {
     () =>
       loadMcpConfig({
         ALICE_PUBLIC_URL: "http://mcp.alice.example",
+        ALICE_DATABASE_URL: "postgresql://alice:test@database.example/alice?sslmode=require",
       }),
     /HTTPS/i,
   );

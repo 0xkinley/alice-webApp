@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { openSqliteTestDatabase } from "@alice/database/testing";
 import { createApp } from "../apps/mcp/src/app.ts";
 import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
 
@@ -10,11 +11,11 @@ let fixtureTimestamp;
 let server;
 
 before(async () => {
-  created = createApp({
-    databaseFilename: ":memory:",
+  created = await createApp({
+    database: openSqliteTestDatabase(),
     publicUrl: "http://127.0.0.1",
   });
-  const identity = createTestIdentity(created.database);
+  const identity = await createTestIdentity(created.database);
   server = created.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -103,10 +104,11 @@ after(async () => {
   await new Promise((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
   );
+  created.database.close();
 });
 
 test("lists only projects in the authenticated workspace", async () => {
-  createTestIdentity(created.database, {
+  await createTestIdentity(created.database, {
     email: "other@alice.example",
     password: "another correct horse battery staple",
     projectId: "project_other",

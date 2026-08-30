@@ -122,10 +122,10 @@ function buildContext({
 
 export class ContextBudgetError extends Error {}
 
-export function listProjects(database, userId) {
-  const tenant = tenantScopeForUser(database, userId);
+export async function listProjects(database, userId) {
+  const tenant = await tenantScopeForUser(database, userId);
   if (!tenant) return [];
-  return database
+  return await database
     .prepare(
       `SELECT project.id, project.name, project.brief, project.created_at, project.updated_at,
               COUNT(accepted.id) AS accepted_state_count,
@@ -148,10 +148,10 @@ export function listProjects(database, userId) {
     .all(tenant.workspaceId);
 }
 
-export function getProjectContext(database, { userId, projectId, task, contextBudget }) {
-  const tenant = tenantScopeForUser(database, userId);
+export async function getProjectContext(database, { userId, projectId, task, contextBudget }) {
+  const tenant = await tenantScopeForUser(database, userId);
   if (!tenant) return undefined;
-  const project = database
+  const project = await database
     .prepare(
       `SELECT id, name, brief, created_at, updated_at
        FROM projects
@@ -160,7 +160,7 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
     .get(projectId, tenant.workspaceId);
   if (!project) return undefined;
 
-  const rows = database
+  const rows = await database
     .prepare(
       `SELECT
          accepted.id AS accepted_state_id,
@@ -195,7 +195,7 @@ export function getProjectContext(database, { userId, projectId, task, contextBu
     )
     .all(projectId, tenant.workspaceId);
 
-  const conflictRows = database
+  const conflictRows = await database
     .prepare(
       `SELECT
          accepted.id AS accepted_state_id,

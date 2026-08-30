@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { openSqliteTestDatabase } from "@alice/database/testing";
 import { createApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
 import {
@@ -20,15 +21,15 @@ let webServer;
 let webUrl;
 
 before(async () => {
-  created = createApp({
-    databaseFilename: ":memory:",
+  created = await createApp({
+    database: openSqliteTestDatabase(),
     publicUrl: "http://127.0.0.1",
   });
-  createTestIdentity(created.database);
+  await createTestIdentity(created.database);
   server = created.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const web = createWebApp({
+  const web = await createWebApp({
     database: created.database,
     publicUrl: "http://127.0.0.1",
   });
@@ -59,6 +60,7 @@ after(async () => {
   await new Promise((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
   );
+  created.database.close();
 });
 
 test("review candidates are hidden until the human signs in", async () => {
@@ -111,8 +113,8 @@ test("an explicit authenticated review accepts a candidate into versioned truste
   const userId = created.database
     .prepare("SELECT id FROM users WHERE email = ?")
     .get(TEST_EMAIL).id;
-  assert.equal(listReviewProjects(created.database, userId)[0].pending_count, 1);
-  const boundedQueue = getReviewQueue(created.database, {
+  assert.equal((await listReviewProjects(created.database, userId))[0].pending_count, 1);
+  const boundedQueue = await getReviewQueue(created.database, {
     userId,
     projectId: "project_switchboard_launch",
     status: "pending",
@@ -300,7 +302,7 @@ test("a failed rejection audit rolls the candidate status back to pending", asyn
     END;
   `);
   try {
-    assert.throws(
+    await assert.rejects(
       () => rejectCandidate(created.database, { candidateId, userId }),
       /forced rejection audit failure/,
     );
@@ -517,7 +519,7 @@ test("a failed supersession audit preserves the current trusted version and pend
     END;
   `);
   try {
-    assert.throws(
+    await assert.rejects(
       () =>
         supersedeAcceptedState(created.database, {
           candidateId,

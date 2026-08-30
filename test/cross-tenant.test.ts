@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { openSqliteTestDatabase } from "@alice/database/testing";
 import { createApp as createMcpApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
 import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
@@ -72,13 +73,13 @@ async function captureFixture(key) {
 }
 
 before(async () => {
-  const mcp = createMcpApp({
-    databaseFilename: ":memory:",
+  const mcp = await createMcpApp({
+    database: openSqliteTestDatabase(),
     publicUrl: "http://127.0.0.1",
   });
   database = mcp.database;
   for (const [key, identity] of Object.entries(tenants)) {
-    const created = createTestIdentity(database, {
+    const created = await createTestIdentity(database, {
       email: identity.email,
       password: identity.password,
       projectId: identity.projectId,
@@ -102,7 +103,7 @@ before(async () => {
     await captureFixture(key);
   }
 
-  const web = createWebApp({ database, publicUrl: "http://127.0.0.1" });
+  const web = await createWebApp({ database, publicUrl: "http://127.0.0.1" });
   webServer = web.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => webServer.once("listening", resolve));
   webBaseUrl = `http://127.0.0.1:${webServer.address().port}`;
@@ -126,6 +127,7 @@ after(async () => {
   await new Promise((resolve, reject) =>
     mcpServer.close((error) => (error ? reject(error) : resolve())),
   );
+  database.close();
 });
 
 test("web project list, detail, creation, and review queue stay tenant-scoped", async () => {
