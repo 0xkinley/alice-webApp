@@ -67,6 +67,8 @@ Lambda synchronous requests are limited to 6 MB. The current server-mediated upl
 
 Function URLs attached to VPC-enabled Lambdas do not provide response streaming. The MCP server must therefore pass a real buffered Function URL test; local Express success cannot substitute for that evidence. Failure returns the compute decision to ECS Express Mode or another approved host.
 
+The first item is complete locally: the production image pins Lambda Web Adapter `1.0.1` by its multi-architecture manifest digest, keeps the non-root `node` runtime, and remains an ordinary container when it is not running inside Lambda. The remaining direct-upload and live protocol items still block provisioning.
+
 ## Cost checkpoint
 
 These are planning estimates before credits, not a quote:

@@ -4,6 +4,18 @@ import { test } from "node:test";
 import { parseHostedOrigin } from "../scripts/probe-hosted-services.mjs";
 
 const templatePath = new URL("../infra/aws/private-files.template.json", import.meta.url);
+const dockerfilePath = new URL("../Dockerfile", import.meta.url);
+
+test("production image pins the Lambda adapter and retains non-root portable startup", async () => {
+  const dockerfile = await readFile(dockerfilePath, "utf8");
+  assert.match(
+    dockerfile,
+    /aws-lambda-adapter:1\.0\.1@sha256:[0-9a-f]{64} \/lambda-adapter \/opt\/extensions\/lambda-adapter/,
+  );
+  assert.match(dockerfile, /USER node/);
+  assert.match(dockerfile, /CMD \["npm", "run", "start:mcp"\]/);
+  assert.doesNotMatch(dockerfile, /AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/);
+});
 
 test("hosted probes accept only credential-free HTTPS origins", () => {
   assert.equal(
