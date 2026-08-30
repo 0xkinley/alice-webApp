@@ -16,9 +16,11 @@ test("loads bounded server-only configuration for both deployables", () => {
 
   const web = loadWebConfig({
     ALICE_WEB_URL: "http://127.0.0.1:8788",
+    ALICE_MCP_URL: "https://mcp.alice.example",
     ALICE_DATABASE_URL: "postgresql://alice:test@127.0.0.1/alice",
   });
   assert.equal(web.publicUrl, "http://127.0.0.1:8788");
+  assert.equal(web.mcpPublicUrl, "https://mcp.alice.example");
   assert.equal(web.port, 8788);
 });
 

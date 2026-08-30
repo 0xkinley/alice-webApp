@@ -49,6 +49,7 @@ Start the web control plane with the constrained application login:
 
 ```bash
 ALICE_WEB_URL=http://127.0.0.1:8788 \
+ALICE_MCP_URL=http://127.0.0.1:8787 \
 ALICE_DATABASE_URL=postgresql://alice_app:replace-me@127.0.0.1:5432/alice \
 PORT=8788 \
 npm run dev:web
@@ -83,6 +84,7 @@ See [Repository and deployment boundaries](docs/repository-and-deployment.md) be
 | `npm run test:postgres` | Run migrations, concurrency, immutability, and tenant checks on real PostgreSQL. |
 | `npm run db:migrate` | Apply versioned migrations and constrain the application role. |
 | `npm run db:backup:verify` | Dump, restore, and compare protected-table row counts. |
+| `npm run alpha:invite -- email` | Create a one-time, single-email private-alpha invitation. |
 | `npm run build` | Clean and compile all packages and both deployables. |
 | `npm run check` | Run every required CI gate. |
 
@@ -95,6 +97,7 @@ See [Repository and deployment boundaries](docs/repository-and-deployment.md) be
 - [Minimum data model](docs/data-model.md)
 - [Initial threat model](docs/threat-model.md)
 - [Authentication and tenancy](docs/authentication-and-tenancy.md)
+- [Alpha access and AI connections](docs/alpha-access-and-connections.md)
 - [Tenant-isolation verification](docs/tenant-isolation.md)
 - [Repository instructions](AGENTS.md)
 

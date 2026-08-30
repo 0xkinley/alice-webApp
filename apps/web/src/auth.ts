@@ -1,4 +1,5 @@
 import {
+  alphaInvitationForToken,
   authenticateUser,
   createUserSession,
   registerUser,
@@ -81,13 +82,26 @@ function safeNext(value) {
 export function createAuthRouter({ database, publicUrl }) {
   const router = express.Router();
 
-  router.get("/register", (_request, response) => {
+  router.get("/register", async (request, response) => {
+    const invitationToken = String(request.query.invite || "");
+    const invitation = await alphaInvitationForToken(database, invitationToken);
+    if (!invitation) {
+      return response
+        .status(403)
+        .type("html")
+        .send(
+          renderPage(
+            "Invitation required",
+            '<h1>alice. is invite-only</h1><p>This invitation is missing, expired, used, or revoked.</p><p><a href="/auth/login">Sign in</a></p>',
+          ),
+        );
+    }
     response
       .type("html")
       .send(
         renderPage(
           "Create alice. account",
-          `<h1>Create your alice. account</h1><p>Each account receives one private workspace.</p><form method="post" action="/auth/register"><label>Email<input name="email" type="email" autocomplete="email" required></label><label>Password<input name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label><button type="submit">Create account</button></form><p><a href="/auth/login">Already have an account?</a></p>`,
+          `<h1>Create your alice. account</h1><p>Your invitation is for <strong>${escapeHtml(invitation.email)}</strong>.</p><form method="post" action="/auth/register"><input type="hidden" name="invitationToken" value="${escapeHtml(invitationToken)}"><label>Email<input name="email" type="email" value="${escapeHtml(invitation.email)}" autocomplete="email" readonly required></label><label>Password<input name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label><button type="submit">Accept invitation and create account</button></form><p><a href="/auth/login">Already have an account?</a></p>`,
         ),
       );
   });
@@ -117,7 +131,7 @@ export function createAuthRouter({ database, publicUrl }) {
       .send(
         renderPage(
           "Sign in to alice.",
-          `<h1>Sign in to alice.</h1><form method="post" action="/auth/login"><input type="hidden" name="next" value="${escapeHtml(next)}"><label>Email<input name="email" type="email" autocomplete="email" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">Sign in</button></form><p><a href="/auth/register">Create an account</a></p>`,
+          `<h1>Sign in to alice.</h1><form method="post" action="/auth/login"><input type="hidden" name="next" value="${escapeHtml(next)}"><label>Email<input name="email" type="email" autocomplete="email" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">Sign in</button></form><p>New accounts require an alpha invitation.</p>`,
         ),
       );
   });

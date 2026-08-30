@@ -8,6 +8,8 @@ Decision date: 2026-08-27; updated 2026-08-29
 
 Milestone 03 uses first-party email and password authentication so the private-workspace boundary can be verified without coupling alice. to a deployment-specific identity provider. Email addresses are normalized to lowercase and are unique case-insensitively. Passwords are bounded to 12–1024 characters and stored only as salted `scrypt-v1` digests; plaintext passwords are neither persisted nor logged.
 
+Milestone 06 closes public registration. Account creation requires a live, single-use alpha invitation bound to the normalized recipient email. Only the random invitation token's SHA-256 digest is persisted. Invitation acceptance is locked and committed in the same transaction as the user, private workspace, and registration audit row, so preview, cancellation, mismatched email, expiry, revocation, or concurrent reuse cannot partially provision an account.
+
 This is an application identity boundary, not host authentication. alice. never receives or stores ChatGPT or Claude passwords. A later external identity provider can replace the credential verifier while preserving the internal user identifier and tenant model.
 
 ## Session decision
@@ -43,6 +45,8 @@ The OAuth authorization screen authenticates an existing alice. user and binds t
 OAuth dynamic client registration is not tenant membership. A registered host client gains access to no project until an alice. user authenticates and grants scopes through the authorization flow.
 
 Every grant creates a separate integration connection. Revoking either bearer token revokes the complete connection and all of its access and refresh tokens, and appends a safe audit event. Connection metadata records client classification and scopes but never host passwords, host session cookies, conversation history, plaintext OAuth credentials, or bearer values.
+
+The authenticated connection center lists and revokes only connections owned by the current internal user and workspace. Project collaboration never transfers these grants. Reconnection creates a new OAuth connection owned by the same user; guessed and foreign connection identifiers return no metadata and perform no mutation.
 
 ## Database lifecycle
 

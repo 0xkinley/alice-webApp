@@ -4,9 +4,18 @@ import { appendAuditEvent } from "./audit.ts";
 const PASSWORD_ALGORITHM = "scrypt-v1";
 const PASSWORD_KEY_LENGTH = 64;
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+const ALPHA_INVITATION_DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 function normalizeEmail(email) {
   return String(email).trim().toLowerCase();
+}
+
+function validateEmail(email) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedEmail.length > 254) {
+    throw new Error("Enter a valid email address.");
+  }
+  return normalizedEmail;
 }
 
 function sha256(value) {
@@ -33,17 +42,50 @@ function verifyPassword(password, encoded) {
 }
 
 function validateCredentials(email, password) {
-  const normalizedEmail = normalizeEmail(email);
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedEmail.length > 254) {
-    throw new Error("Enter a valid email address.");
-  }
+  const normalizedEmail = validateEmail(email);
   if (typeof password !== "string" || password.length < 12 || password.length > 1_024) {
     throw new Error("Password must contain between 12 and 1024 characters.");
   }
   return normalizedEmail;
 }
 
-export async function registerUser(database, { email, password }) {
+export async function issueAlphaInvitation(
+  database,
+  { email, createdByUserId = null, ttlSeconds = ALPHA_INVITATION_DEFAULT_TTL_SECONDS },
+) {
+  const normalizedEmail = validateEmail(email);
+  if (!Number.isInteger(ttlSeconds) || ttlSeconds < 3_600 || ttlSeconds > 30 * 24 * 60 * 60) {
+    throw new Error("Invitation lifetime must be between one hour and 30 days.");
+  }
+  const token = `alice_invite_${randomBytes(32).toString("base64url")}`;
+  const invitationId = `invite_${randomUUID()}`;
+  const createdAt = new Date().toISOString();
+  const expiresAt = Math.floor(Date.now() / 1_000) + ttlSeconds;
+  await database
+    .prepare(
+      `INSERT INTO alpha_invitations
+        (id, email, token_hash, created_by_user_id, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(invitationId, normalizedEmail, sha256(token), createdByUserId, expiresAt, createdAt);
+  return { id: invitationId, email: normalizedEmail, token, expires_at: expiresAt };
+}
+
+export async function alphaInvitationForToken(database, token) {
+  if (typeof token !== "string" || !token.startsWith("alice_invite_") || token.length > 128) {
+    return undefined;
+  }
+  const invitation = await database
+    .prepare(
+      `SELECT id, email, expires_at
+       FROM alpha_invitations
+       WHERE token_hash = ? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?`,
+    )
+    .get(sha256(token), Math.floor(Date.now() / 1_000));
+  return invitation || undefined;
+}
+
+export async function registerUser(database, { email, password, invitationToken }) {
   const normalizedEmail = validateCredentials(email, password);
   const userId = `user_${randomUUID()}`;
   const workspaceId = `workspace_${randomUUID()}`;
@@ -51,6 +93,17 @@ export async function registerUser(database, { email, password }) {
 
   try {
     await database.transaction(async () => {
+      const invitation = await database
+        .prepare(
+          `SELECT id, email
+           FROM alpha_invitations
+           WHERE token_hash = ? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+           FOR UPDATE`,
+        )
+        .get(sha256(String(invitationToken || "")), Math.floor(Date.now() / 1_000));
+      if (!invitation || normalizeEmail(invitation.email) !== normalizedEmail) {
+        throw new Error("A valid alpha invitation for this email address is required.");
+      }
       await database
         .prepare("INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)")
         .run(userId, normalizedEmail, encodePassword(password), createdAt);
@@ -65,6 +118,14 @@ export async function registerUser(database, { email, password }) {
         correlationId: `registration_${randomUUID()}`,
         metadata: { user_id: userId, workspace_id: workspaceId },
       });
+      const accepted = await database
+        .prepare(
+          `UPDATE alpha_invitations
+           SET accepted_by_user_id = ?, accepted_at = ?
+           WHERE id = ? AND accepted_at IS NULL AND revoked_at IS NULL`,
+        )
+        .run(userId, createdAt, invitation.id);
+      if (accepted.changes !== 1) throw new Error("The alpha invitation is no longer available.");
     });
   } catch (error) {
     if (typeof error === "object" && error && "code" in error && error.code === "23505") {

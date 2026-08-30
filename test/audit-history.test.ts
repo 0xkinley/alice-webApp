@@ -1,12 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
-import { createProject, createUserSession, registerUser, revokeUserSession } from "@alice/domain";
+import {
+  createProject,
+  createUserSession,
+  issueAlphaInvitation,
+  registerUser,
+  revokeUserSession,
+} from "@alice/domain";
 
 test("appends safe audit history for identity, session, and project actions", async () => {
   const database = openSqliteTestDatabase();
   const password = "audit history private password";
-  const user = await registerUser(database, { email: "audit@alice.example", password });
+  const invitation = await issueAlphaInvitation(database, { email: "audit@alice.example" });
+  const user = await registerUser(database, {
+    email: "audit@alice.example",
+    password,
+    invitationToken: invitation.token,
+  });
   const session = await createUserSession(database, user.id);
   const project = await createProject(database, user.id, {
     name: "Audited project",
@@ -40,9 +51,13 @@ test("appends safe audit history for identity, session, and project actions", as
 
 test("database guards reject audit mutation and deletion", async () => {
   const database = openSqliteTestDatabase();
+  const invitation = await issueAlphaInvitation(database, {
+    email: "immutable-audit@alice.example",
+  });
   const user = await registerUser(database, {
     email: "immutable-audit@alice.example",
     password: "immutable audit private password",
+    invitationToken: invitation.token,
   });
   assert.ok(user);
   assert.throws(

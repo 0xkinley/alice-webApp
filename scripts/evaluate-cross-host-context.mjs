@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { openSqliteTestDatabase } from "@alice/database/testing";
-import { getProjectContext, registerUser } from "@alice/domain";
+import { getProjectContext, issueAlphaInvitation, registerUser } from "@alice/domain";
 
 const fixturePath = resolve(import.meta.dirname, "../evals/cross-host-context.json");
 const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
@@ -10,9 +10,13 @@ const timestamp = "2026-08-30T10:00:00.000Z";
 
 async function seedCase(evaluationCase) {
   const database = openSqliteTestDatabase();
+  const invitation = await issueAlphaInvitation(database, {
+    email: `${evaluationCase.host}@context-eval.alice.example`,
+  });
   const identity = await registerUser(database, {
     email: `${evaluationCase.host}@context-eval.alice.example`,
     password: "context evaluation fixture password",
+    invitationToken: invitation.token,
   });
   database
     .prepare(

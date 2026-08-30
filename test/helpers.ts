@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { registerUser } from "@alice/domain";
+import { issueAlphaInvitation, registerUser } from "@alice/domain";
 
 export const TEST_EMAIL = "tester@alice.example";
 export const TEST_PASSWORD = "correct horse battery staple";
@@ -8,7 +8,12 @@ export async function createTestIdentity(
   database,
   { email = TEST_EMAIL, password = TEST_PASSWORD, projectId = "project_switchboard_launch" } = {},
 ) {
-  const user = await registerUser(database, { email, password });
+  const invitation = await issueAlphaInvitation(database, { email });
+  const user = await registerUser(database, {
+    email,
+    password,
+    invitationToken: invitation.token,
+  });
   const now = new Date().toISOString();
   await database
     .prepare(

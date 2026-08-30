@@ -66,6 +66,7 @@ Both processes validate configuration at startup and fail before listening when 
 | --- | --- | --- | --- |
 | `ALICE_WEB_URL` | Required outside loopback defaults | Review origin; defaults to MCP origin for spike compatibility | Server-only origin, HTTPS unless loopback |
 | `ALICE_PUBLIC_URL` | Not used | OAuth issuer and MCP origin | Server-only origin, HTTPS unless loopback |
+| `ALICE_MCP_URL` | Stable connection-center MCP origin | Not used | Server-only public origin, HTTPS unless loopback |
 | `ALICE_DATABASE_URL` | Required PostgreSQL application connection | Required PostgreSQL application connection | Server-only URL; TLS required outside loopback |
 | `ALICE_MIGRATION_DATABASE_URL` | Migration command only | Migration command only | Separate owner/migrator URL; never supplied to a deployable |
 | `ALICE_APPLICATION_DATABASE_ROLE` | Migration command only | Migration command only | Constrained runtime role receiving schema/table grants |
@@ -75,6 +76,8 @@ Both processes validate configuration at startup and fail before listening when 
 Local `.env` files and `.data/` are ignored, and the committed `.env.example` contains names and non-secret placeholders only. Connection URLs are server-only. alice. passwords are salted and memory-hard hashed. ChatGPT and Claude passwords are never collected. Web session tokens and OAuth access and refresh tokens are hashed before persistence; plaintext bearer values are returned only at issuance and are not logged.
 
 OAuth client secrets and authorization codes are also hash-only at rest. Integration connection rows store ownership, client classification, scope grants, usage timestamps, and revocation state—not bearer values or provider credentials.
+
+Alpha invitation tokens are also hash-only at rest. The invitation URL is a one-time credential and its query value must be redacted from edge and application logs.
 
 ## PostgreSQL persistence boundary
 

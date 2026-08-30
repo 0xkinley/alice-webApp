@@ -1,10 +1,13 @@
 export { saveCandidateUpdate } from "./candidate-updates.ts";
+export { listIntegrationConnections, revokeIntegrationConnection } from "./connections.ts";
 export { appendAuditEvent } from "./audit.ts";
 export { tenantScopeForConnection, tenantScopeForUser } from "./authorization.ts";
 export type { ConnectionScope, TenantScope } from "./authorization.ts";
 export {
+  alphaInvitationForToken,
   authenticateUser,
   createUserSession,
+  issueAlphaInvitation,
   registerUser,
   revokeUserSession,
   userForSession,

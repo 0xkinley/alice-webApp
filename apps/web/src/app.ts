@@ -2,6 +2,7 @@ import express from "express";
 import { openDatabase } from "@alice/database";
 import { createProject, getProject, listProjects } from "@alice/domain";
 import { createAuthRouter, renderPage, requireAuthenticatedUser } from "./auth.ts";
+import { createConnectionsRouter } from "./connections.ts";
 import { createReviewRouter } from "./review.ts";
 
 function escapeHtml(value) {
@@ -17,6 +18,7 @@ export async function createApp({
   database: suppliedDatabase = undefined,
   databaseUrl,
   publicUrl,
+  mcpPublicUrl = publicUrl,
 }) {
   const database = suppliedDatabase || (await openDatabase({ connectionString: databaseUrl }));
   const app = express();
@@ -32,6 +34,7 @@ export async function createApp({
     }
   });
   app.use("/auth", createAuthRouter({ database, publicUrl }));
+  app.use("/connections", createConnectionsRouter({ database, mcpPublicUrl }));
   app.get("/", requireAuthenticatedUser(database), async (request, response) => {
     const projects = await listProjects(database, request.aliceUser!.id);
     const projectList = projects
@@ -45,7 +48,7 @@ export async function createApp({
       .send(
         renderPage(
           "alice. private workspace",
-          `<nav><strong>alice.</strong><span>${escapeHtml(request.aliceUser!.email)}</span><a href="/review">Review queue</a><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></nav><h1>Private workspace</h1><p>Projects remain private to this account.</p>${projectList || "<p>No projects yet.</p>"}<h2>Create project</h2><form method="post" action="/projects"><label>Name<input name="name" maxlength="120" required></label><label>Brief<textarea name="brief" maxlength="4000" required></textarea></label><button type="submit">Create project</button></form>`,
+          `<nav><strong>alice.</strong><span>${escapeHtml(request.aliceUser!.email)}</span><a href="/connections">AI connections</a><a href="/review">Review queue</a><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></nav><h1>Private workspace</h1><p>Projects remain private to this account.</p>${projectList || "<p>No projects yet.</p>"}<h2>Create project</h2><form method="post" action="/projects"><label>Name<input name="name" maxlength="120" required></label><label>Brief<textarea name="brief" maxlength="4000" required></textarea></label><button type="submit">Create project</button></form>`,
         ),
       );
   });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
+import { issueAlphaInvitation } from "@alice/domain";
 import { createApp } from "../apps/web/src/app.ts";
 
 let baseUrl;
@@ -15,10 +16,11 @@ const owner = {
 };
 
 async function register(identity) {
+  const invitation = await issueAlphaInvitation(created.database, { email: identity.email });
   const response = await fetch(`${baseUrl}/auth/register`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(identity),
+    body: new URLSearchParams({ ...identity, invitationToken: invitation.token }),
     redirect: "manual",
   });
   assert.equal(response.status, 303);

@@ -98,6 +98,19 @@ function createSchema(database: DatabaseSync) {
       created_at TEXT NOT NULL
     ) STRICT;
 
+    CREATE TABLE alpha_invitations (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      accepted_by_user_id TEXT UNIQUE REFERENCES users(id) ON DELETE RESTRICT,
+      accepted_at TEXT,
+      revoked_at TEXT,
+      CHECK ((accepted_by_user_id IS NULL) = (accepted_at IS NULL))
+    ) STRICT;
+
     CREATE TABLE oauth_clients (
       client_id TEXT PRIMARY KEY,
       client_secret_hash TEXT,

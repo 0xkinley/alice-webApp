@@ -72,5 +72,9 @@ export function loadWebConfig(environment: Environment = process.env) {
     "ALICE_WEB_URL",
     environment.ALICE_WEB_URL || `http://127.0.0.1:${common.port}`,
   );
-  return { ...common, publicUrl };
+  const mcpPublicUrl = parseServerOrigin(
+    "ALICE_MCP_URL",
+    environment.ALICE_MCP_URL || "http://127.0.0.1:8787",
+  );
+  return { ...common, mcpPublicUrl, publicUrl };
 }

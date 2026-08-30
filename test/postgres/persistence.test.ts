@@ -5,6 +5,8 @@ import { configureApplicationRole, openDatabase } from "@alice/database";
 import {
   acceptCandidate,
   getProjectContext,
+  issueAlphaInvitation,
+  registerUser,
   saveCandidateUpdate,
   supersedeAcceptedState,
 } from "@alice/domain";
@@ -102,16 +104,44 @@ after(async () => {
   await migrationDatabase.close();
 });
 
+test("one alpha invitation cannot create two users under concurrent acceptance", async () => {
+  const invitation = await issueAlphaInvitation(database, {
+    email: "postgres-invited@alice.example",
+  });
+  const attempts = await Promise.allSettled(
+    Array.from({ length: 2 }, () =>
+      registerUser(database, {
+        email: "postgres-invited@alice.example",
+        password: "postgres invitation private password",
+        invitationToken: invitation.token,
+      }),
+    ),
+  );
+  assert.equal(attempts.filter(({ status }) => status === "fulfilled").length, 1);
+  assert.equal(attempts.filter(({ status }) => status === "rejected").length, 1);
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM users WHERE email = ?")
+        .get("postgres-invited@alice.example")
+    ).count,
+    1,
+  );
+});
+
 test("versioned migration is repeatable on the same PostgreSQL schema", async () => {
   const migration = await database
     .prepare("SELECT version, filename FROM alice_schema_migrations ORDER BY version")
     .all();
-  assert.deepEqual(migration, [{ version: 1, filename: "001_initial.sql" }]);
+  assert.deepEqual(migration, [
+    { version: 1, filename: "001_initial.sql" },
+    { version: 2, filename: "002_alpha_access.sql" },
+  ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    1,
+    2,
   );
   await reopened.close();
 });
