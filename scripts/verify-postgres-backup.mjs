@@ -57,9 +57,14 @@ async function tableCounts(databaseUrl) {
   try {
     const protectedTables = [
       "alice_schema_migrations",
+      "alpha_invitations",
       "users",
       "workspaces",
       "projects",
+      "work_contexts",
+      "context_history_events",
+      "candidate_context_targets",
+      "accepted_context_entries",
       "evidence_events",
       "candidate_claims",
       "accepted_project_state",

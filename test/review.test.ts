@@ -422,11 +422,15 @@ test("explicit human supersession creates a traceable version without rewriting 
   const supersessionAudit = created.database
     .prepare("SELECT * FROM audit_events WHERE action = 'accepted_state_superseded'")
     .get();
+  const contextTarget = created.database
+    .prepare("SELECT context_id FROM candidate_context_targets WHERE candidate_id = ?")
+    .get(secondCandidateId);
   assert.equal(supersessionAudit.actor_type, "human_reviewer");
   assert.deepEqual(JSON.parse(supersessionAudit.safe_metadata_json), {
     accepted_state_id: versions[1].id,
     candidate_id: secondCandidateId,
     evidence_id: secondEvidenceId,
+    context_id: contextTarget.context_id,
     state_key: "launch.monthly_price_usd",
     version: 2,
     superseded_accepted_state_id: firstAccepted.id,

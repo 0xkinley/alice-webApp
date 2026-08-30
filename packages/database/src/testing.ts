@@ -180,6 +180,40 @@ function createSchema(database: DatabaseSync) {
       UNIQUE (workspace_id, id)
     ) STRICT;
 
+    CREATE TABLE work_contexts (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      context_kind TEXT NOT NULL CHECK (context_kind IN ('project_wide', 'work')),
+      visibility TEXT NOT NULL CHECK (visibility IN ('all_members', 'selected_members', 'personal')),
+      created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      archived_at TEXT,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE UNIQUE INDEX work_contexts_name_unique
+      ON work_contexts (project_id, name COLLATE NOCASE);
+    CREATE UNIQUE INDEX work_contexts_one_project_wide
+      ON work_contexts (project_id) WHERE context_kind = 'project_wide';
+
+    CREATE TABLE context_history_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      safe_metadata_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id)
+    ) STRICT;
+
     CREATE TABLE evidence_events (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
@@ -234,7 +268,34 @@ function createSchema(database: DatabaseSync) {
         REFERENCES candidate_claims(workspace_id, project_id, id, evidence_id),
       FOREIGN KEY (workspace_id, project_id, evidence_id)
         REFERENCES evidence_events(workspace_id, project_id, id),
-      UNIQUE (project_id, state_key, version)
+      UNIQUE (project_id, state_key, version),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE TABLE candidate_context_targets (
+      candidate_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      targeted_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, candidate_id)
+        REFERENCES candidate_claims(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, candidate_id, context_id)
+    ) STRICT;
+
+    CREATE TABLE accepted_context_entries (
+      accepted_state_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, accepted_state_id)
+        REFERENCES accepted_project_state(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, context_id, accepted_state_id)
     ) STRICT;
 
     CREATE TABLE audit_events (
@@ -307,6 +368,42 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON accepted_project_state
     BEGIN
       SELECT RAISE(ABORT, 'accepted project state is versioned and immutable');
+    END;
+
+    CREATE TRIGGER context_history_events_no_update
+    BEFORE UPDATE ON context_history_events
+    BEGIN
+      SELECT RAISE(ABORT, 'context history is append-only');
+    END;
+
+    CREATE TRIGGER context_history_events_no_delete
+    BEFORE DELETE ON context_history_events
+    BEGIN
+      SELECT RAISE(ABORT, 'context history is append-only');
+    END;
+
+    CREATE TRIGGER candidate_context_targets_no_update
+    BEFORE UPDATE ON candidate_context_targets
+    BEGIN
+      SELECT RAISE(ABORT, 'candidate context targets are immutable');
+    END;
+
+    CREATE TRIGGER candidate_context_targets_no_delete
+    BEFORE DELETE ON candidate_context_targets
+    BEGIN
+      SELECT RAISE(ABORT, 'candidate context targets are immutable');
+    END;
+
+    CREATE TRIGGER accepted_context_entries_no_update
+    BEFORE UPDATE ON accepted_context_entries
+    BEGIN
+      SELECT RAISE(ABORT, 'accepted context entries are immutable');
+    END;
+
+    CREATE TRIGGER accepted_context_entries_no_delete
+    BEFORE DELETE ON accepted_context_entries
+    BEGIN
+      SELECT RAISE(ABORT, 'accepted context entries are immutable');
     END;
   `);
 }

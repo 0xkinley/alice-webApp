@@ -87,7 +87,11 @@ test("explicit save creates pending candidates without changing trusted state", 
   assert.match(result.correlation_id, /^capture_/);
   assert.equal(result.trusted_state_changed, false);
   assert.equal(result.deduplicated, false);
-  assert.match(result.review_url, /\/review\?project_id=project_switchboard_launch$/);
+  assert.match(
+    result.review_url,
+    /\/review\?project_id=project_switchboard_launch&context_id=context_/,
+  );
+  assert.match(result.context_id, /^context_/);
   assert.deepEqual(result.provenance, {
     actor_type: "mcp_host",
     connection_id: authenticatedCaptureSubject().connection_id,
@@ -106,6 +110,12 @@ test("explicit save creates pending candidates without changing trusted state", 
   assert.deepEqual(
     candidates.map(({ status }) => status),
     ["pending", "pending", "pending"],
+  );
+  assert.equal(
+    created.database
+      .prepare("SELECT COUNT(*) AS count FROM candidate_context_targets WHERE context_id = ?")
+      .get(result.context_id).count,
+    3,
   );
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
@@ -139,6 +149,7 @@ test("explicit save creates pending candidates without changing trusted state", 
     evidence_id: result.evidence_id,
     candidate_ids: result.candidate_ids,
     candidate_count: 3,
+    context_id: result.context_id,
     connection_id: result.provenance.connection_id,
     payload_hash: result.provenance.payload_hash,
   });

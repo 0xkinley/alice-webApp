@@ -64,10 +64,25 @@ export const projectIdSchema = z
   .regex(boundedIdentifierPattern)
   .describe("Project identifier returned by list_projects");
 
+export const contextIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(captureValidationLimits.projectIdCharacters)
+  .regex(boundedIdentifierPattern)
+  .describe("Work-context identifier selected in alice.");
+
 export const createProjectSchema = z.object({
   name: z.string().trim().min(1).max(120),
   brief: z.string().trim().min(1).max(4_000),
 });
+
+export const createWorkContextSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    description: z.string().trim().min(1).max(2_000),
+  })
+  .strict();
 
 export const candidateClaimSchema = z
   .object({
@@ -106,6 +121,7 @@ export const candidateClaimSchema = z
 export const saveProjectUpdateSchema = z
   .object({
     project_id: projectIdSchema,
+    context_id: contextIdSchema.optional(),
     summary: z.string().trim().min(1).max(captureValidationLimits.summaryCharacters),
     candidate_claims: z
       .array(candidateClaimSchema)

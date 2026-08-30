@@ -16,3 +16,10 @@ export { ContextBudgetError, getProjectContext, listProjects } from "./project-c
 export { createProject, getProject } from "./projects.ts";
 export { getReviewQueue, listReviewProjects } from "./review-queue.ts";
 export { acceptCandidate, rejectCandidate, supersedeAcceptedState } from "./trusted-state.ts";
+export {
+  createWorkContext,
+  getWorkContextHistory,
+  listWorkContexts,
+  provisionInitialWorkContexts,
+  suggestSimilarWorkContexts,
+} from "./work-contexts.ts";

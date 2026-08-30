@@ -62,7 +62,57 @@ test("creates and revisits a project in the authenticated private workspace", as
 
   const detail = await fetch(`${baseUrl}${location}`, { headers: { cookie: ownerCookie } });
   assert.equal(detail.status, 200);
-  assert.match(await detail.text(), /Plan the private alpha\./);
+  const detailHtml = await detail.text();
+  assert.match(detailHtml, /Plan the private alpha\./);
+  assert.match(detailHtml, /Project-wide/);
+  assert.match(detailHtml, /General/);
+
+  const preview = await fetch(`${baseUrl}${location}/contexts/preview`, {
+    method: "POST",
+    headers: {
+      cookie: ownerCookie,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      name: "Launch planning",
+      description: "Plan launch positioning and rollout.",
+    }),
+  });
+  assert.equal(preview.status, 200);
+  assert.match(await preview.text(), /Confirm new work context/);
+
+  const createContext = await fetch(`${baseUrl}${location}/contexts`, {
+    method: "POST",
+    headers: {
+      cookie: ownerCookie,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      name: "Launch planning",
+      description: "Plan launch positioning and rollout.",
+    }),
+    redirect: "manual",
+  });
+  assert.equal(createContext.status, 303);
+  assert.match(createContext.headers.get("location"), /#context_/);
+
+  const similar = await fetch(`${baseUrl}${location}/contexts/preview`, {
+    method: "POST",
+    headers: {
+      cookie: ownerCookie,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      name: "Launch plan",
+      description: "Prepare rollout positioning.",
+    }),
+  });
+  assert.equal(similar.status, 200);
+  assert.match(await similar.text(), /Similar contexts/);
+  assert.match(
+    await (await fetch(`${baseUrl}${location}`, { headers: { cookie: ownerCookie } })).text(),
+    /Launch planning/,
+  );
 
   const login = await fetch(`${baseUrl}/auth/login`, {
     method: "POST",
@@ -86,6 +136,20 @@ test("does not reveal a guessed project identifier to another user", async () =>
   });
   assert.equal(guessed.status, 404);
   assert.doesNotMatch(await guessed.text(), /Launch Plan|private alpha/);
+
+  const guessedContext = await fetch(
+    `${baseUrl}/projects/${encodeURIComponent(ownerProjectId)}/contexts`,
+    {
+      method: "POST",
+      headers: {
+        cookie: otherCookie,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ name: "Stolen", description: "Must not be created." }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(guessedContext.status, 404);
 
   const createSameName = await fetch(`${baseUrl}/projects`, {
     method: "POST",

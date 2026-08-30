@@ -136,12 +136,14 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
   assert.deepEqual(migration, [
     { version: 1, filename: "001_initial.sql" },
     { version: 2, filename: "002_alpha_access.sql" },
+    { version: 3, filename: "003_work_contexts.sql" },
+    { version: 4, filename: "004_context_entries.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    2,
+    4,
   );
   await reopened.close();
 });
@@ -250,6 +252,14 @@ test("PostgreSQL denies immutable history rewrites through the constrained appli
   );
   await assert.rejects(
     database.prepare("UPDATE accepted_project_state SET value_json = '0'").run(),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database.prepare("DELETE FROM context_history_events").run(),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database.prepare("UPDATE candidate_context_targets SET context_id = 'rewritten'").run(),
     /permission denied|immutable/i,
   );
 });

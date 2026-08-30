@@ -64,6 +64,8 @@ User
 Private Workspace
   ↓
 Projects
+  ├── Project-wide context
+  ├── Work contexts
   ├── Evidence
   ├── Candidate Claims
   ├── Trusted State
@@ -92,6 +94,8 @@ Milestone 04 makes review a workspace dashboard plus tenant-scoped project queue
 Tenant authorization is centralized in the domain package. Web project operations require a server-derived user/workspace scope. MCP capture requires an active user/workspace/client connection scope derived from the verified bearer token. Every policy fails closed before project lookup, and workspace-aware database constraints provide defense in depth.
 
 Milestone 05 consumption contract `1.0` makes project discovery and context output strict, authenticated MCP reads. Context assembly selects only the latest accepted version per state key with deterministic structured-key/full-text scoring, returns accepted questions and reference-only artifacts separately, and warns about different pending alternatives without exposing their values. Complete accepted provenance, persisted freshness, content-addressed package versions, exact UTF-8 budgets, and per-section omissions travel with the package. No embeddings, model orchestration, external artifact fetch, or project-state write occurs during assembly.
+
+Milestone 06 introduces durable project-wide and work-context records before changing consumption scope. Every project gets one project-wide context and a `General` work context. The human control plane previews deterministic term-based similarity suggestions before creating another context; suggestions cannot group, select, or broaden access. Context lifecycle events are append-only and content-free.
 
 ## Repository and deployable boundaries
 

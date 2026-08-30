@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createProjectSchema } from "@alice/schemas";
 import { appendAuditEvent } from "./audit.ts";
 import { tenantScopeForUser } from "./authorization.ts";
+import { provisionInitialWorkContexts } from "./work-contexts.ts";
 
 export async function createProject(database, userId, input) {
   const tenant = await tenantScopeForUser(database, userId);
@@ -17,6 +18,12 @@ export async function createProject(database, userId, input) {
            VALUES (?, ?, ?, ?, ?, ?)`,
         )
         .run(projectId, tenant.workspaceId, project.name, project.brief, createdAt, createdAt);
+      await provisionInitialWorkContexts(database, {
+        userId,
+        workspaceId: tenant.workspaceId,
+        projectId,
+        createdAt,
+      });
       await appendAuditEvent(database, {
         workspaceId: tenant.workspaceId,
         projectId,

@@ -43,6 +43,17 @@ async function existingSubmission(
        ORDER BY created_at, id`,
     )
     .all(workspaceId, projectId, evidence.id);
+  const targets = await database
+    .prepare(
+      `SELECT DISTINCT target.context_id
+       FROM candidate_context_targets target
+       JOIN candidate_claims candidate
+         ON candidate.workspace_id = target.workspace_id
+        AND candidate.project_id = target.project_id
+        AND candidate.id = target.candidate_id
+       WHERE target.workspace_id = ? AND target.project_id = ? AND candidate.evidence_id = ?`,
+    )
+    .all(workspaceId, projectId, evidence.id);
   const auditEvents = await database
     .prepare(
       `SELECT id, correlation_id FROM audit_events
@@ -74,7 +85,8 @@ async function existingSubmission(
   if (
     orderedCandidates.some((candidate) => !candidate) ||
     [...candidatesByStateKey.values()].some((bucket) => bucket.length > 0) ||
-    auditEvents.length !== 1
+    auditEvents.length !== 1 ||
+    targets.length !== 1
   ) {
     return { error: "The stored capture receipt is incomplete." };
   }
@@ -90,6 +102,7 @@ async function existingSubmission(
   const audit = auditEvents[0];
   return {
     evidence_id: evidence.id,
+    context_id: targets[0].context_id,
     candidate_ids: orderedCandidates.map((candidate) => candidate.id),
     candidate_statuses: orderedCandidates.map((candidate) => ({
       candidate_id: candidate.id,
@@ -126,7 +139,20 @@ export async function saveCandidateUpdate(
     .get(payload.project_id, tenant.workspaceId);
   if (!project) return { error: "Project not found in the authenticated workspace." };
 
-  const reviewUrl = new URL(`/review?project_id=${encodeURIComponent(project.id)}`, publicUrl).href;
+  const targetContext = await database
+    .prepare(
+      `SELECT id
+       FROM work_contexts
+       WHERE workspace_id = ? AND project_id = ? AND archived_at IS NULL
+         AND ${payload.context_id ? "id = ?" : "context_kind = 'project_wide'"}`,
+    )
+    .get(tenant.workspaceId, project.id, ...(payload.context_id ? [payload.context_id] : []));
+  if (!targetContext) return { error: "Context not found in the authenticated project." };
+
+  const reviewUrl = new URL(
+    `/review?project_id=${encodeURIComponent(project.id)}&context_id=${encodeURIComponent(targetContext.id)}`,
+    publicUrl,
+  ).href;
   const exactPayloadJson = JSON.stringify(payload);
   const payloadHash = createHash("sha256").update(exactPayloadJson).digest("hex");
   const evidenceId = `evidence_${randomUUID()}`;
@@ -190,6 +216,13 @@ export async function saveCandidateUpdate(
           claim.summary,
           createdAt,
         );
+        await database
+          .prepare(
+            `INSERT INTO candidate_context_targets
+              (candidate_id, workspace_id, project_id, context_id, targeted_at)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .run(candidateIds[index], tenant.workspaceId, project.id, targetContext.id, createdAt);
       }
 
       await appendAuditEvent(database, {
@@ -203,6 +236,7 @@ export async function saveCandidateUpdate(
           evidence_id: evidenceId,
           candidate_ids: candidateIds,
           candidate_count: candidateIds.length,
+          context_id: targetContext.id,
           connection_id: connectionId,
           payload_hash: payloadHash,
         },

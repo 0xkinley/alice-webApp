@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { issueAlphaInvitation, registerUser } from "@alice/domain";
+import { issueAlphaInvitation, provisionInitialWorkContexts, registerUser } from "@alice/domain";
 
 export const TEST_EMAIL = "tester@alice.example";
 export const TEST_PASSWORD = "correct horse battery staple";
@@ -28,6 +28,12 @@ export async function createTestIdentity(
       now,
       now,
     );
+  await provisionInitialWorkContexts(database, {
+    userId: user.id,
+    workspaceId: user.workspace_id,
+    projectId,
+    createdAt: now,
+  });
   return { ...user, project_id: projectId };
 }
 

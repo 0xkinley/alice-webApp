@@ -1,6 +1,13 @@
 import express from "express";
 import { openDatabase } from "@alice/database";
-import { createProject, getProject, listProjects } from "@alice/domain";
+import {
+  createProject,
+  createWorkContext,
+  getProject,
+  listProjects,
+  listWorkContexts,
+  suggestSimilarWorkContexts,
+} from "@alice/domain";
 import { createAuthRouter, renderPage, requireAuthenticatedUser } from "./auth.ts";
 import { createConnectionsRouter } from "./connections.ts";
 import { createReviewRouter } from "./review.ts";
@@ -77,15 +84,94 @@ export async function createApp({
         .type("html")
         .send(renderPage("Not found", "<h1>Project not found</h1>"));
     }
+    const contexts = await listWorkContexts(
+      database,
+      request.aliceUser!.id,
+      request.params.projectId,
+    );
+    const contextCards = contexts
+      .map(
+        (context) =>
+          `<article id="${escapeHtml(context.id)}"><h2>${escapeHtml(context.name)}</h2><p>${escapeHtml(context.description)}</p><p class="muted">${context.context_kind === "project_wide" ? "Included with every selected work context" : "Work context"} · ${escapeHtml(context.visibility)}</p></article>`,
+      )
+      .join("");
     response
       .type("html")
       .send(
         renderPage(
           project.name,
-          `<nav><a href="/">Private workspace</a></nav><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><p><a href="/review?project_id=${encodeURIComponent(project.id)}">Review candidate claims</a></p>`,
+          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a></nav><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><p><a href="/review?project_id=${encodeURIComponent(project.id)}">Review candidate claims</a></p><h2>Project and work contexts</h2><p>Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}<h2>Create a work context</h2><form method="post" action="/projects/${encodeURIComponent(project.id)}/contexts/preview"><label>Name<input name="name" maxlength="120" required></label><label>Description<textarea name="description" maxlength="2000" required></textarea></label><button type="submit">Check for similar contexts</button></form>`,
         ),
       );
   });
+  app.post(
+    "/projects/:projectId/contexts/preview",
+    requireAuthenticatedUser(database),
+    async (request, response) => {
+      try {
+        const suggestions = await suggestSimilarWorkContexts(database, {
+          userId: request.aliceUser!.id,
+          projectId: request.params.projectId,
+          input: request.body,
+        });
+        if (!suggestions) {
+          return response
+            .status(404)
+            .type("html")
+            .send(renderPage("Not found", "<h1>Project not found</h1>"));
+        }
+        const similar = suggestions.length
+          ? `<h2>Similar contexts</h2><p>Nothing is grouped or moved automatically. You can return to one of these contexts instead.</p>${suggestions
+              .map(
+                (context) =>
+                  `<article><h3><a href="/projects/${encodeURIComponent(request.params.projectId)}#${encodeURIComponent(context.id)}">${escapeHtml(context.name)}</a></h3><p>${escapeHtml(context.description)}</p></article>`,
+              )
+              .join("")}`
+          : "<p>No similar work context was found.</p>";
+        response
+          .type("html")
+          .send(
+            renderPage(
+              "Confirm work context",
+              `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}">Back to project</a></nav><h1>Confirm new work context</h1>${similar}<article><h2>${escapeHtml(request.body.name)}</h2><p>${escapeHtml(request.body.description)}</p></article><form method="post" action="/projects/${encodeURIComponent(request.params.projectId)}/contexts"><input type="hidden" name="name" value="${escapeHtml(request.body.name)}"><input type="hidden" name="description" value="${escapeHtml(request.body.description)}"><button type="submit">Create this work context</button></form>`,
+            ),
+          );
+      } catch (error) {
+        response
+          .status(400)
+          .type("html")
+          .send(renderPage("Invalid work context", `<h1>${escapeHtml(String(error))}</h1>`));
+      }
+    },
+  );
+  app.post(
+    "/projects/:projectId/contexts",
+    requireAuthenticatedUser(database),
+    async (request, response) => {
+      try {
+        const context = await createWorkContext(database, {
+          userId: request.aliceUser!.id,
+          projectId: request.params.projectId,
+          input: request.body,
+        });
+        if (!context) {
+          return response
+            .status(404)
+            .type("html")
+            .send(renderPage("Not found", "<h1>Project not found</h1>"));
+        }
+        response.redirect(
+          303,
+          `/projects/${encodeURIComponent(request.params.projectId)}#${encodeURIComponent(context.id)}`,
+        );
+      } catch (error) {
+        response
+          .status(400)
+          .type("html")
+          .send(renderPage("Work context not created", `<h1>${escapeHtml(String(error))}</h1>`));
+      }
+    },
+  );
   app.use("/review", createReviewRouter({ database }));
 
   return { app, database };

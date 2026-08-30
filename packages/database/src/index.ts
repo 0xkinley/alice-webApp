@@ -186,6 +186,12 @@ export async function configureApplicationRole(
     await database.exec(`REVOKE DELETE ON TABLE ${schema}.candidate_claims FROM ${role}`);
     await database.exec(`REVOKE DELETE ON TABLE ${schema}.alpha_invitations FROM ${role}`);
     await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.context_history_events FROM ${role}`,
+    );
+    await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.candidate_context_targets, ${schema}.accepted_context_entries FROM ${role}`,
+    );
+    await database.exec(
       `REVOKE INSERT, UPDATE, DELETE ON TABLE ${schema}.alice_schema_migrations FROM ${role}`,
     );
   });

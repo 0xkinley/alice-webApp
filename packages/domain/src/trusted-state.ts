@@ -12,21 +12,70 @@ async function pendingCandidate(database, workspaceId, candidateId) {
     .get(candidateId, workspaceId);
 }
 
-async function currentAcceptedState(database, workspaceId, candidate) {
-  return database
+async function candidateContextId(database, workspaceId, candidate) {
+  const targeted = await database
     .prepare(
-      `SELECT id, version FROM accepted_project_state
-       WHERE workspace_id = ? AND project_id = ? AND state_key = ?
-       ORDER BY version DESC LIMIT 1`,
+      `SELECT context_id FROM candidate_context_targets
+       WHERE workspace_id = ? AND project_id = ? AND candidate_id = ?`,
     )
-    .get(workspaceId, candidate.project_id, candidate.state_key);
+    .get(workspaceId, candidate.project_id, candidate.id);
+  if (targeted) return targeted.context_id;
+  const projectWide = await database
+    .prepare(
+      `SELECT id FROM work_contexts
+       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'project_wide'`,
+    )
+    .get(workspaceId, candidate.project_id);
+  if (!projectWide) throw new Error("Candidate project context is missing.");
+  await database
+    .prepare(
+      `INSERT INTO candidate_context_targets
+        (candidate_id, workspace_id, project_id, context_id, targeted_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(candidate.id, workspaceId, candidate.project_id, projectWide.id, candidate.created_at);
+  return projectWide.id;
 }
 
-async function acceptPendingCandidate(database, { candidate, current, tenant, userId }) {
+async function currentAcceptedState(database, workspaceId, candidate, contextId) {
+  return database
+    .prepare(
+      `SELECT accepted.id, accepted.version
+       FROM accepted_project_state accepted
+       LEFT JOIN accepted_context_entries entry
+         ON entry.workspace_id = accepted.workspace_id
+        AND entry.project_id = accepted.project_id
+        AND entry.accepted_state_id = accepted.id
+       WHERE accepted.workspace_id = ? AND accepted.project_id = ?
+         AND accepted.state_key = ?
+         AND (
+           entry.context_id = ?
+           OR (
+             entry.accepted_state_id IS NULL
+             AND EXISTS (
+               SELECT 1 FROM work_contexts context
+               WHERE context.id = ? AND context.workspace_id = accepted.workspace_id
+                 AND context.project_id = accepted.project_id
+                 AND context.context_kind = 'project_wide'
+             )
+           )
+         )
+       ORDER BY accepted.version DESC LIMIT 1`,
+    )
+    .get(workspaceId, candidate.project_id, candidate.state_key, contextId, contextId);
+}
+
+async function acceptPendingCandidate(database, { candidate, contextId, current, tenant, userId }) {
   const acceptedAt = new Date().toISOString();
   const acceptedStateId = `accepted_${randomUUID()}`;
   const correlationId = `review_${randomUUID()}`;
-  const version = current ? current.version + 1 : 1;
+  const latestVersion = await database
+    .prepare(
+      `SELECT MAX(version) AS version FROM accepted_project_state
+       WHERE workspace_id = ? AND project_id = ? AND state_key = ?`,
+    )
+    .get(tenant.workspaceId, candidate.project_id, candidate.state_key);
+  const version = Number(latestVersion.version || 0) + 1;
   await database
     .prepare(
       `INSERT INTO accepted_project_state
@@ -45,6 +94,13 @@ async function acceptPendingCandidate(database, { candidate, current, tenant, us
       version,
       acceptedAt,
     );
+  await database
+    .prepare(
+      `INSERT INTO accepted_context_entries
+        (accepted_state_id, workspace_id, project_id, context_id, added_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(acceptedStateId, tenant.workspaceId, candidate.project_id, contextId, acceptedAt);
   const changed = await database
     .prepare(
       `UPDATE candidate_claims SET status = 'accepted'
@@ -64,6 +120,7 @@ async function acceptPendingCandidate(database, { candidate, current, tenant, us
       accepted_state_id: acceptedStateId,
       candidate_id: candidate.id,
       evidence_id: candidate.evidence_id,
+      context_id: contextId,
       state_key: candidate.state_key,
       version,
       ...(current
@@ -81,6 +138,7 @@ async function acceptPendingCandidate(database, { candidate, current, tenant, us
     projectId: candidate.project_id,
     candidateId: candidate.id,
     evidenceId: candidate.evidence_id,
+    contextId,
     version,
     reviewedAt: audit.created_at,
     supersededAcceptedStateId: current?.id,
@@ -93,18 +151,22 @@ export async function acceptCandidate(database, { candidateId, userId }) {
   return database.transaction(
     async () => {
       const candidate = await pendingCandidate(database, tenant.workspaceId, candidateId);
+      const contextId =
+        candidate && (await candidateContextId(database, tenant.workspaceId, candidate));
       if (candidate) {
         await database
           .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
           .get(`${tenant.workspaceId}:${candidate.project_id}:${candidate.state_key}`);
       }
       const current =
-        candidate && (await currentAcceptedState(database, tenant.workspaceId, candidate));
+        candidate &&
+        (await currentAcceptedState(database, tenant.workspaceId, candidate, contextId));
       if (!candidate || current) {
         return undefined;
       }
       return acceptPendingCandidate(database, {
         candidate,
+        contextId,
         current: undefined,
         tenant,
         userId,
@@ -123,17 +185,26 @@ export async function supersedeAcceptedState(
   return database.transaction(
     async () => {
       const candidate = await pendingCandidate(database, tenant.workspaceId, candidateId);
+      const contextId =
+        candidate && (await candidateContextId(database, tenant.workspaceId, candidate));
       if (candidate) {
         await database
           .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
           .get(`${tenant.workspaceId}:${candidate.project_id}:${candidate.state_key}`);
       }
       const current =
-        candidate && (await currentAcceptedState(database, tenant.workspaceId, candidate));
+        candidate &&
+        (await currentAcceptedState(database, tenant.workspaceId, candidate, contextId));
       if (!candidate || !current || current.id !== supersededAcceptedStateId) {
         return undefined;
       }
-      return acceptPendingCandidate(database, { candidate, current, tenant, userId });
+      return acceptPendingCandidate(database, {
+        candidate,
+        contextId,
+        current,
+        tenant,
+        userId,
+      });
     },
     { isolation: "READ COMMITTED" },
   );

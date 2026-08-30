@@ -22,6 +22,14 @@ Composite workspace/project foreign keys prevent a record from naming a project 
 
 Project identifiers are random server-generated UUID-based values. Names are unique within a workspace but not globally. The application exposes create, list, and detail paths scoped to the workspace derived from the authenticated user; project deletion is intentionally absent while immutable history and retention rules are being established.
 
+### Work contexts
+
+Each project has one project-wide context plus selectable work contexts. Migration `003_work_contexts.sql` backfills `Project-wide` and `General` for existing projects; project creation provisions both transactionally. Context rows carry the workspace/project composite key, creator, kind, bounded name/description, visibility, and lifecycle timestamps. A partial database index permits exactly one project-wide row per project.
+
+Context-history rows are append-only through database triggers and the constrained application role. Deterministic normalized full-text scoring may suggest an existing context, but only an explicit human web action creates a new context. Suggestions perform no grouping, selection, permission change, or trusted-state write.
+
+Candidate destinations and accepted-context entries are separate immutable mappings so the pre-context evidence/candidate/accepted tables are never rewritten. Migration `004_context_entries.sql` backfills existing records to the project-wide context. New capture writes a candidate target in the evidence transaction, and acceptance writes the corresponding accepted-context entry in the human-review transaction. Composite foreign keys prohibit a candidate or accepted identifier from being attached to another project or workspace.
+
 ## Project intelligence
 
 ### Evidence events
@@ -80,7 +88,7 @@ Each authorization grant creates a connection bound by foreign keys to the user,
 
 Append-only records of security- and state-relevant actions. Store identifiers, safe metadata, and correlation IDs rather than unsaved conversation content.
 
-The current action set covers registration, session creation and revocation, project creation, integration authorization and revocation, candidate submission, and human acceptance and rejection. Audit insertion participates in the transaction for the associated state change. Database triggers reject every audit update and delete. Metadata excludes passwords, session values, bearer tokens, email addresses, and submitted evidence content.
+The current action set covers registration, session creation and revocation, project and work-context creation, integration authorization and revocation, candidate submission, and human acceptance and rejection. Audit insertion participates in the transaction for the associated state change. Database triggers reject every audit update and delete. Metadata excludes passwords, session values, bearer tokens, email addresses, context names/descriptions, and submitted evidence content.
 
 ## Required invariants
 
