@@ -96,6 +96,8 @@ The server must atomically:
 
 The successful result also returns the original audit-event and correlation identifiers, per-candidate review statuses, and evidence provenance: actor type, authenticated connection, registered client, bounded client classification, tool name, payload hash, and capture timestamp. Retries return the same ordered receipt with `deduplicated: true`; the reported review statuses may reflect a later human decision, but the retry itself performs no mutation.
 
+The receipt's review URL is bound to the immutable evidence identifier and opens the alice.-controlled exact save preview. One authenticated check accepts the complete still-pending capture atomically; one authenticated cross rejects it without activation. An opaque preview version binds the action to the displayed destination, proposal content, statuses, and current context-specific versions. Stale and concurrent submissions fail closed. The durable authority and transaction design are recorded in `docs/save-confirmation.md`.
+
 The tool must not accept, reject, supersede, or otherwise mutate trusted state.
 
 The tool description explicitly forbids invocation for ordinary project activity, suggestions, summaries, or inferred intent. An AI host may call it only after an explicit user request to save or record material in alice. The MCP input boundary is capped at 64 KiB for protocol overhead; the validated capture itself must meet the stricter 32 KiB domain limit above.

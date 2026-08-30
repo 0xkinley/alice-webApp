@@ -1,5 +1,8 @@
 import {
   acceptCandidate,
+  cancelCapturedUpdate,
+  confirmCapturedUpdate,
+  getCapturePreview,
   getReviewQueue,
   listReviewProjects,
   rejectCandidate,
@@ -69,7 +72,29 @@ function candidateCard(candidate) {
     candidate.status === "pending"
       ? `<div class="actions">${acceptAction}<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/reject"><button type="submit">Reject candidate</button></form></div>`
       : "";
-  return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p><p class="muted">Status: ${escapeHtml(candidate.status)} · Candidate: <code>${escapeHtml(candidate.id)}</code></p>${accepted}${reviewAudit}${currentTrusted}${evidenceDetails(candidate)}${actions}</article>`;
+  return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p><p><a href="/review/captures/${encodeURIComponent(candidate.evidence_id)}">Review the exact save preview</a></p><p class="muted">Status: ${escapeHtml(candidate.status)} · Candidate: <code>${escapeHtml(candidate.id)}</code></p>${accepted}${reviewAudit}${currentTrusted}${evidenceDetails(candidate)}${actions}</article>`;
+}
+
+function capturePreviewPage(preview) {
+  const candidateCards = preview.candidates
+    .map((candidate) => {
+      const current = candidate.current
+        ? `<aside><h3>Will replace saved version ${candidate.current.version}</h3><pre>${renderJson(candidate.current.value_json)}</pre><p class="muted">The earlier version and provenance remain in History.</p></aside>`
+        : "";
+      return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p>${current}<p class="muted">Status: ${escapeHtml(candidate.status)}</p></article>`;
+    })
+    .join("");
+  const sourceNote = preview.source_note
+    ? `<p><strong>Source note:</strong> ${escapeHtml(preview.source_note)}</p>`
+    : "";
+  const sourceContext = preview.source_context
+    ? `<details><summary>Source material included in this save</summary><pre>${escapeHtml(preview.source_context)}</pre></details>`
+    : "";
+  const pending = preview.candidates.every(({ status }) => status === "pending");
+  const actions = pending
+    ? `<div class="actions"><form method="post" action="/review/captures/${encodeURIComponent(preview.evidence_id)}/confirm"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><button type="submit" aria-label="Save every entry shown in this preview">✓ Save these entries</button></form><form method="post" action="/review/captures/${encodeURIComponent(preview.evidence_id)}/cancel"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><button type="submit" aria-label="Cancel this save preview">× Not now</button></form></div>`
+    : `<p><strong>This preview has already been decided.</strong></p>`;
+  return `<nav><a href="/review?project_id=${encodeURIComponent(preview.project.id)}">Needs attention</a><a href="/projects/${encodeURIComponent(preview.project.id)}">Project</a></nav><h1>Save to ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}?</h1><p>Check the exact entries below. Only the ✓ action saves them as active context. × performs no activation.</p><dl><dt>Destination project</dt><dd>${escapeHtml(preview.project.name)}</dd><dt>Work context</dt><dd>${escapeHtml(preview.context.name)}</dd><dt>Access</dt><dd>${escapeHtml(preview.context.visibility)}</dd><dt>Proposed by</dt><dd>${escapeHtml(preview.client_classification)}</dd><dt>Captured</dt><dd>${escapeHtml(preview.captured_at)}</dd></dl><p><strong>Save summary:</strong> ${escapeHtml(preview.capture_summary || "Not supplied")}</p>${sourceNote}${sourceContext}<h2>Exact proposed entries</h2>${candidateCards}${actions}<details><summary>Evidence receipt</summary><dl><dt>Evidence</dt><dd><code>${escapeHtml(preview.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(preview.payload_hash)}</code></dd></dl></details>`;
 }
 
 function paginationLinks(queue) {
@@ -135,6 +160,80 @@ export function createReviewRouter({ database }) {
           `<nav><a href="/review">All review queues</a><a href="/projects/${encodeURIComponent(queue.project.id)}">Project</a></nav><h1>${escapeHtml(queue.project.name)} review</h1><p>Only an explicit action on a pending candidate can change trusted state.</p><nav aria-label="Review filters">${filters}</nav><p class="muted">Showing ${queue.pagination.selected_total} ${escapeHtml(queue.filter)} candidate(s).</p>${cards || `<p>No ${escapeHtml(queue.filter)} candidates.</p>`}${paginationLinks(queue)}`,
         ),
       );
+  });
+
+  router.get("/captures/:evidenceId", async (request, response) => {
+    const preview = await getCapturePreview(database, {
+      evidenceId: request.params.evidenceId,
+      userId: request.aliceUser!.id,
+    });
+    if (!preview) {
+      return response
+        .status(404)
+        .type("html")
+        .send(renderPage("Not found", "<h1>Save preview not found</h1>"));
+    }
+    response
+      .type("html")
+      .send(renderPage(`Save to ${preview.project.name}`, capturePreviewPage(preview)));
+  });
+
+  router.post("/captures/:evidenceId/confirm", async (request, response) => {
+    const result = await confirmCapturedUpdate(database, {
+      evidenceId: request.params.evidenceId,
+      expectedPreviewVersion: String(request.body.preview_version || ""),
+      userId: request.aliceUser!.id,
+    });
+    if (!result) {
+      return response
+        .status(404)
+        .type("html")
+        .send(renderPage("Not found", "<h1>Save preview not found</h1>"));
+    }
+    if (result.conflict) {
+      return response
+        .status(409)
+        .type("html")
+        .send(
+          renderPage(
+            "Preview changed",
+            `<h1>This save preview changed.</h1><p><a href="/review/captures/${encodeURIComponent(request.params.evidenceId)}">Review the exact current preview before deciding.</a></p>`,
+          ),
+        );
+    }
+    response.redirect(
+      303,
+      `/review?project_id=${encodeURIComponent(result.projectId)}&status=accepted`,
+    );
+  });
+
+  router.post("/captures/:evidenceId/cancel", async (request, response) => {
+    const result = await cancelCapturedUpdate(database, {
+      evidenceId: request.params.evidenceId,
+      expectedPreviewVersion: String(request.body.preview_version || ""),
+      userId: request.aliceUser!.id,
+    });
+    if (!result) {
+      return response
+        .status(404)
+        .type("html")
+        .send(renderPage("Not found", "<h1>Save preview not found</h1>"));
+    }
+    if (result.conflict) {
+      return response
+        .status(409)
+        .type("html")
+        .send(
+          renderPage(
+            "Preview changed",
+            `<h1>This save preview changed.</h1><p><a href="/review/captures/${encodeURIComponent(request.params.evidenceId)}">Review the exact current preview before deciding.</a></p>`,
+          ),
+        );
+    }
+    response.redirect(
+      303,
+      `/review?project_id=${encodeURIComponent(result.projectId)}&status=rejected`,
+    );
   });
 
   router.post("/candidates/:candidateId/accept", async (request, response) => {

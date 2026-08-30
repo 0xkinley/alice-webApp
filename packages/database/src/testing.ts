@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 
 function sqliteSql(sql: string): string {
   return sql
-    .replace(/\s+FOR UPDATE\b/g, "")
+    .replace(/\s+FOR UPDATE(?: OF [a-z_]+)?\b/g, "")
     .replace(
       /(?:([a-z_]+)\.)?safe_metadata_json::jsonb ->> '([a-z_]+)'/g,
       (_match, alias, key) =>

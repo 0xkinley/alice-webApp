@@ -21,7 +21,7 @@ async function existingSubmission(
   projectId,
   idempotencyKey,
   payloadHash,
-  reviewUrl,
+  publicUrl,
 ) {
   const evidence = await database
     .prepare(
@@ -100,6 +100,7 @@ async function existingSubmission(
         ? "reviewed"
         : "partially_reviewed";
   const audit = auditEvents[0];
+  const reviewUrl = new URL(`/review/captures/${encodeURIComponent(evidence.id)}`, publicUrl).href;
   return {
     evidence_id: evidence.id,
     context_id: targets[0].context_id,
@@ -172,10 +173,6 @@ export async function saveCandidateUpdate(
     );
   if (!targetContext) return { error: "Context not found in the authenticated project." };
 
-  const reviewUrl = new URL(
-    `/review?project_id=${encodeURIComponent(project.id)}&context_id=${encodeURIComponent(targetContext.id)}`,
-    publicUrl,
-  ).href;
   const exactPayloadJson = JSON.stringify(payload);
   const payloadHash = createHash("sha256").update(exactPayloadJson).digest("hex");
   const evidenceId = `evidence_${randomUUID()}`;
@@ -195,7 +192,7 @@ export async function saveCandidateUpdate(
         project.id,
         payload.idempotency_key,
         payloadHash,
-        reviewUrl,
+        publicUrl,
       );
       if (duplicate) {
         return duplicate;
@@ -271,7 +268,7 @@ export async function saveCandidateUpdate(
         project.id,
         payload.idempotency_key,
         payloadHash,
-        reviewUrl,
+        publicUrl,
       );
       if (!result || result.error) throw new Error("Capture receipt was not created atomically.");
       return { ...result, deduplicated: false };

@@ -280,6 +280,77 @@ test("foreign and guessed candidate review actions cannot mutate trusted state",
   }
 });
 
+test("foreign and guessed exact save previews disclose nothing and cannot decide candidates", async () => {
+  for (const [actorKey, targetKey] of [
+    ["alpha", "beta"],
+    ["beta", "alpha"],
+  ]) {
+    const actor = tenants[actorKey];
+    const target = tenants[targetKey];
+    const guessedEvidenceId = `evidence_${crypto.randomUUID()}`;
+    const foreignPreview = await fetch(`${webBaseUrl}/review/captures/${target.evidenceId}`, {
+      headers: { cookie: actor.cookie },
+    });
+    const guessedPreview = await fetch(`${webBaseUrl}/review/captures/${guessedEvidenceId}`, {
+      headers: { cookie: actor.cookie },
+    });
+    assert.equal(foreignPreview.status, 404);
+    const foreignHtml = await foreignPreview.text();
+    assert.equal(foreignHtml, await guessedPreview.text());
+    assert.doesNotMatch(
+      foreignHtml,
+      new RegExp(
+        `${target.projectName}|${target.acceptedValue}|${target.pendingValue}|${target.evidenceId}`,
+      ),
+    );
+
+    const countsBefore = database
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM accepted_project_state) AS accepted,
+          (SELECT COUNT(*) FROM audit_events) AS audit`,
+      )
+      .get();
+    for (const decision of ["confirm", "cancel"]) {
+      const options = {
+        method: "POST",
+        headers: {
+          cookie: actor.cookie,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ preview_version: "capture_preview_guessed" }),
+        redirect: "manual" as const,
+      };
+      const foreign = await fetch(
+        `${webBaseUrl}/review/captures/${target.evidenceId}/${decision}`,
+        options,
+      );
+      const guessed = await fetch(
+        `${webBaseUrl}/review/captures/${guessedEvidenceId}/${decision}`,
+        options,
+      );
+      assert.equal(foreign.status, 404);
+      assert.equal(await foreign.text(), await guessed.text());
+    }
+    assert.equal(
+      database
+        .prepare("SELECT status FROM candidate_claims WHERE id = ?")
+        .get(target.pendingCandidateId).status,
+      "pending",
+    );
+    assert.deepEqual(
+      database
+        .prepare(
+          `SELECT
+            (SELECT COUNT(*) FROM accepted_project_state) AS accepted,
+            (SELECT COUNT(*) FROM audit_events) AS audit`,
+        )
+        .get(),
+      countsBefore,
+    );
+  }
+});
+
 test("MCP project listing, accepted context, and candidate capture deny the other tenant", async () => {
   for (const [actorKey, targetKey] of [
     ["alpha", "beta"],

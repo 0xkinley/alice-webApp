@@ -4,6 +4,8 @@ import { openSqliteTestDatabase } from "@alice/database/testing";
 import { createApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
 import {
+  confirmCapturedUpdate,
+  getCapturePreview,
   getReviewQueue,
   listReviewProjects,
   rejectCandidate,
@@ -168,6 +170,205 @@ test("an explicit authenticated review accepts a candidate into versioned truste
   assert.equal(payload.result.structuredContent.accepted_decisions[0].value, 24);
 });
 
+test("one exact authenticated preview confirms every proposed entry atomically", async () => {
+  const general = created.database
+    .prepare(
+      `SELECT id FROM work_contexts
+       WHERE project_id = 'project_switchboard_launch' AND name = 'General'`,
+    )
+    .get();
+  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "save_project_update",
+    arguments: {
+      project_id: "project_switchboard_launch",
+      context_id: general.id,
+      summary: "Two exact launch entries",
+      candidate_claims: [
+        { state_key: "launch.channel", value: "Founder groups", summary: "Launch channel" },
+        { state_key: "launch.window", value: "October", summary: "Launch window" },
+      ],
+      source_context: "Use founder groups for an October launch.",
+      idempotency_key: "review-exact-preview-confirm",
+    },
+  });
+  const receipt = capture.result.structuredContent;
+  const previewResponse = await fetch(`${webUrl}/review/captures/${receipt.evidence_id}`, {
+    headers: { cookie: reviewCookie },
+  });
+  assert.equal(previewResponse.status, 200);
+  const previewHtml = await previewResponse.text();
+  assert.match(previewHtml, /Save to Switchboard Launch \/ General\?/);
+  assert.match(previewHtml, /Two exact launch entries/);
+  assert.match(previewHtml, /Founder groups/);
+  assert.match(previewHtml, /October/);
+  assert.match(previewHtml, /Only the ✓ action saves them as active context/);
+  const previewVersion = previewHtml.match(/name="preview_version" value="([^"]+)"/)[1];
+
+  const stale = await fetch(`${webUrl}/review/captures/${receipt.evidence_id}/confirm`, {
+    method: "POST",
+    headers: { cookie: reviewCookie, "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ preview_version: "capture_preview_stale" }),
+    redirect: "manual",
+  });
+  assert.equal(stale.status, 409);
+  assert.deepEqual(
+    created.database
+      .prepare("SELECT status FROM candidate_claims WHERE evidence_id = ? ORDER BY id")
+      .all(receipt.evidence_id)
+      .map(({ status }) => status),
+    ["pending", "pending"],
+  );
+
+  const confirm = await fetch(`${webUrl}/review/captures/${receipt.evidence_id}/confirm`, {
+    method: "POST",
+    headers: { cookie: reviewCookie, "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ preview_version: previewVersion }),
+    redirect: "manual",
+  });
+  assert.equal(confirm.status, 303);
+  assert.match(confirm.headers.get("location"), /status=accepted/);
+  assert.deepEqual(
+    created.database
+      .prepare("SELECT status FROM candidate_claims WHERE evidence_id = ? ORDER BY id")
+      .all(receipt.evidence_id)
+      .map(({ status }) => status),
+    ["accepted", "accepted"],
+  );
+  assert.equal(
+    created.database
+      .prepare("SELECT COUNT(*) AS count FROM accepted_project_state WHERE evidence_id = ?")
+      .get(receipt.evidence_id).count,
+    2,
+  );
+  const audits = created.database
+    .prepare(
+      `SELECT action, correlation_id FROM audit_events
+       WHERE safe_metadata_json::jsonb ->> 'evidence_id' = ?
+         AND action IN ('candidate_accepted', 'candidate_update_confirmed')
+       ORDER BY action`,
+    )
+    .all(receipt.evidence_id);
+  assert.deepEqual(
+    audits.map(({ action }) => action),
+    ["candidate_accepted", "candidate_accepted", "candidate_update_confirmed"],
+  );
+  assert.equal(new Set(audits.map(({ correlation_id: correlationId }) => correlationId)).size, 1);
+});
+
+test("the exact preview cross cancels every proposal without activation", async () => {
+  const acceptedBefore = created.database
+    .prepare("SELECT COUNT(*) AS count FROM accepted_project_state")
+    .get().count;
+  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "save_project_update",
+    arguments: {
+      project_id: "project_switchboard_launch",
+      summary: "Cancel both suggestions",
+      candidate_claims: [
+        { state_key: "launch.cancel_a", value: "A", summary: "Cancel A" },
+        { state_key: "launch.cancel_b", value: "B", summary: "Cancel B" },
+      ],
+      idempotency_key: "review-exact-preview-cancel",
+    },
+  });
+  const evidenceId = capture.result.structuredContent.evidence_id;
+  const preview = await fetch(`${webUrl}/review/captures/${evidenceId}`, {
+    headers: { cookie: reviewCookie },
+  });
+  const html = await preview.text();
+  const previewVersion = html.match(/name="preview_version" value="([^"]+)"/)[1];
+  const cancel = await fetch(`${webUrl}/review/captures/${evidenceId}/cancel`, {
+    method: "POST",
+    headers: { cookie: reviewCookie, "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ preview_version: previewVersion }),
+    redirect: "manual",
+  });
+  assert.equal(cancel.status, 303);
+  assert.match(cancel.headers.get("location"), /status=rejected/);
+  assert.deepEqual(
+    created.database
+      .prepare("SELECT status FROM candidate_claims WHERE evidence_id = ? ORDER BY id")
+      .all(evidenceId)
+      .map(({ status }) => status),
+    ["rejected", "rejected"],
+  );
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
+    acceptedBefore,
+  );
+  assert.equal(
+    created.database
+      .prepare("SELECT COUNT(*) AS count FROM audit_events WHERE action = ?")
+      .get("candidate_update_cancelled").count,
+    1,
+  );
+});
+
+test("a failed final confirmation audit rolls back the whole exact preview", async () => {
+  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "save_project_update",
+    arguments: {
+      project_id: "project_switchboard_launch",
+      summary: "Rollback the complete preview",
+      candidate_claims: [
+        { state_key: "launch.rollback_a", value: "A", summary: "Rollback A" },
+        { state_key: "launch.rollback_b", value: "B", summary: "Rollback B" },
+      ],
+      idempotency_key: "review-exact-preview-rollback",
+    },
+  });
+  const evidenceId = capture.result.structuredContent.evidence_id;
+  const userId = created.database
+    .prepare("SELECT id FROM users WHERE email = ?")
+    .get(TEST_EMAIL).id;
+  const preview = await getCapturePreview(created.database, { evidenceId, userId });
+  const countsBefore = created.database
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM accepted_project_state) AS accepted,
+        (SELECT COUNT(*) FROM audit_events) AS audit`,
+    )
+    .get();
+  created.database.exec(`
+    CREATE TRIGGER force_capture_confirmation_audit_failure
+    BEFORE INSERT ON audit_events
+    WHEN NEW.action = 'candidate_update_confirmed'
+    BEGIN
+      SELECT RAISE(ABORT, 'forced capture confirmation audit failure');
+    END;
+  `);
+  try {
+    await assert.rejects(
+      () =>
+        confirmCapturedUpdate(created.database, {
+          evidenceId,
+          expectedPreviewVersion: preview.preview_version,
+          userId,
+        }),
+      /forced capture confirmation audit failure/,
+    );
+  } finally {
+    created.database.exec("DROP TRIGGER force_capture_confirmation_audit_failure");
+  }
+  assert.deepEqual(
+    created.database
+      .prepare("SELECT status FROM candidate_claims WHERE evidence_id = ? ORDER BY id")
+      .all(evidenceId)
+      .map(({ status }) => status),
+    ["pending", "pending"],
+  );
+  assert.deepEqual(
+    created.database
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM accepted_project_state) AS accepted,
+          (SELECT COUNT(*) FROM audit_events) AS audit`,
+      )
+      .get(),
+    countsBefore,
+  );
+});
+
 test("an explicit authenticated human rejection is terminal and preserves provenance", async () => {
   const rejectionPayload = {
     project_id: "project_switchboard_launch",
@@ -222,8 +423,12 @@ test("an explicit authenticated human rejection is terminal and preserves proven
     acceptedBefore,
   );
   const audit = created.database
-    .prepare("SELECT * FROM audit_events WHERE action = 'candidate_rejected'")
-    .get();
+    .prepare(
+      `SELECT * FROM audit_events
+       WHERE action = 'candidate_rejected'
+         AND safe_metadata_json::jsonb ->> 'candidate_id' = ?`,
+    )
+    .get(rejectedCandidateId);
   assert.equal(audit.actor_type, "human_reviewer");
   assert.deepEqual(JSON.parse(audit.safe_metadata_json), {
     candidate_id: rejectedCandidateId,

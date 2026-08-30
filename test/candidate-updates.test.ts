@@ -87,10 +87,7 @@ test("explicit save creates pending candidates without changing trusted state", 
   assert.match(result.correlation_id, /^capture_/);
   assert.equal(result.trusted_state_changed, false);
   assert.equal(result.deduplicated, false);
-  assert.match(
-    result.review_url,
-    /\/review\?project_id=project_switchboard_launch&context_id=context_/,
-  );
+  assert.match(result.review_url, /\/review\/captures\/evidence_/);
   assert.match(result.context_id, /^context_/);
   assert.deepEqual(result.provenance, {
     actor_type: "mcp_host",

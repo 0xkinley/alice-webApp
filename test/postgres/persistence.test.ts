@@ -4,6 +4,8 @@ import { after, before, test } from "node:test";
 import { configureApplicationRole, openDatabase } from "@alice/database";
 import {
   acceptCandidate,
+  confirmCapturedUpdate,
+  getCapturePreview,
   getProjectContext,
   issueAlphaInvitation,
   registerUser,
@@ -186,6 +188,57 @@ test("concurrent active-target changes cannot silently overwrite one another", a
   );
 });
 
+test("one concurrent exact-preview confirmation wins and accepts the whole capture", async () => {
+  const receipt = await saveCandidateUpdate(database, {
+    clientId,
+    connectionId,
+    publicUrl: "https://app.alice.example",
+    userId: owner.id,
+    payload: {
+      summary: "Atomic exact-preview fixture",
+      candidate_claims: [
+        { state_key: "preview.first", value: "A", summary: "First preview value" },
+        { state_key: "preview.second", value: "B", summary: "Second preview value" },
+      ],
+      idempotency_key: "postgres-exact-preview",
+    },
+  });
+  const preview = await getCapturePreview(database, {
+    evidenceId: receipt.evidence_id,
+    userId: owner.id,
+  });
+  const attempts = await Promise.all([
+    confirmCapturedUpdate(database, {
+      evidenceId: receipt.evidence_id,
+      expectedPreviewVersion: preview.preview_version,
+      userId: owner.id,
+    }),
+    confirmCapturedUpdate(database, {
+      evidenceId: receipt.evidence_id,
+      expectedPreviewVersion: preview.preview_version,
+      userId: owner.id,
+    }),
+  ]);
+  assert.equal(attempts.filter(({ conflict }) => conflict === false).length, 1);
+  assert.equal(attempts.filter(({ conflict }) => conflict === true).length, 1);
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM accepted_project_state WHERE evidence_id = ?")
+        .get(receipt.evidence_id)
+    ).count,
+    2,
+  );
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM audit_events WHERE action = ?")
+        .get("candidate_update_confirmed")
+    ).count,
+    1,
+  );
+});
+
 test("concurrent identical capture is atomic and idempotent with byte-exact evidence text", async () => {
   const results = await Promise.all(
     Array.from({ length: 12 }, () => capture("postgres-identical-capture")),
@@ -201,7 +254,11 @@ test("concurrent identical capture is atomic and idempotent with byte-exact evid
   assert.equal(evidence.exact_payload_json, exact);
   assert.equal(evidence.payload_hash, createHash("sha256").update(exact).digest("hex"));
   assert.equal(
-    (await database.prepare("SELECT COUNT(*) AS count FROM candidate_claims").get()).count,
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM candidate_claims WHERE evidence_id = ?")
+        .get(results[0].evidence_id)
+    ).count,
     1,
   );
 });

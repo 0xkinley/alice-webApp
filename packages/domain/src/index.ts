@@ -20,7 +20,14 @@ export {
 export { ContextBudgetError, getProjectContext, listProjects } from "./project-context.ts";
 export { createProject, getProject } from "./projects.ts";
 export { getReviewQueue, listReviewProjects } from "./review-queue.ts";
-export { acceptCandidate, rejectCandidate, supersedeAcceptedState } from "./trusted-state.ts";
+export {
+  acceptCandidate,
+  cancelCapturedUpdate,
+  confirmCapturedUpdate,
+  getCapturePreview,
+  rejectCandidate,
+  supersedeAcceptedState,
+} from "./trusted-state.ts";
 export {
   createWorkContext,
   getWorkContextHistory,
