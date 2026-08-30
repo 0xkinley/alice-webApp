@@ -6,13 +6,37 @@ export {
 } from "./active-targets.ts";
 export { listIntegrationConnections, revokeIntegrationConnection } from "./connections.ts";
 export {
+  ContextAccessUserError,
+  endContextAccess,
+  getContextAccessView,
+  grantContextAccess,
+  updateContextAccessRole,
+} from "./context-access.ts";
+export {
   getRemovalPreview,
   getSavedContextView,
   removeSavedContextEntry,
 } from "./saved-context.ts";
 export { appendAuditEvent } from "./audit.ts";
-export { tenantScopeForConnection, tenantScopeForUser } from "./authorization.ts";
-export type { ConnectionScope, TenantScope } from "./authorization.ts";
+export {
+  contextScopeForConnection,
+  contextScopeForUser,
+  projectScopeForConnection,
+  projectScopeForUser,
+  tenantScopeForConnection,
+  tenantScopeForUser,
+} from "./authorization.ts";
+export type {
+  ConnectionScope,
+  ContextCapability,
+  ContextRole,
+  ContextScope,
+  ProjectCapability,
+  ProjectConnectionScope,
+  ProjectRole,
+  ProjectScope,
+  TenantScope,
+} from "./authorization.ts";
 export {
   alphaInvitationForToken,
   authenticateUser,
@@ -31,11 +55,13 @@ export {
   getProjectCollaborators,
   getProjectInvitationPreview,
   getProjectMembershipView,
+  leaveProject,
   listSharedProjects,
   ProjectMembershipUserError,
   removeProjectMember,
   resendProjectInvitation,
   revokeProjectInvitation,
+  transferProjectOwnership,
   updateProjectMemberRole,
 } from "./project-memberships.ts";
 export type { ProjectInvitationRole, ProjectMembershipRole } from "./project-memberships.ts";

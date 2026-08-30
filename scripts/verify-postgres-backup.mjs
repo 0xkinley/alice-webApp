@@ -63,6 +63,7 @@ async function tableCounts(databaseUrl) {
       "projects",
       "project_memberships",
       "project_invitations",
+      "context_access_grants",
       "work_contexts",
       "context_history_events",
       "candidate_context_targets",

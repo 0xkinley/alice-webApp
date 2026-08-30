@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { consumptionContractVersion } from "@alice/schemas";
-import { tenantScopeForUser } from "./authorization.ts";
+import { contextScopeForUser, projectScopeForUser, tenantScopeForUser } from "./authorization.ts";
+import { listWorkContexts } from "./work-contexts.ts";
 
 // Trusted context is assembled only from human-accepted state.
 
@@ -127,52 +128,75 @@ export class ContextBudgetError extends Error {}
 export async function listProjects(database, userId) {
   const tenant = await tenantScopeForUser(database, userId);
   if (!tenant) return [];
-  return await database
+  const projects = await database
     .prepare(
-      `SELECT project.id, project.name, project.brief, project.created_at, project.updated_at,
-              COALESCE(active.accepted_state_count, 0) AS accepted_state_count,
-              active.accepted_state_updated_at
+      `SELECT project.id, project.workspace_id, project.name, project.brief,
+              project.created_at, project.updated_at
        FROM projects project
-       LEFT JOIN (
-         SELECT accepted.workspace_id, accepted.project_id,
-                COUNT(accepted.id) AS accepted_state_count,
-                MAX(accepted.accepted_at) AS accepted_state_updated_at
-         FROM accepted_project_state accepted
-         LEFT JOIN accepted_context_entries entry
-           ON entry.workspace_id = accepted.workspace_id
-          AND entry.project_id = accepted.project_id
-          AND entry.accepted_state_id = accepted.id
-         LEFT JOIN work_contexts project_wide
-           ON project_wide.workspace_id = accepted.workspace_id
-          AND project_wide.project_id = accepted.project_id
-          AND project_wide.context_kind = 'project_wide'
-         WHERE NOT EXISTS (
-          SELECT 1 FROM context_entry_exclusions exclusion
-          WHERE exclusion.workspace_id = accepted.workspace_id
-            AND exclusion.project_id = accepted.project_id
-            AND exclusion.accepted_state_id = accepted.id
-         )
-         AND NOT EXISTS (
-          SELECT 1
-          FROM accepted_project_state newer
-          LEFT JOIN accepted_context_entries newer_entry
-            ON newer_entry.workspace_id = newer.workspace_id
-           AND newer_entry.project_id = newer.project_id
-           AND newer_entry.accepted_state_id = newer.id
-          WHERE newer.workspace_id = accepted.workspace_id
-            AND newer.project_id = accepted.project_id
-            AND newer.state_key = accepted.state_key
-            AND COALESCE(newer_entry.context_id, project_wide.id) =
-                COALESCE(entry.context_id, project_wide.id)
-            AND newer.version > accepted.version
-         )
-         GROUP BY accepted.workspace_id, accepted.project_id
-       ) active
-         ON active.workspace_id = project.workspace_id AND active.project_id = project.id
-       WHERE project.workspace_id = ?
+       JOIN project_memberships membership
+         ON membership.workspace_id = project.workspace_id
+        AND membership.project_id = project.id
+        AND membership.user_id = ?
+        AND membership.ended_at IS NULL
        ORDER BY project.name, project.id`,
     )
-    .all(tenant.workspaceId);
+    .all(tenant.userId);
+  const visible: any[] = [];
+  for (const project of projects) {
+    const contexts = (await listWorkContexts(database, userId, project.id)) || [];
+    let acceptedStateCount = 0;
+    let acceptedStateUpdatedAt = null;
+    for (const context of contexts) {
+      const current = await database
+        .prepare(
+          `SELECT COUNT(accepted.id) AS accepted_state_count,
+                  MAX(accepted.accepted_at) AS accepted_state_updated_at
+           FROM accepted_project_state accepted
+           JOIN accepted_context_entries entry
+             ON entry.workspace_id = accepted.workspace_id
+            AND entry.project_id = accepted.project_id
+            AND entry.accepted_state_id = accepted.id
+            AND entry.context_id = ?
+           WHERE accepted.workspace_id = ? AND accepted.project_id = ?
+             AND NOT EXISTS (
+               SELECT 1 FROM context_entry_exclusions exclusion
+               WHERE exclusion.workspace_id = accepted.workspace_id
+                 AND exclusion.project_id = accepted.project_id
+                 AND exclusion.accepted_state_id = accepted.id
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM accepted_project_state newer
+               JOIN accepted_context_entries newer_entry
+                 ON newer_entry.workspace_id = newer.workspace_id
+                AND newer_entry.project_id = newer.project_id
+                AND newer_entry.accepted_state_id = newer.id
+                AND newer_entry.context_id = entry.context_id
+               WHERE newer.workspace_id = accepted.workspace_id
+                 AND newer.project_id = accepted.project_id
+                 AND newer.state_key = accepted.state_key
+                 AND newer.version > accepted.version
+             )`,
+        )
+        .get(context.id, project.workspace_id, project.id);
+      acceptedStateCount += Number(current.accepted_state_count);
+      if (
+        current.accepted_state_updated_at &&
+        (!acceptedStateUpdatedAt || current.accepted_state_updated_at > acceptedStateUpdatedAt)
+      ) {
+        acceptedStateUpdatedAt = current.accepted_state_updated_at;
+      }
+    }
+    visible.push({
+      id: project.id,
+      name: project.name,
+      brief: project.brief,
+      created_at: project.created_at,
+      updated_at: project.updated_at,
+      accepted_state_count: acceptedStateCount,
+      accepted_state_updated_at: acceptedStateUpdatedAt,
+    });
+  }
+  return visible;
 }
 
 function latestEffectiveAcceptedRows(acceptedRows, projectWideId, selectedContextId) {
@@ -205,14 +229,14 @@ export async function getProjectContext(
   database,
   { userId, projectId, contextId, task, contextBudget },
 ) {
-  const tenant = await tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
+  const scope = await projectScopeForUser(database, { userId, projectId });
+  if (!scope) return undefined;
   const project = await database
     .prepare(
       `SELECT id, name, brief, created_at, updated_at
        FROM projects WHERE id = ? AND workspace_id = ?`,
     )
-    .get(projectId, tenant.workspaceId);
+    .get(projectId, scope.projectWorkspaceId);
   if (!project) return undefined;
 
   const contexts = await database
@@ -223,12 +247,22 @@ export async function getProjectContext(
          AND (context_kind = 'project_wide' OR id = ?)
        ORDER BY context_kind, id`,
     )
-    .all(tenant.workspaceId, projectId, contextId || "");
+    .all(scope.projectWorkspaceId, projectId, contextId || "");
   const projectWide = contexts.find(({ context_kind: kind }) => kind === "project_wide");
   const selectedContext = contextId
     ? contexts.find(({ id, context_kind: kind }) => id === contextId && kind === "work")
     : undefined;
   if (!projectWide || (contextId && !selectedContext)) return undefined;
+  const selectedForAuthorization = selectedContext || projectWide;
+  if (
+    !(await contextScopeForUser(database, {
+      userId,
+      projectId,
+      contextId: selectedForAuthorization.id,
+    }))
+  ) {
+    return undefined;
+  }
   const allowedContextIds = new Set([projectWide.id, selectedContext?.id].filter(Boolean));
   const selectedContextRow = selectedContext || projectWide;
   const context = {
@@ -270,7 +304,7 @@ export async function getProjectContext(
        WHERE accepted.project_id = ? AND accepted.workspace_id = ?
        ORDER BY accepted.state_key, accepted.version, accepted.id`,
     )
-    .all(projectWide.id, projectId, tenant.workspaceId);
+    .all(projectWide.id, projectId, scope.projectWorkspaceId);
   const effectiveByStateKey = latestEffectiveAcceptedRows(
     acceptedRows,
     projectWide.id,
@@ -301,7 +335,7 @@ export async function getProjectContext(
          AND alternative.status = 'pending'
        ORDER BY alternative.state_key, alternative.id`,
     )
-    .all(projectWide.id, tenant.workspaceId, projectId);
+    .all(projectWide.id, scope.projectWorkspaceId, projectId);
   const conflictRows = pendingRows
     .filter((row) => allowedContextIds.has(row.context_id))
     .map((row) => ({ ...row, accepted: effectiveByStateKey.get(row.state_key) }))

@@ -1,28 +1,31 @@
 import { randomUUID } from "node:crypto";
 import { appendAuditEvent } from "./audit.ts";
-import { tenantScopeForConnection, tenantScopeForUser } from "./authorization.ts";
+import {
+  contextScopeForUser,
+  tenantScopeForConnection,
+  tenantScopeForUser,
+} from "./authorization.ts";
+import { listWorkContexts } from "./work-contexts.ts";
 
 export async function listSelectableProjectContexts(database, userId) {
   const tenant = await tenantScopeForUser(database, userId);
   if (!tenant) return [];
   const projects = await database
     .prepare(
-      `SELECT id, name, brief, created_at, updated_at
-       FROM projects WHERE workspace_id = ? ORDER BY name, id`,
+      `SELECT project.id, project.name, project.brief,
+              project.created_at, project.updated_at
+       FROM projects project
+       JOIN project_memberships membership
+         ON membership.workspace_id = project.workspace_id
+        AND membership.project_id = project.id
+       WHERE membership.user_id = ? AND membership.ended_at IS NULL
+       ORDER BY project.name, project.id`,
     )
-    .all(tenant.workspaceId);
-  const contexts = await database
-    .prepare(
-      `SELECT id, project_id, name, description, visibility, created_at, updated_at
-       FROM work_contexts
-       WHERE workspace_id = ? AND context_kind = 'work' AND archived_at IS NULL
-       ORDER BY project_id, name, id`,
-    )
-    .all(tenant.workspaceId);
-  return projects.map((project) => ({
-    ...project,
-    contexts: contexts
-      .filter(({ project_id: projectId }) => projectId === project.id)
+    .all(tenant.userId);
+  const selectable: any[] = [];
+  for (const project of projects) {
+    const contexts = ((await listWorkContexts(database, userId, project.id)) || [])
+      .filter(({ context_kind: kind }) => kind === "work")
       .map((context) => ({
         id: context.id,
         name: context.name,
@@ -30,14 +33,16 @@ export async function listSelectableProjectContexts(database, userId) {
         visibility: context.visibility,
         created_at: context.created_at,
         updated_at: context.updated_at,
-      })),
-  }));
+      }));
+    selectable.push({ ...project, contexts });
+  }
+  return selectable;
 }
 
 export async function activeTargetForConnection(database, { userId, connectionId }) {
   const connection = await tenantScopeForConnection(database, { userId, connectionId });
   if (!connection) return undefined;
-  return await database
+  const target = await database
     .prepare(
       `SELECT target.connection_id, target.surface, target.selection_version,
               target.selected_at, target.updated_at,
@@ -46,9 +51,9 @@ export async function activeTargetForConnection(database, { userId, connectionId
               context.description AS context_description, context.visibility
        FROM active_connection_targets target
        JOIN projects project
-         ON project.workspace_id = target.workspace_id AND project.id = target.project_id
+         ON project.workspace_id = target.project_workspace_id AND project.id = target.project_id
        JOIN work_contexts context
-         ON context.workspace_id = target.workspace_id
+         ON context.workspace_id = target.project_workspace_id
         AND context.project_id = target.project_id
         AND context.id = target.context_id
         AND context.context_kind = 'work'
@@ -56,6 +61,17 @@ export async function activeTargetForConnection(database, { userId, connectionId
        WHERE target.connection_id = ? AND target.user_id = ? AND target.workspace_id = ?`,
     )
     .get(connection.connectionId, connection.userId, connection.workspaceId);
+  if (
+    !target ||
+    !(await contextScopeForUser(database, {
+      userId,
+      projectId: target.project_id,
+      contextId: target.context_id,
+    }))
+  ) {
+    return undefined;
+  }
+  return target;
 }
 
 function expectedVersion(expectedVersions, connectionId) {
@@ -97,16 +113,8 @@ export async function setActiveConnectionTarget(
             )
             .all(connectionId, tenant.userId, tenant.workspaceId);
       if (!connections.some(({ id }) => id === connectionId)) return undefined;
-      const context = await database
-        .prepare(
-          `SELECT id, project_id
-           FROM work_contexts
-           WHERE id = ? AND project_id = ? AND workspace_id = ?
-             AND context_kind = 'work' AND archived_at IS NULL
-           FOR UPDATE`,
-        )
-        .get(contextId, projectId, tenant.workspaceId);
-      if (!context) return undefined;
+      const context = await contextScopeForUser(database, { userId, projectId, contextId });
+      if (!context || context.contextKind !== "work") return undefined;
       const current = await database
         .prepare(
           `SELECT connection_id, selection_version FROM active_connection_targets
@@ -130,10 +138,12 @@ export async function setActiveConnectionTarget(
         await database
           .prepare(
             `INSERT INTO active_connection_targets
-              (connection_id, user_id, workspace_id, project_id, context_id, surface,
+              (connection_id, user_id, workspace_id, project_workspace_id,
+               project_id, context_id, surface,
                selection_version, selected_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (connection_id) DO UPDATE SET
+               project_workspace_id = excluded.project_workspace_id,
                project_id = excluded.project_id,
                context_id = excluded.context_id,
                surface = excluded.surface,
@@ -144,6 +154,7 @@ export async function setActiveConnectionTarget(
             connection.id,
             tenant.userId,
             tenant.workspaceId,
+            context.projectWorkspaceId,
             projectId,
             contextId,
             connection.client_classification,
@@ -160,7 +171,7 @@ export async function setActiveConnectionTarget(
           )
           .run(
             `context_event_${randomUUID()}`,
-            tenant.workspaceId,
+            context.projectWorkspaceId,
             projectId,
             contextId,
             tenant.userId,
@@ -172,7 +183,7 @@ export async function setActiveConnectionTarget(
           );
       }
       await appendAuditEvent(database, {
-        workspaceId: tenant.workspaceId,
+        workspaceId: context.projectWorkspaceId,
         projectId,
         action: "active_context_target_selected",
         actorType: "human_user",

@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appendAuditEvent } from "./audit.ts";
-import { tenantScopeForConnection } from "./authorization.ts";
+import {
+  contextScopeForConnection,
+  projectScopeForConnection,
+  tenantScopeForConnection,
+} from "./authorization.ts";
 
 // Host submissions remain candidate-only domain operations.
 
@@ -137,7 +141,7 @@ export async function saveCandidateUpdate(
   }
   const activeTarget = await database
     .prepare(
-      `SELECT project_id, context_id FROM active_connection_targets
+      `SELECT project_workspace_id, project_id, context_id FROM active_connection_targets
        WHERE connection_id = ? AND user_id = ? AND workspace_id = ?`,
     )
     .get(connectionId, tenant.userId, tenant.workspaceId);
@@ -152,12 +156,17 @@ export async function saveCandidateUpdate(
   if (!projectId) {
     return { error: "Select an active alice. project and work context before saving." };
   }
-  const project = await database
-    .prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ?")
-    .get(projectId, tenant.workspaceId);
-  if (!project) return { error: "Project not found in the authenticated workspace." };
+  const project = await projectScopeForConnection(database, {
+    userId,
+    connectionId,
+    projectId,
+    capability: "write",
+  });
+  if (!project || project.clientId !== clientId) {
+    return { error: "Project not found in the authenticated workspace." };
+  }
 
-  const targetContext = await database
+  const targetContextRow = await database
     .prepare(
       `SELECT id
        FROM work_contexts
@@ -165,12 +174,20 @@ export async function saveCandidateUpdate(
          AND ${activeTarget?.context_id || payload.context_id ? "id = ?" : "context_kind = 'project_wide'"}`,
     )
     .get(
-      tenant.workspaceId,
-      project.id,
+      project.projectWorkspaceId,
+      project.projectId,
       ...(activeTarget?.context_id || payload.context_id
         ? [activeTarget?.context_id || payload.context_id]
         : []),
     );
+  if (!targetContextRow) return { error: "Context not found in the authenticated project." };
+  const targetContext = await contextScopeForConnection(database, {
+    userId,
+    connectionId,
+    projectId: project.projectId,
+    contextId: targetContextRow.id,
+    capability: "write",
+  });
   if (!targetContext) return { error: "Context not found in the authenticated project." };
 
   const exactPayloadJson = JSON.stringify(payload);
@@ -184,12 +201,12 @@ export async function saveCandidateUpdate(
     async () => {
       await database
         .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
-        .get(`${connectionId}:${project.id}:${payload.idempotency_key}`);
+        .get(`${connectionId}:${project.projectId}:${payload.idempotency_key}`);
       const duplicate = await existingSubmission(
         database,
-        tenant.workspaceId,
+        project.projectWorkspaceId,
         connectionId,
-        project.id,
+        project.projectId,
         payload.idempotency_key,
         payloadHash,
         publicUrl,
@@ -202,16 +219,18 @@ export async function saveCandidateUpdate(
         .prepare(
           `INSERT INTO evidence_events
           (id, workspace_id, project_id, exact_payload_json, actor_type, connection_id,
-           client_id, client_classification, tool_name, idempotency_key, payload_hash, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           connection_workspace_id, client_id, client_classification, tool_name,
+           idempotency_key, payload_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           evidenceId,
-          tenant.workspaceId,
-          project.id,
+          project.projectWorkspaceId,
+          project.projectId,
           exactPayloadJson,
           "mcp_host",
           connectionId,
+          project.userWorkspaceId,
           clientId,
           await clientClassification(database, clientId),
           "save_project_update",
@@ -228,8 +247,8 @@ export async function saveCandidateUpdate(
       for (const [index, claim] of payload.candidate_claims.entries()) {
         await insertCandidate.run(
           candidateIds[index],
-          tenant.workspaceId,
-          project.id,
+          project.projectWorkspaceId,
+          project.projectId,
           evidenceId,
           claim.state_key,
           JSON.stringify(claim.value),
@@ -242,12 +261,18 @@ export async function saveCandidateUpdate(
               (candidate_id, workspace_id, project_id, context_id, targeted_at)
              VALUES (?, ?, ?, ?, ?)`,
           )
-          .run(candidateIds[index], tenant.workspaceId, project.id, targetContext.id, createdAt);
+          .run(
+            candidateIds[index],
+            project.projectWorkspaceId,
+            project.projectId,
+            targetContext.contextId,
+            createdAt,
+          );
       }
 
       await appendAuditEvent(database, {
-        workspaceId: tenant.workspaceId,
-        projectId: project.id,
+        workspaceId: project.projectWorkspaceId,
+        projectId: project.projectId,
         action: "candidate_update_submitted",
         actorType: "mcp_host",
         actorId: clientId,
@@ -256,16 +281,16 @@ export async function saveCandidateUpdate(
           evidence_id: evidenceId,
           candidate_ids: candidateIds,
           candidate_count: candidateIds.length,
-          context_id: targetContext.id,
+          context_id: targetContext.contextId,
           connection_id: connectionId,
           payload_hash: payloadHash,
         },
       });
       const result = await existingSubmission(
         database,
-        tenant.workspaceId,
+        project.projectWorkspaceId,
         connectionId,
-        project.id,
+        project.projectId,
         payload.idempotency_key,
         payloadHash,
         publicUrl,

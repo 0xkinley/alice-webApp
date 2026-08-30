@@ -34,8 +34,9 @@ before(async () => {
     .prepare(
       `INSERT INTO evidence_events
         (id, workspace_id, project_id, exact_payload_json, actor_type, connection_id,
-         client_id, client_classification, tool_name, idempotency_key, payload_hash, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         connection_workspace_id, client_id, client_classification, tool_name,
+         idempotency_key, payload_hash, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       "evidence_A",
@@ -44,6 +45,7 @@ before(async () => {
       '{"fixture":"A"}',
       "host",
       connection.id,
+      identity.workspace_id,
       "test-client",
       "test",
       "test_fixture",
@@ -85,6 +87,19 @@ before(async () => {
       1,
       now,
     );
+  const projectWide = created.database
+    .prepare(
+      `SELECT id FROM work_contexts
+       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'project_wide'`,
+    )
+    .get(identity.workspace_id, identity.project_id);
+  created.database
+    .prepare(
+      `INSERT INTO accepted_context_entries
+        (accepted_state_id, workspace_id, project_id, context_id, added_at)
+       VALUES ('accepted_A', ?, ?, ?, ?)`,
+    )
+    .run(identity.workspace_id, identity.project_id, projectWide.id, now);
   created.database
     .prepare(
       `INSERT INTO candidate_claims

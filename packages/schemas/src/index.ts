@@ -81,6 +81,7 @@ export const createWorkContextSchema = z
   .object({
     name: z.string().trim().min(1).max(120),
     description: z.string().trim().min(1).max(2_000),
+    visibility: z.enum(["all_members", "selected_members", "personal"]).default("all_members"),
   })
   .strict();
 

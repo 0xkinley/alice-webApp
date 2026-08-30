@@ -194,7 +194,8 @@ function createSchema(database: DatabaseSync) {
       ended_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
       FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
       CHECK ((ended_at IS NULL) = (ended_by_user_id IS NULL)),
-      UNIQUE (workspace_id, project_id, id)
+      UNIQUE (workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, user_id, id)
     ) STRICT;
 
     CREATE UNIQUE INDEX project_memberships_active_user
@@ -269,6 +270,34 @@ function createSchema(database: DatabaseSync) {
     CREATE UNIQUE INDEX work_contexts_one_project_wide
       ON work_contexts (project_id) WHERE context_kind = 'project_wide';
 
+    CREATE TABLE context_access_grants (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      membership_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'manager')),
+      granted_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      ended_at TEXT,
+      ended_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, user_id, membership_id)
+        REFERENCES project_memberships(workspace_id, project_id, user_id, id),
+      CHECK ((ended_at IS NULL) = (ended_by_user_id IS NULL)),
+      UNIQUE (workspace_id, project_id, context_id, id)
+    ) STRICT;
+
+    CREATE UNIQUE INDEX context_access_grants_active_user
+      ON context_access_grants (context_id, user_id) WHERE ended_at IS NULL;
+    CREATE INDEX context_access_grants_user_lookup
+      ON context_access_grants (user_id, ended_at, project_id, context_id, role);
+    CREATE INDEX context_access_grants_context_lookup
+      ON context_access_grants (workspace_id, project_id, context_id, ended_at, role, user_id);
+
     CREATE TABLE context_history_events (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
@@ -289,6 +318,7 @@ function createSchema(database: DatabaseSync) {
       exact_payload_json TEXT NOT NULL,
       actor_type TEXT NOT NULL,
       connection_id TEXT NOT NULL,
+      connection_workspace_id TEXT NOT NULL,
       client_id TEXT NOT NULL,
       client_classification TEXT NOT NULL,
       tool_name TEXT NOT NULL,
@@ -296,7 +326,7 @@ function createSchema(database: DatabaseSync) {
       payload_hash TEXT NOT NULL,
       created_at TEXT NOT NULL,
       FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
-      FOREIGN KEY (workspace_id, connection_id)
+      FOREIGN KEY (connection_workspace_id, connection_id)
         REFERENCES integration_connections(workspace_id, id),
       UNIQUE (connection_id, project_id, idempotency_key),
       UNIQUE (workspace_id, project_id, id)
@@ -370,6 +400,7 @@ function createSchema(database: DatabaseSync) {
       connection_id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       workspace_id TEXT NOT NULL,
+      project_workspace_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
       context_id TEXT NOT NULL,
       surface TEXT NOT NULL,
@@ -378,7 +409,7 @@ function createSchema(database: DatabaseSync) {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (workspace_id, user_id, connection_id)
         REFERENCES integration_connections(workspace_id, user_id, id),
-      FOREIGN KEY (workspace_id, project_id, context_id)
+      FOREIGN KEY (project_workspace_id, project_id, context_id)
         REFERENCES work_contexts(workspace_id, project_id, id)
     ) STRICT;
 
@@ -393,8 +424,7 @@ function createSchema(database: DatabaseSync) {
       removed_at TEXT NOT NULL,
       FOREIGN KEY (workspace_id, project_id, context_id, accepted_state_id)
         REFERENCES accepted_context_entries(workspace_id, project_id, context_id, accepted_state_id),
-      FOREIGN KEY (workspace_id, removed_by_user_id)
-        REFERENCES workspaces(id, user_id)
+      FOREIGN KEY (removed_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
     ) STRICT;
 
     CREATE TABLE file_objects (
@@ -437,8 +467,7 @@ function createSchema(database: DatabaseSync) {
         REFERENCES work_contexts(workspace_id, project_id, id),
       FOREIGN KEY (workspace_id, file_object_id)
         REFERENCES file_objects(workspace_id, id),
-      FOREIGN KEY (workspace_id, uploader_user_id)
-        REFERENCES workspaces(id, user_id),
+      FOREIGN KEY (uploader_user_id) REFERENCES users(id) ON DELETE RESTRICT,
       UNIQUE (workspace_id, id),
       UNIQUE (workspace_id, project_id, context_id, id),
       UNIQUE (workspace_id, project_id, context_id, logical_file_id, version),
@@ -456,8 +485,7 @@ function createSchema(database: DatabaseSync) {
       removed_at TEXT NOT NULL,
       FOREIGN KEY (workspace_id, project_id, context_id, file_reference_id)
         REFERENCES file_context_references(workspace_id, project_id, context_id, id),
-      FOREIGN KEY (workspace_id, removed_by_user_id)
-        REFERENCES workspaces(id, user_id)
+      FOREIGN KEY (removed_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
     ) STRICT;
 
     CREATE INDEX file_reference_exclusions_lookup
@@ -529,7 +557,54 @@ function createSchema(database: DatabaseSync) {
           WHERE membership.project_id = OLD.project_id
             AND membership.id <> OLD.id
             AND membership.role = 'owner'
-            AND membership.ended_at IS NULL
+          AND membership.ended_at IS NULL
+        )
+      )
+      OR (
+        OLD.ended_at IS NULL
+        AND (NEW.ended_at IS NOT NULL OR NEW.role = 'viewer')
+        AND EXISTS (
+          SELECT 1 FROM context_access_grants context_grant
+          WHERE context_grant.membership_id = OLD.id
+            AND context_grant.ended_at IS NULL
+          AND (NEW.ended_at IS NOT NULL OR context_grant.role <> 'viewer')
+        )
+      )
+      OR (
+        OLD.ended_at IS NULL AND NEW.ended_at IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM work_contexts context
+          WHERE context.workspace_id = OLD.workspace_id
+            AND context.project_id = OLD.project_id
+            AND context.created_by_user_id = OLD.user_id
+            AND context.visibility = 'personal'
+            AND context.archived_at IS NULL
+        )
+      )
+      OR (
+        OLD.ended_at IS NULL AND NEW.ended_at IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM work_contexts context
+          WHERE context.workspace_id = OLD.workspace_id
+            AND context.project_id = OLD.project_id
+            AND context.created_by_user_id = OLD.user_id
+            AND context.visibility = 'selected_members'
+            AND context.archived_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM context_access_grants context_grant
+              JOIN project_memberships membership
+                ON membership.workspace_id = context_grant.workspace_id
+               AND membership.project_id = context_grant.project_id
+               AND membership.id = context_grant.membership_id
+               AND membership.user_id = context_grant.user_id
+              WHERE context_grant.workspace_id = context.workspace_id
+                AND context_grant.project_id = context.project_id
+                AND context_grant.context_id = context.id
+                AND context_grant.user_id <> OLD.user_id
+                AND context_grant.role = 'manager'
+                AND context_grant.ended_at IS NULL
+                AND membership.ended_at IS NULL
+            )
         )
       )
     BEGIN
@@ -564,6 +639,67 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON project_invitations
     BEGIN
       SELECT RAISE(ABORT, 'project invitation history is retained');
+    END;
+
+    CREATE TRIGGER context_access_grants_validate_insert
+    BEFORE INSERT ON context_access_grants
+    WHEN NOT EXISTS (
+        SELECT 1 FROM work_contexts context
+        WHERE context.workspace_id = NEW.workspace_id
+          AND context.project_id = NEW.project_id
+          AND context.id = NEW.context_id
+          AND context.visibility = 'selected_members'
+      )
+      OR NOT EXISTS (
+        SELECT 1 FROM project_memberships membership
+        WHERE membership.workspace_id = NEW.workspace_id
+          AND membership.project_id = NEW.project_id
+          AND membership.user_id = NEW.user_id
+          AND membership.id = NEW.membership_id
+          AND membership.ended_at IS NULL
+          AND (membership.role <> 'viewer' OR NEW.role = 'viewer')
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'context grants require an active bounded membership');
+    END;
+
+    CREATE TRIGGER context_access_grants_validate_update
+    BEFORE UPDATE ON context_access_grants
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.project_id IS NOT OLD.project_id
+      OR NEW.context_id IS NOT OLD.context_id
+      OR NEW.membership_id IS NOT OLD.membership_id
+      OR NEW.user_id IS NOT OLD.user_id
+      OR NEW.granted_by_user_id IS NOT OLD.granted_by_user_id
+      OR NEW.created_at IS NOT OLD.created_at
+      OR OLD.ended_at IS NOT NULL
+      OR (NEW.ended_at IS NULL AND NEW.ended_by_user_id IS NOT NULL)
+      OR (NEW.ended_at IS NOT NULL AND NEW.ended_by_user_id IS NULL)
+      OR NOT EXISTS (
+        SELECT 1 FROM work_contexts context
+        WHERE context.workspace_id = NEW.workspace_id
+          AND context.project_id = NEW.project_id
+          AND context.id = NEW.context_id
+          AND context.visibility = 'selected_members'
+      )
+      OR NOT EXISTS (
+        SELECT 1 FROM project_memberships membership
+        WHERE membership.workspace_id = NEW.workspace_id
+          AND membership.project_id = NEW.project_id
+          AND membership.user_id = NEW.user_id
+          AND membership.id = NEW.membership_id
+          AND membership.ended_at IS NULL
+          AND (membership.role <> 'viewer' OR NEW.role = 'viewer')
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'context grant identity, bounds, and ended history are retained');
+    END;
+
+    CREATE TRIGGER context_access_grants_no_delete
+    BEFORE DELETE ON context_access_grants
+    BEGIN
+      SELECT RAISE(ABORT, 'context access grant history is retained');
     END;
 
     CREATE TRIGGER candidate_claims_status_only_update

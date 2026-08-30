@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appendAuditEvent } from "./audit.ts";
-import { tenantScopeForUser } from "./authorization.ts";
+import { contextScopeForUser, projectScopeForUser } from "./authorization.ts";
+import { listWorkContexts } from "./work-contexts.ts";
 
 function parseJson(value) {
   return JSON.parse(value);
@@ -114,8 +115,9 @@ export async function getRemovalPreview(
   database,
   { userId, projectId, contextId, acceptedStateId },
 ) {
-  const tenant = await tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
+  const access = await contextScopeForUser(database, { userId, projectId, contextId });
+  if (!access) return undefined;
+  const tenant = { workspaceId: access.projectWorkspaceId, userId: access.userId };
   return buildRemovalPreview(database, tenant, { projectId, contextId, acceptedStateId });
 }
 
@@ -123,8 +125,14 @@ export async function removeSavedContextEntry(
   database,
   { userId, projectId, contextId, acceptedStateId, expectedPreviewVersion, reason = "" },
 ) {
-  const tenant = await tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
+  const access = await contextScopeForUser(database, {
+    userId,
+    projectId,
+    contextId,
+    capability: "write",
+  });
+  if (!access) return undefined;
+  const tenant = { workspaceId: access.projectWorkspaceId, userId: access.userId };
   const normalizedReason = String(reason).trim();
   if (normalizedReason.length > 500) throw new Error("Removal reason exceeds 500 characters.");
   const initial = await buildRemovalPreview(database, tenant, {
@@ -219,27 +227,27 @@ export async function removeSavedContextEntry(
 }
 
 export async function getSavedContextView(database, { userId, projectId, contextId }) {
-  const tenant = await tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
+  const projectAccess = await projectScopeForUser(database, { userId, projectId });
+  if (!projectAccess) return undefined;
   const project = await database
     .prepare(
       `SELECT id, name, brief, created_at, updated_at
        FROM projects WHERE id = ? AND workspace_id = ?`,
     )
-    .get(projectId, tenant.workspaceId);
+    .get(projectId, projectAccess.projectWorkspaceId);
   if (!project) return undefined;
-  const contexts = await database
-    .prepare(
-      `SELECT id, name, description, context_kind, visibility, created_at, updated_at
-       FROM work_contexts
-       WHERE workspace_id = ? AND project_id = ? AND archived_at IS NULL
-       ORDER BY CASE WHEN context_kind = 'project_wide' THEN 0 ELSE 1 END, name, id`,
-    )
-    .all(tenant.workspaceId, project.id);
+  const contexts = (await listWorkContexts(database, userId, projectId)) || [];
   const context = contextId
     ? contexts.find(({ id }) => id === contextId)
     : contexts.find(({ context_kind: kind }) => kind === "project_wide");
   if (!context) return undefined;
+  const access = await contextScopeForUser(database, {
+    userId,
+    projectId,
+    contextId: context.id,
+  });
+  if (!access) return undefined;
+  const workspaceId = access.projectWorkspaceId;
 
   const saved = (
     await database
@@ -283,7 +291,7 @@ export async function getSavedContextView(database, { userId, projectId, context
            )
          ORDER BY accepted.state_key, accepted.id`,
       )
-      .all(tenant.workspaceId, project.id, context.id)
+      .all(workspaceId, project.id, context.id)
   ).map((entry) => ({ ...entry, value: parseJson(entry.value_json), value_json: undefined }));
 
   const removed = (
@@ -328,13 +336,15 @@ export async function getSavedContextView(database, { userId, projectId, context
            )
          ORDER BY exclusion.removed_at DESC, exclusion.id`,
       )
-      .all(tenant.workspaceId, project.id, context.id)
+      .all(workspaceId, project.id, context.id)
   ).map((entry) => ({ ...entry, value: parseJson(entry.value_json), value_json: undefined }));
 
-  const needsAttention = (
-    await database
-      .prepare(
-        `SELECT candidate.id, candidate.state_key, candidate.value_json, candidate.summary,
+  const canWrite = access.projectRole !== "viewer" && access.contextRole !== "viewer";
+  const needsAttention = canWrite
+    ? (
+        await database
+          .prepare(
+            `SELECT candidate.id, candidate.state_key, candidate.value_json, candidate.summary,
                 candidate.created_at, candidate.evidence_id, evidence.payload_hash,
                 evidence.exact_payload_json, evidence.client_classification
          FROM candidate_claims candidate
@@ -349,15 +359,16 @@ export async function getSavedContextView(database, { userId, projectId, context
          WHERE candidate.workspace_id = ? AND candidate.project_id = ?
            AND target.context_id = ? AND candidate.status = 'pending'
          ORDER BY candidate.created_at DESC, candidate.id`,
-      )
-      .all(tenant.workspaceId, project.id, context.id)
-  ).map((entry) => ({
-    ...entry,
-    value: parseJson(entry.value_json),
-    value_json: undefined,
-    capture_summary: captureSummary(entry.exact_payload_json),
-    exact_payload_json: undefined,
-  }));
+          )
+          .all(workspaceId, project.id, context.id)
+      ).map((entry) => ({
+        ...entry,
+        value: parseJson(entry.value_json),
+        value_json: undefined,
+        capture_summary: captureSummary(entry.exact_payload_json),
+        exact_payload_json: undefined,
+      }))
+    : [];
 
   const history = (
     await database
@@ -388,13 +399,21 @@ export async function getSavedContextView(database, { userId, projectId, context
          WHERE candidate.workspace_id = ? AND candidate.project_id = ? AND target.context_id = ?
          ORDER BY candidate.created_at DESC, candidate.id`,
       )
-      .all(tenant.workspaceId, project.id, context.id)
-  ).map((entry) => ({ ...entry, value: parseJson(entry.value_json), value_json: undefined }));
+      .all(workspaceId, project.id, context.id)
+  )
+    .filter((entry) => canWrite || entry.status === "accepted")
+    .map((entry) => ({ ...entry, value: parseJson(entry.value_json), value_json: undefined }));
 
   return {
     project,
     context,
     contexts,
+    access: {
+      project_role: access.projectRole,
+      context_role: access.contextRole,
+      can_write: canWrite,
+      can_manage: access.contextRole === "manager",
+    },
     saved,
     needs_attention: needsAttention,
     removed,

@@ -118,7 +118,7 @@ test("every project receives one protected Owner membership", async () => {
   assert.equal(collaborators.status, 200);
   const html = await collaborators.text();
   assert.match(html, /membership-owner@alice\.example/);
-  assert.match(html, /Ownership transfer.*remain unavailable/s);
+  assert.match(html, /Ownership transfer is atomic/s);
 });
 
 test("only the exact invited account can accept a hash-only project invitation", async () => {

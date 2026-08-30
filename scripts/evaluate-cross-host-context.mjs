@@ -67,8 +67,9 @@ async function seedCase(evaluationCase) {
       .prepare(
         `INSERT INTO evidence_events
           (id, workspace_id, project_id, exact_payload_json, actor_type, connection_id,
-           client_id, client_classification, tool_name, idempotency_key, payload_hash, created_at)
-         VALUES (?, ?, ?, ?, 'mcp_host', 'evaluation-connection', 'evaluation-client', ?,
+           connection_workspace_id, client_id, client_classification, tool_name,
+           idempotency_key, payload_hash, created_at)
+         VALUES (?, ?, ?, ?, 'mcp_host', 'evaluation-connection', ?, 'evaluation-client', ?,
                  'save_project_update', ?, ?, ?)`,
       )
       .run(
@@ -76,6 +77,7 @@ async function seedCase(evaluationCase) {
         identity.workspace_id,
         fixture.project.id,
         JSON.stringify({ fixture_decision: decision.id, value: decision.value }),
+        identity.workspace_id,
         evaluationCase.host,
         `accepted-${decision.id}`,
         `payload-hash-${decision.id}`,
@@ -123,8 +125,9 @@ async function seedCase(evaluationCase) {
       .prepare(
         `INSERT INTO evidence_events
           (id, workspace_id, project_id, exact_payload_json, actor_type, connection_id,
-           client_id, client_classification, tool_name, idempotency_key, payload_hash, created_at)
-         VALUES (?, ?, ?, ?, 'mcp_host', 'evaluation-connection', 'evaluation-client', ?,
+           connection_workspace_id, client_id, client_classification, tool_name,
+           idempotency_key, payload_hash, created_at)
+         VALUES (?, ?, ?, ?, 'mcp_host', 'evaluation-connection', ?, 'evaluation-client', ?,
                  'save_project_update', ?, ?, ?)`,
       )
       .run(
@@ -132,6 +135,7 @@ async function seedCase(evaluationCase) {
         identity.workspace_id,
         fixture.project.id,
         JSON.stringify({ fixture_pending: pending.id, value: pending.value }),
+        identity.workspace_id,
         evaluationCase.host,
         pending.id,
         `payload-hash-${pending.id}`,

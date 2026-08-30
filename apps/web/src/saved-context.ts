@@ -50,7 +50,7 @@ function savedCards(view) {
   return view.saved
     .map(
       (entry) =>
-        `<article><h2>${escapeHtml(entry.state_key)}</h2><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${provenance(entry)}<p><a href="/projects/${encodeURIComponent(view.project.id)}/saved-context/${encodeURIComponent(entry.id)}/remove?context_id=${encodeURIComponent(view.context.id)}">Remove from active context</a></p></article>`,
+        `<article><h2>${escapeHtml(entry.state_key)}</h2><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${provenance(entry)}${view.access.can_write ? `<p><a href="/projects/${encodeURIComponent(view.project.id)}/saved-context/${encodeURIComponent(entry.id)}/remove?context_id=${encodeURIComponent(view.context.id)}">Remove from active context</a></p>` : ""}</article>`,
     )
     .join("");
 }

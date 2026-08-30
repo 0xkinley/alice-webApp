@@ -6,10 +6,12 @@ import {
   getProjectCollaborators,
   getProjectInvitationPreview,
   getProjectMembershipView,
+  leaveProject,
   ProjectMembershipUserError,
   removeProjectMember,
   resendProjectInvitation,
   revokeProjectInvitation,
+  transferProjectOwnership,
   updateProjectMemberRole,
 } from "@alice/domain";
 import { authenticatedUser, renderPage, requireAuthenticatedUser } from "./auth.ts";
@@ -96,7 +98,7 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
           const controls =
             member.role === "owner"
               ? ""
-              : `<form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/collaborators/${encodeURIComponent(member.id)}/role"><label>Project role<select name="role"><option value="editor"${member.role === "editor" ? " selected" : ""}>Editor</option><option value="viewer"${member.role === "viewer" ? " selected" : ""}>Viewer</option></select></label><button type="submit">Update role</button></form><form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/collaborators/${encodeURIComponent(member.id)}/remove"><button type="submit">Remove access</button></form>`;
+              : `<form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/collaborators/${encodeURIComponent(member.id)}/role"><label>Project role<select name="role"><option value="editor"${member.role === "editor" ? " selected" : ""}>Editor</option><option value="viewer"${member.role === "viewer" ? " selected" : ""}>Viewer</option></select></label><button type="submit">Update role</button></form><form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/collaborators/${encodeURIComponent(member.id)}/transfer-ownership"><button type="submit">Transfer ownership to this member</button></form><form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/collaborators/${encodeURIComponent(member.id)}/remove"><button type="submit">Remove access</button></form>`;
           return `<article><h3>${escapeHtml(member.email)}${isCurrentUser ? " (you)" : ""}</h3><p>${escapeHtml(member.role)}</p>${controls}</article>`;
         })
         .join("");
@@ -115,7 +117,7 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
         .send(
           renderPage(
             `Collaborators · ${view.project.name}`,
-            `<nav><a href="/projects/${encodeURIComponent(view.project.project_id)}">Back to project</a></nav><h1>Collaborators</h1><p><strong>${escapeHtml(view.project.name)}</strong></p><p>Owners administer project access. Editors can change permitted contexts; Viewers can read permitted contexts. Context visibility is enforced separately and never broadens because of a project role.</p><h2>People with access</h2>${members}<h2>Invite a collaborator</h2><form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/invitations"><label>Email<input type="email" name="email" maxlength="254" required></label><label>Project role<select name="role"><option value="editor">Editor</option><option value="viewer">Viewer</option></select></label><button type="submit">Create private invitation link</button></form><p class="muted">alice. does not send email in this local foundation. Deliver the one-time link privately to the exact recipient.</p><h2>Invitation history</h2>${invitations || "<p>No project invitations yet.</p>"}<h2>Ownership safety</h2><p>Ownership transfer and Owner departure remain unavailable until every project and context path authorizes from membership. The current Owner cannot be removed or demoted.</p>`,
+            `<nav><a href="/projects/${encodeURIComponent(view.project.project_id)}">Back to project</a></nav><h1>Collaborators</h1><p><strong>${escapeHtml(view.project.name)}</strong></p><p>Owners administer project access. Editors can change permitted contexts; Viewers can read permitted contexts. Context visibility is enforced separately and never broadens because of a project role.</p><h2>People with access</h2>${members}<h2>Invite a collaborator</h2><form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/invitations"><label>Email<input type="email" name="email" maxlength="254" required></label><label>Project role<select name="role"><option value="editor">Editor</option><option value="viewer">Viewer</option></select></label><button type="submit">Create private invitation link</button></form><p class="muted">alice. does not send email in this local foundation. Deliver the one-time link privately to the exact recipient.</p><h2>Invitation history</h2>${invitations || "<p>No project invitations yet.</p>"}<h2>Ownership safety</h2><p>Ownership transfer is atomic: the selected member becomes Owner before your role changes to Editor. Restricted and personal context visibility is not broadened by transfer.</p>`,
           ),
         );
     },
@@ -133,14 +135,18 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
       if (!membership) return notFound(response);
       const ownerLinks =
         membership.role === "owner"
-          ? `<p><a href="/projects/${encodeURIComponent(membership.project_id)}">Open project</a> · <a href="/projects/${encodeURIComponent(membership.project_id)}/collaborators">Manage collaborators</a></p>`
+          ? ` · <a href="/projects/${encodeURIComponent(membership.project_id)}/collaborators">Manage collaborators</a>`
           : "";
+      const leaveControl =
+        membership.role === "owner"
+          ? "<p>Transfer ownership before leaving this project.</p>"
+          : `<form method="post" action="/projects/${encodeURIComponent(membership.project_id)}/leave"><button type="submit">Leave project</button></form>`;
       response
         .type("html")
         .send(
           renderPage(
             `Project access · ${membership.name}`,
-            `<nav><a href="/">Projects</a></nav><h1>${escapeHtml(membership.name)}</h1><p>${escapeHtml(membership.brief)}</p><article><h2>Your project access</h2><p>${escapeHtml(membership.role)}</p><p>Project membership does not reveal a restricted context. Context-level access is checked separately.</p></article>${ownerLinks}`,
+            `<nav><a href="/">Projects</a></nav><h1>${escapeHtml(membership.name)}</h1><p>${escapeHtml(membership.brief)}</p><p><a href="/projects/${encodeURIComponent(membership.project_id)}">Open project</a>${ownerLinks}</p><article><h2>Your project access</h2><p>${escapeHtml(membership.role)}</p><p>Project membership does not reveal a restricted context. Context-level access is checked separately.</p>${leaveControl}</article>`,
           ),
         );
     },
@@ -238,19 +244,55 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
   );
 
   router.post(
+    "/projects/:projectId/collaborators/:membershipId/transfer-ownership",
+    requireAuthenticatedUser(database),
+    async (request, response) => {
+      try {
+        const transferred = await transferProjectOwnership(database, {
+          userId: request.aliceUser!.id,
+          projectId: request.params.projectId,
+          membershipId: request.params.membershipId,
+        });
+        if (!transferred) return notFound(response);
+        response.redirect(303, `/projects/${encodeURIComponent(request.params.projectId)}/access`);
+      } catch (error) {
+        return actionError(response, error);
+      }
+    },
+  );
+
+  router.post(
     "/projects/:projectId/collaborators/:membershipId/remove",
     requireAuthenticatedUser(database),
     async (request, response) => {
-      const removed = await removeProjectMember(database, {
-        userId: request.aliceUser!.id,
-        projectId: request.params.projectId,
-        membershipId: request.params.membershipId,
-      });
-      if (!removed) return notFound(response);
-      response.redirect(
-        303,
-        `/projects/${encodeURIComponent(request.params.projectId)}/collaborators`,
-      );
+      try {
+        const removed = await removeProjectMember(database, {
+          userId: request.aliceUser!.id,
+          projectId: request.params.projectId,
+          membershipId: request.params.membershipId,
+        });
+        if (!removed) return notFound(response);
+        response.redirect(
+          303,
+          `/projects/${encodeURIComponent(request.params.projectId)}/collaborators`,
+        );
+      } catch (error) {
+        return actionError(response, error);
+      }
+    },
+  );
+
+  router.post(
+    "/projects/:projectId/leave",
+    requireAuthenticatedUser(database),
+    async (request, response) => {
+      try {
+        const left = await leaveProject(database, request.aliceUser!.id, request.params.projectId);
+        if (!left) return notFound(response);
+        response.redirect(303, "/");
+      } catch (error) {
+        return actionError(response, error);
+      }
     },
   );
 

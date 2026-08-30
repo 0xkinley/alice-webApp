@@ -1,6 +1,57 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appendAuditEvent } from "./audit.ts";
-import { tenantScopeForUser } from "./authorization.ts";
+import { contextScopeForUser } from "./authorization.ts";
+
+async function candidateAccess(database, userId, candidateId) {
+  const target = await database
+    .prepare(
+      `SELECT candidate.project_id, target.context_id
+       FROM candidate_claims candidate
+       JOIN candidate_context_targets target
+         ON target.workspace_id = candidate.workspace_id
+        AND target.project_id = candidate.project_id
+        AND target.candidate_id = candidate.id
+       WHERE candidate.id = ?`,
+    )
+    .get(candidateId);
+  if (!target) return undefined;
+  return await contextScopeForUser(database, {
+    userId,
+    projectId: target.project_id,
+    contextId: target.context_id,
+    capability: "write",
+  });
+}
+
+async function captureAccess(database, userId, evidenceId) {
+  const target = await database
+    .prepare(
+      `SELECT evidence.project_id, target.context_id
+       FROM evidence_events evidence
+       JOIN candidate_claims candidate
+         ON candidate.workspace_id = evidence.workspace_id
+        AND candidate.project_id = evidence.project_id
+        AND candidate.evidence_id = evidence.id
+       JOIN candidate_context_targets target
+         ON target.workspace_id = candidate.workspace_id
+        AND target.project_id = candidate.project_id
+        AND target.candidate_id = candidate.id
+       WHERE evidence.id = ?
+       ORDER BY candidate.id LIMIT 1`,
+    )
+    .get(evidenceId);
+  if (!target) return undefined;
+  return await contextScopeForUser(database, {
+    userId,
+    projectId: target.project_id,
+    contextId: target.context_id,
+    capability: "write",
+  });
+}
+
+function projectTenant(scope) {
+  return { workspaceId: scope.projectWorkspaceId, userId: scope.userId };
+}
 
 async function pendingCandidate(database, workspaceId, candidateId) {
   return database
@@ -182,9 +233,9 @@ async function buildCapturePreview(database, tenant, evidenceId, options = {}) {
 }
 
 export async function getCapturePreview(database, { evidenceId, userId }) {
-  const tenant = await tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
-  return buildCapturePreview(database, tenant, evidenceId);
+  const access = await captureAccess(database, userId, evidenceId);
+  if (!access) return undefined;
+  return buildCapturePreview(database, projectTenant(access), evidenceId);
 }
 
 async function acceptPendingCandidate(database, options) {
@@ -273,8 +324,9 @@ export async function confirmCapturedUpdate(
   database,
   { evidenceId, expectedPreviewVersion, userId },
 ) {
-  const tenant = await tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
+  const access = await captureAccess(database, userId, evidenceId);
+  if (!access) return undefined;
+  const tenant = projectTenant(access);
   return database.transaction(
     async () => {
       const captured = await captureCandidates(database, tenant, evidenceId, { lock: true });
@@ -342,8 +394,9 @@ export async function cancelCapturedUpdate(
   database,
   { evidenceId, expectedPreviewVersion, userId },
 ) {
-  const tenant = await tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
+  const access = await captureAccess(database, userId, evidenceId);
+  if (!access) return undefined;
+  const tenant = projectTenant(access);
   return database.transaction(
     async () => {
       const preview = await buildCapturePreview(database, tenant, evidenceId, { lock: true });
@@ -408,8 +461,9 @@ export async function cancelCapturedUpdate(
 }
 
 export async function acceptCandidate(database, { candidateId, userId }) {
-  const tenant = await tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
+  const access = await candidateAccess(database, userId, candidateId);
+  if (!access) return undefined;
+  const tenant = projectTenant(access);
   return database.transaction(
     async () => {
       const candidate = await pendingCandidate(database, tenant.workspaceId, candidateId);
@@ -442,8 +496,9 @@ export async function supersedeAcceptedState(
   database,
   { candidateId, supersededAcceptedStateId, userId },
 ) {
-  const tenant = await tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
+  const access = await candidateAccess(database, userId, candidateId);
+  if (!access) return undefined;
+  const tenant = projectTenant(access);
   return database.transaction(
     async () => {
       const candidate = await pendingCandidate(database, tenant.workspaceId, candidateId);
@@ -473,8 +528,9 @@ export async function supersedeAcceptedState(
 }
 
 export async function rejectCandidate(database, { candidateId, userId }) {
-  const tenant = await tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
+  const access = await candidateAccess(database, userId, candidateId);
+  if (!access) return undefined;
+  const tenant = projectTenant(access);
   return database.transaction(
     async () => {
       const candidate = await pendingCandidate(database, tenant.workspaceId, candidateId);

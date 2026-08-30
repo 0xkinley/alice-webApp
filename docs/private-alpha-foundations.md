@@ -98,7 +98,7 @@ Migration `009_file_reference_versions.sql` groups immutable references into a l
 
 Clean UTF-8 text and Markdown previews are fetched by exact object version, rechecked against immutable size and SHA-256, escaped, and labelled untrusted. Clean PNG/JPEG/WebP previews receive the same integrity check plus `nosniff`, no-store, and sandbox/default-deny response headers. PDF content is deliberately not rendered inline. The authorized context metadata export contains version, hash, provenance, scan, and removal history but no storage key, storage version, credential, or signed URL.
 
-This is a local/provider-adapter foundation, not completion of the file milestone tasks. No AWS resource or IAM policy exists yet, live GuardDuty behavior and public-access denial have not been exercised, and audience controls, privileged erasure, host attachment transfer, extraction, and MCP file retrieval remain unimplemented. Removal applies to one logical context reference only and is explicitly not permanent object deletion. File routes stay disabled when the server-only storage configuration is absent.
+This is a local/provider-adapter foundation, not completion of the file milestone tasks. No AWS resource or IAM policy exists yet, live GuardDuty behavior and public-access denial have not been exercised, and privileged erasure, host attachment transfer, extraction, and MCP file retrieval remain unimplemented. File audience now inherits the active project/context authorization policy, including restricted and personal contexts, but no live object-storage claim is made. Removal applies to one logical context reference only and is explicitly not permanent object deletion. File routes stay disabled when the server-only storage configuration is absent.
 
 ### Removal, archive, export, and erasure
 
@@ -123,9 +123,11 @@ Initial project roles are:
 
 Invitations are explicit, expiring, single-recipient grants with accept, decline, revoke, and resend lifecycle. The final owner cannot leave or be removed until ownership transfers or the project is safely archived/deleted under policy.
 
-Migration `010_project_memberships.sql` implements the first safe collaboration boundary. Every existing and new project has a protected Owner membership. Owners can issue hash-only Editor/Viewer invitation links, replace or revoke pending links, change a non-owner role, and remove a non-owner while retaining the membership row and append-only safe audit history. Only the exact signed-in recipient email can preview, accept, or decline; foreign and guessed tokens disclose no project or recipient metadata, and concurrent PostgreSQL acceptance creates one membership.
+Migration `010_project_memberships.sql` implements the invitation and membership-history boundary. Every existing and new project has a protected Owner membership. Owners can issue hash-only Editor/Viewer invitation links, replace or revoke pending links, change a non-owner role, and remove a non-owner while retaining the membership row and append-only safe audit history. Only the exact signed-in recipient email can preview, accept, or decline; foreign and guessed tokens disclose no project or recipient metadata, and concurrent PostgreSQL acceptance creates one membership.
 
-This is deliberately a membership lifecycle foundation, not completed collaboration authorization. Accepted collaborators can see the bounded project summary and their role, but cannot read project contexts or intelligence yet. Ownership transfer and Owner departure are withheld until every legacy workspace-scoped project/context path authorizes from active membership and context capability; displaying them earlier would falsely imply that the originating workspace user had lost access.
+Migration `011_context_access.sql` completes the current project/context authorization conversion. Every project read and write now resolves an active membership; every context, selection, capture, review, saved-context, file, and consumption path additionally resolves the required context capability. The project's originating workspace remains its immutable data anchor but is no longer authority for its original user to bypass a membership or context grant. A collaborator's AI connection remains anchored to that collaborator's private workspace while active targets and evidence record the separate destination project workspace.
+
+Ownership transfer is atomic: the successor becomes Owner before the actor becomes Editor. An Owner must transfer before leaving. Member removal or departure ends active grants in the same transaction and is blocked when an active personal context lacks disposition or a selected context created by that member lacks another explicit Manager. The database continues to reject deletion and ended-history rewrites.
 
 ### Context permissions
 
@@ -136,6 +138,8 @@ A context can be visible to:
 - only its creator as a personal draft.
 
 Context capabilities are Viewer, Editor, and Manager, bounded by the user's project role. A context grant cannot elevate a project Viewer into a project Owner or reveal a project they cannot access. The UI must clearly disclose whether project owners can administer restricted contexts; the implementation and participant copy must agree.
+
+The implemented rule is deliberately privacy-preserving: project-wide and `all_members` contexts derive Manager/Editor/Viewer behavior from the project role; `selected_members` contexts require an explicit grant except that their active creator is an implicit Manager; and `personal` contexts are visible only to their active creator. A project Owner does not automatically see or administer a selected-members or personal context. An Owner or Editor may receive Viewer, Editor, or Manager context access, while a project Viewer is bounded to context Viewer and never writes. Context grant creation, role change, and ending append content-free context history and audit records; identities and ended rows remain immutable.
 
 Item-level access control is not part of the first collaboration version. If information needs a different audience, it belongs in a separate context. Moving or grouping content across contexts requires authorization for both source and destination and must never broaden access silently.
 

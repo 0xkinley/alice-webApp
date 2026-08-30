@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { appendAuditEvent } from "./audit.ts";
-import { tenantScopeForUser } from "./authorization.ts";
+import { contextScopeForUser, tenantScopeForUser } from "./authorization.ts";
 
 export async function listIntegrationConnections(database, userId) {
   const tenant = await tenantScopeForUser(database, userId);
   if (!tenant) return [];
-  return await database
+  const connections = await database
     .prepare(
       `SELECT connection.id, connection.client_classification, connection.granted_scopes,
               connection.first_connected_at, connection.last_used_at, connection.revoked_at,
@@ -16,14 +16,37 @@ export async function listIntegrationConnections(database, userId) {
        JOIN oauth_clients client ON client.client_id = connection.client_id
        LEFT JOIN active_connection_targets target ON target.connection_id = connection.id
        LEFT JOIN projects project
-         ON project.workspace_id = target.workspace_id AND project.id = target.project_id
+         ON project.workspace_id = target.project_workspace_id AND project.id = target.project_id
        LEFT JOIN work_contexts context
-         ON context.workspace_id = target.workspace_id
+         ON context.workspace_id = target.project_workspace_id
         AND context.project_id = target.project_id AND context.id = target.context_id
        WHERE connection.user_id = ? AND connection.workspace_id = ?
        ORDER BY connection.revoked_at IS NOT NULL, connection.last_used_at DESC, connection.id`,
     )
     .all(tenant.userId, tenant.workspaceId);
+  const visible: any[] = [];
+  for (const connection of connections) {
+    if (
+      connection.project_id &&
+      !(await contextScopeForUser(database, {
+        userId,
+        projectId: connection.project_id,
+        contextId: connection.context_id,
+      }))
+    ) {
+      visible.push({
+        ...connection,
+        project_id: null,
+        context_id: null,
+        target_version: null,
+        project_name: null,
+        context_name: null,
+      });
+    } else {
+      visible.push(connection);
+    }
+  }
+  return visible;
 }
 
 export async function revokeIntegrationConnection(database, { userId, connectionId }) {

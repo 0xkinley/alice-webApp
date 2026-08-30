@@ -6,6 +6,7 @@ import {
   acceptCandidate,
   acceptProjectInvitation,
   confirmCapturedUpdate,
+  createWorkContext,
   createProjectInvitation,
   getCapturePreview,
   getProjectContext,
@@ -14,10 +15,12 @@ import {
   getRemovalPreview,
   getSavedContextView,
   issueAlphaInvitation,
+  grantContextAccess,
   registerUser,
   removeSavedContextEntry,
   removeProjectFileReference,
   removeProjectMember,
+  endContextAccess,
   refreshProjectFileScan,
   saveCandidateUpdate,
   setActiveConnectionTarget,
@@ -161,12 +164,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 8, filename: "008_file_reference_exclusions.sql" },
     { version: 9, filename: "009_file_reference_versions.sql" },
     { version: 10, filename: "010_project_memberships.sql" },
+    { version: 11, filename: "011_context_access.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    10,
+    11,
   );
   await reopened.close();
 });
@@ -227,6 +231,95 @@ test("concurrent project-invitation acceptance creates one protected membership"
     database
       .prepare("UPDATE project_memberships SET role = 'editor', updated_at = ? WHERE id = ?")
       .run(new Date().toISOString(), membership.id),
+  );
+});
+
+test("concurrent restricted-context grants create one immutable bounded grant", async () => {
+  const grantOwner = await createTestIdentity(database, {
+    email: "postgres-context-owner@alice.example",
+    password: "postgres context owner private password",
+    projectId: "project_postgres_context_grants",
+  });
+  const grantMember = await createTestIdentity(database, {
+    email: "postgres-context-member@alice.example",
+    password: "postgres context member private password",
+    projectId: "project_postgres_context_member",
+  });
+  const invitation = await createProjectInvitation(database, {
+    userId: grantOwner.id,
+    projectId: grantOwner.project_id,
+    email: grantMember.email,
+    role: "editor",
+  });
+  await acceptProjectInvitation(database, grantMember.id, invitation.token);
+  const membership = await database
+    .prepare(
+      `SELECT id FROM project_memberships
+       WHERE project_id = ? AND user_id = ? AND ended_at IS NULL`,
+    )
+    .get(grantOwner.project_id, grantMember.id);
+  const context = await createWorkContext(database, {
+    userId: grantOwner.id,
+    projectId: grantOwner.project_id,
+    input: {
+      name: "PostgreSQL restricted grant",
+      description: "Concurrent context grant fixture.",
+      visibility: "selected_members",
+    },
+  });
+  const attempts = await Promise.allSettled(
+    Array.from({ length: 2 }, () =>
+      grantContextAccess(database, {
+        userId: grantOwner.id,
+        projectId: grantOwner.project_id,
+        contextId: context.id,
+        membershipId: membership.id,
+        role: "editor",
+      }),
+    ),
+  );
+  assert.equal(attempts.filter(({ status }) => status === "fulfilled").length, 1);
+  assert.equal(attempts.filter(({ status }) => status === "rejected").length, 1);
+  const grant = await database
+    .prepare(
+      `SELECT id FROM context_access_grants
+       WHERE context_id = ? AND user_id = ? AND ended_at IS NULL`,
+    )
+    .get(context.id, grantMember.id);
+  await assert.rejects(
+    database
+      .prepare("UPDATE context_access_grants SET user_id = ? WHERE id = ?")
+      .run(grantOwner.id, grant.id),
+  );
+  await assert.rejects(
+    database.prepare("DELETE FROM context_access_grants WHERE id = ?").run(grant.id),
+  );
+  await endContextAccess(database, {
+    userId: grantOwner.id,
+    projectId: grantOwner.project_id,
+    contextId: context.id,
+    grantId: grant.id,
+  });
+  await assert.rejects(
+    database.prepare("UPDATE context_access_grants SET role = 'viewer' WHERE id = ?").run(grant.id),
+  );
+  await createWorkContext(database, {
+    userId: grantMember.id,
+    projectId: grantOwner.project_id,
+    input: {
+      name: "PostgreSQL personal departure blocker",
+      description: "Database-level membership departure guard fixture.",
+      visibility: "personal",
+    },
+  });
+  const endedAt = new Date().toISOString();
+  await assert.rejects(
+    database
+      .prepare(
+        `UPDATE project_memberships
+         SET ended_at = ?, ended_by_user_id = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(endedAt, grantOwner.id, endedAt, membership.id),
   );
 });
 

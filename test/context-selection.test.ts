@@ -31,14 +31,16 @@ async function createContextFixture() {
       .prepare(
         `INSERT INTO evidence_events
           (id, workspace_id, project_id, exact_payload_json, actor_type, connection_id,
-           client_id, client_classification, tool_name, idempotency_key, payload_hash, created_at)
-         VALUES (?, ?, ?, '{}', 'mcp_host', 'fixture-connection', 'fixture-client', 'test',
+           connection_workspace_id, client_id, client_classification, tool_name,
+           idempotency_key, payload_hash, created_at)
+         VALUES (?, ?, ?, '{}', 'mcp_host', 'fixture-connection', ?, 'fixture-client', 'test',
                  'save_project_update', ?, ?, ?)`,
       )
       .run(
         evidenceId,
         identity.workspace_id,
         identity.project_id,
+        identity.workspace_id,
         `fixture-${id}`,
         `hash-${id}`,
         timestamp,

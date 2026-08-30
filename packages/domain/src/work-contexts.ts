@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { createWorkContextSchema } from "@alice/schemas";
 import { appendAuditEvent } from "./audit.ts";
-import { tenantScopeForUser } from "./authorization.ts";
+import {
+  contextScopeForUser,
+  projectScopeForUser,
+  type ProjectCapability,
+} from "./authorization.ts";
 
 function normalizedTerms(value) {
   return [
@@ -33,13 +37,8 @@ function similarityScore(input, context) {
   );
 }
 
-async function projectForUser(database, userId, projectId) {
-  const tenant = await tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
-  const project = await database
-    .prepare("SELECT id, workspace_id FROM projects WHERE id = ? AND workspace_id = ?")
-    .get(projectId, tenant.workspaceId);
-  return project ? { project, tenant } : undefined;
+async function projectForUser(database, userId, projectId, capability: ProjectCapability = "read") {
+  return await projectScopeForUser(database, { userId, projectId, capability });
 }
 
 async function appendContextHistory(
@@ -117,7 +116,7 @@ export async function provisionInitialWorkContexts(
 export async function listWorkContexts(database, userId, projectId) {
   const access = await projectForUser(database, userId, projectId);
   if (!access) return undefined;
-  return await database
+  const contexts = await database
     .prepare(
       `SELECT id, name, description, context_kind, visibility, created_by_user_id,
               created_at, updated_at, archived_at
@@ -125,10 +124,29 @@ export async function listWorkContexts(database, userId, projectId) {
        WHERE workspace_id = ? AND project_id = ? AND archived_at IS NULL
        ORDER BY context_kind, name, id`,
     )
-    .all(access.tenant.workspaceId, projectId);
+    .all(access.projectWorkspaceId, projectId);
+  const permitted: any[] = [];
+  for (const context of contexts) {
+    const contextAccess = await contextScopeForUser(database, {
+      userId,
+      projectId,
+      contextId: context.id,
+    });
+    if (contextAccess) {
+      permitted.push({
+        ...context,
+        context_role: contextAccess.contextRole,
+        project_role: contextAccess.projectRole,
+        can_write: contextAccess.projectRole !== "viewer" && contextAccess.contextRole !== "viewer",
+        can_manage: contextAccess.contextRole === "manager",
+      });
+    }
+  }
+  return permitted;
 }
 
 export async function suggestSimilarWorkContexts(database, { userId, projectId, input }) {
+  if (!(await projectForUser(database, userId, projectId, "write"))) return undefined;
   const parsed = createWorkContextSchema.parse(input);
   const contexts = await listWorkContexts(database, userId, projectId);
   if (!contexts) return undefined;
@@ -145,7 +163,7 @@ export async function suggestSimilarWorkContexts(database, { userId, projectId, 
 }
 
 export async function createWorkContext(database, { userId, projectId, input }) {
-  const access = await projectForUser(database, userId, projectId);
+  const access = await projectForUser(database, userId, projectId, "write");
   if (!access) return undefined;
   const parsed = createWorkContextSchema.parse(input);
   const contextId = `context_${randomUUID()}`;
@@ -157,28 +175,33 @@ export async function createWorkContext(database, { userId, projectId, input }) 
           `INSERT INTO work_contexts
             (id, workspace_id, project_id, name, description, context_kind, visibility,
              created_by_user_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'work', 'all_members', ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, 'work', ?, ?, ?, ?)`,
         )
         .run(
           contextId,
-          access.tenant.workspaceId,
+          access.projectWorkspaceId,
           projectId,
           parsed.name,
           parsed.description,
+          parsed.visibility,
           userId,
           createdAt,
           createdAt,
         );
       await appendContextHistory(database, {
-        workspaceId: access.tenant.workspaceId,
+        workspaceId: access.projectWorkspaceId,
         projectId,
         contextId,
         action: "context_created",
         actorUserId: userId,
-        metadata: { context_id: contextId, context_kind: "work" },
+        metadata: {
+          context_id: contextId,
+          context_kind: "work",
+          visibility: parsed.visibility,
+        },
       });
       await appendAuditEvent(database, {
-        workspaceId: access.tenant.workspaceId,
+        workspaceId: access.projectWorkspaceId,
         projectId,
         action: "work_context_created",
         actorType: "human_user",
@@ -201,21 +224,21 @@ export async function createWorkContext(database, { userId, projectId, input }) 
     name: parsed.name,
     description: parsed.description,
     context_kind: "work",
-    visibility: "all_members",
+    visibility: parsed.visibility,
     created_at: createdAt,
     updated_at: createdAt,
   };
 }
 
 export async function getWorkContextHistory(database, { userId, projectId, contextId }) {
-  const access = await projectForUser(database, userId, projectId);
+  const access = await contextScopeForUser(database, { userId, projectId, contextId });
   if (!access) return undefined;
   const context = await database
     .prepare(
       `SELECT id FROM work_contexts
        WHERE id = ? AND workspace_id = ? AND project_id = ?`,
     )
-    .get(contextId, access.tenant.workspaceId, projectId);
+    .get(contextId, access.projectWorkspaceId, projectId);
   if (!context) return undefined;
   return await database
     .prepare(
@@ -224,5 +247,5 @@ export async function getWorkContextHistory(database, { userId, projectId, conte
        WHERE workspace_id = ? AND project_id = ? AND context_id = ?
        ORDER BY created_at, id`,
     )
-    .all(access.tenant.workspaceId, projectId, contextId);
+    .all(access.projectWorkspaceId, projectId, contextId);
 }

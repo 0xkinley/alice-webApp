@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appendAuditEvent } from "./audit.ts";
-import { tenantScopeForUser } from "./authorization.ts";
+import { contextScopeForUser, type ContextCapability } from "./authorization.ts";
 
 export const FILE_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
 
@@ -179,9 +179,15 @@ export function validateProjectFile(input: {
   };
 }
 
-async function authorizedContext(database, userId: string, projectId: string, contextId: string) {
-  const tenant = await tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
+async function authorizedContext(
+  database,
+  userId: string,
+  projectId: string,
+  contextId: string,
+  capability: ContextCapability = "read",
+) {
+  const access = await contextScopeForUser(database, { userId, projectId, contextId, capability });
+  if (!access) return undefined;
   const context = await database
     .prepare(
       `SELECT p.id AS project_id, p.name AS project_name, c.id AS context_id, c.name AS context_name
@@ -189,9 +195,14 @@ async function authorizedContext(database, userId: string, projectId: string, co
        JOIN work_contexts c ON c.workspace_id = p.workspace_id AND c.project_id = p.id
        WHERE p.workspace_id = ? AND p.id = ? AND c.id = ? AND c.archived_at IS NULL`,
     )
-    .get(tenant.workspaceId, projectId, contextId);
+    .get(access.projectWorkspaceId, projectId, contextId);
   if (!context) return undefined;
-  return { ...context, workspaceId: tenant.workspaceId };
+  return {
+    ...context,
+    workspaceId: access.projectWorkspaceId,
+    contextRole: access.contextRole,
+    projectRole: access.projectRole,
+  };
 }
 
 export async function uploadProjectFile(
@@ -209,7 +220,13 @@ export async function uploadProjectFile(
   },
 ) {
   const file = validateProjectFile(input);
-  const context = await authorizedContext(database, input.userId, input.projectId, input.contextId);
+  const context = await authorizedContext(
+    database,
+    input.userId,
+    input.projectId,
+    input.contextId,
+    "write",
+  );
   if (!context) return undefined;
 
   const correlationId = `file_upload_${randomUUID()}`;
@@ -549,6 +566,12 @@ export async function listProjectFiles(
   );
   return {
     context,
+    access: {
+      project_role: context.projectRole,
+      context_role: context.contextRole,
+      can_write: context.projectRole !== "viewer" && context.contextRole !== "viewer",
+      can_manage: context.contextRole === "manager",
+    },
     files,
     removed,
     versions: rows,
@@ -562,11 +585,23 @@ async function authorizedFileReference(
     projectId: string;
     referenceId: string;
   },
-  { currentCleanOnly = false } = {},
+  { currentCleanOnly = false, capability = "read" as ContextCapability } = {},
 ) {
-  const tenant = await tenantScopeForUser(database, input.userId);
-  if (!tenant) return undefined;
-  return await database
+  const seed = await database
+    .prepare(
+      `SELECT workspace_id, context_id FROM file_context_references
+       WHERE project_id = ? AND id = ?`,
+    )
+    .get(input.projectId, input.referenceId);
+  if (!seed) return undefined;
+  const access = await contextScopeForUser(database, {
+    userId: input.userId,
+    projectId: input.projectId,
+    contextId: seed.context_id,
+    capability,
+  });
+  if (!access || seed.workspace_id !== access.projectWorkspaceId) return undefined;
+  const reference = await database
     .prepare(
       `SELECT r.id, r.context_id, r.logical_file_id, r.version, r.display_name,
               r.file_object_id, o.content_sha256, o.byte_size,
@@ -604,7 +639,36 @@ async function authorizedFileReference(
              : ""
          }`,
     )
-    .get(tenant.workspaceId, input.projectId, input.referenceId);
+    .get(access.projectWorkspaceId, input.projectId, input.referenceId);
+  return reference
+    ? {
+        ...reference,
+        workspaceId: access.projectWorkspaceId,
+        projectRole: access.projectRole,
+        contextRole: access.contextRole,
+      }
+    : undefined;
+}
+
+async function fileReferenceAccess(
+  database,
+  input: { userId: string; projectId: string; referenceId: string },
+  capability: ContextCapability = "read",
+) {
+  const seed = await database
+    .prepare(
+      `SELECT workspace_id, context_id FROM file_context_references
+       WHERE project_id = ? AND id = ?`,
+    )
+    .get(input.projectId, input.referenceId);
+  if (!seed) return undefined;
+  const access = await contextScopeForUser(database, {
+    userId: input.userId,
+    projectId: input.projectId,
+    contextId: seed.context_id,
+    capability,
+  });
+  return access && access.projectWorkspaceId === seed.workspace_id ? access : undefined;
 }
 
 async function fileReferenceView(
@@ -671,8 +735,9 @@ export async function getProjectFileView(
     referenceId: string;
   },
 ) {
-  const tenant = await tenantScopeForUser(database, input.userId);
-  if (!tenant) return undefined;
+  const access = await fileReferenceAccess(database, input);
+  if (!access) return undefined;
+  const tenant = { workspaceId: access.projectWorkspaceId };
   const file = await fileReferenceView(database, tenant, input);
   if (!file) return undefined;
   const versions = await database
@@ -698,6 +763,12 @@ export async function getProjectFileView(
   const latest = versions[0];
   return {
     ...file,
+    access: {
+      project_role: access.projectRole,
+      context_role: access.contextRole,
+      can_write: access.projectRole !== "viewer" && access.contextRole !== "viewer",
+      can_manage: access.contextRole === "manager",
+    },
     current_reference_id: current?.id,
     is_current: current?.id === file.id,
     can_replace:
@@ -716,6 +787,7 @@ export async function getProjectFileRemovalPreview(
     referenceId: string;
   },
 ) {
+  if (!(await fileReferenceAccess(database, input, "write"))) return undefined;
   const file = await getProjectFileView(database, input);
   if (!file || file.exclusion_id) return undefined;
   return { ...file, preview_version: fileRemovalPreviewVersion(file) };
@@ -731,8 +803,9 @@ export async function removeProjectFileReference(
     reason?: string;
   },
 ) {
-  const tenant = await tenantScopeForUser(database, input.userId);
-  if (!tenant) return undefined;
+  const access = await fileReferenceAccess(database, input, "write");
+  if (!access) return undefined;
+  const tenant = { workspaceId: access.projectWorkspaceId, userId: access.userId };
   const normalizedReason = String(input.reason || "").trim();
   if (normalizedReason.length > 500) {
     throw new ProjectFileUserError("Removal reason exceeds 500 characters.");
@@ -809,7 +882,7 @@ export async function refreshProjectFileScan(
   store: PrivateFileStore,
   input: { userId: string; projectId: string; referenceId: string },
 ) {
-  const reference = await authorizedFileReference(database, input);
+  const reference = await authorizedFileReference(database, input, { capability: "write" });
   if (!reference) return undefined;
   if (reference.scan_status !== "scanning") return reference;
   const result = await store.getScanResult({
@@ -818,17 +891,16 @@ export async function refreshProjectFileScan(
   });
   if (result === "pending") return reference;
   const nextStatus = result === "failed" ? "scan_failed" : result;
-  const tenant = await tenantScopeForUser(database, input.userId);
   await database.transaction(async () => {
     const updated = await database
       .prepare(
         `UPDATE file_objects SET scan_status = ?, scan_updated_at = ?
          WHERE workspace_id = ? AND id = ? AND scan_status = 'scanning'`,
       )
-      .run(nextStatus, new Date().toISOString(), tenant!.workspaceId, reference.file_object_id);
+      .run(nextStatus, new Date().toISOString(), reference.workspaceId, reference.file_object_id);
     if (updated.changes) {
       await appendAuditEvent(database, {
-        workspaceId: tenant!.workspaceId,
+        workspaceId: reference.workspaceId,
         projectId: input.projectId,
         action: "file_scan_completed",
         actorType: "human_user",

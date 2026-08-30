@@ -559,11 +559,19 @@ test("database composite keys reject cross-tenant project intelligence reference
         .prepare(
           `INSERT INTO evidence_events
             (id, workspace_id, project_id, exact_payload_json, actor_type, connection_id,
-             client_id, client_classification, tool_name, idempotency_key, payload_hash, created_at)
-           VALUES ('evidence_crossed', ?, ?, '{}', 'mcp_host', ?, ?, 'test',
+             connection_workspace_id, client_id, client_classification, tool_name,
+             idempotency_key, payload_hash, created_at)
+           VALUES ('evidence_crossed', ?, ?, '{}', 'mcp_host', ?, ?, ?, 'test',
                    'save_project_update', 'crossed-evidence', 'hash', ?)`,
         )
-        .run(beta.workspace_id, alpha.projectId, betaConnection.id, betaConnection.client_id, now),
+        .run(
+          beta.workspace_id,
+          alpha.projectId,
+          betaConnection.id,
+          beta.workspace_id,
+          betaConnection.client_id,
+          now,
+        ),
     /FOREIGN KEY constraint failed/,
   );
   assert.throws(
