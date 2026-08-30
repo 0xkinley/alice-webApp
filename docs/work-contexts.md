@@ -25,3 +25,11 @@ Suggestions never create, merge, rename, move, select, or broaden a context. The
 The current creation path emits `all_members` contexts but remains scoped to the authenticated owner's workspace until the collaboration task introduces memberships and restricted grants. Foreign and guessed project identifiers return no context list, similarity result, history, or mutation. Context visibility is already constrained to the future enum (`all_members`, `selected_members`, or `personal`) so collaboration cannot invent an unbounded access mode.
 
 Accepted version numbers remain globally monotonic for a project/state key, while the current-value/supersession check is context-specific. This permits the same stable key in separate work contexts without treating one context as a supersession of another, and the project/state advisory lock still serializes version allocation across concurrent contexts.
+
+## Active connection targets
+
+Migration `005_active_context_targets.sql` stores one explicit project/work-context target for each user connection. A target is bound by composite foreign keys to the same user/workspace connection and the same workspace/project context. Project-wide context cannot be selected directly; it is included automatically when a work context is consumed.
+
+The connection center lists only the authenticated user's permitted projects and work contexts, shows the target on every connection card, and requires a human POST to change it. The user may deliberately apply one choice to all currently active connections. Each form carries opaque per-connection selection versions; PostgreSQL row locks and version comparison make a stale or concurrent submission fail with `409` instead of silently overwriting a newer target. Successful selections append content-free context-history and audit events.
+
+An AI connection can read its own selection but cannot set or change it through MCP. Revoked and foreign connection identifiers, projects, and contexts return no target metadata and perform no mutation.

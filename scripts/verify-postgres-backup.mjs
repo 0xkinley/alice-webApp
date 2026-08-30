@@ -65,6 +65,7 @@ async function tableCounts(databaseUrl) {
       "context_history_events",
       "candidate_context_targets",
       "accepted_context_entries",
+      "active_connection_targets",
       "evidence_events",
       "candidate_claims",
       "accepted_project_state",

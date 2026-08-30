@@ -8,6 +8,7 @@ import {
   issueAlphaInvitation,
   registerUser,
   saveCandidateUpdate,
+  setActiveConnectionTarget,
   supersedeAcceptedState,
 } from "@alice/domain";
 import { createTestIdentity } from "../helpers.ts";
@@ -138,14 +139,51 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 2, filename: "002_alpha_access.sql" },
     { version: 3, filename: "003_work_contexts.sql" },
     { version: 4, filename: "004_context_entries.sql" },
+    { version: 5, filename: "005_active_context_targets.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    4,
+    5,
   );
   await reopened.close();
+});
+
+test("concurrent active-target changes cannot silently overwrite one another", async () => {
+  const context = await database
+    .prepare(
+      `SELECT id FROM work_contexts
+       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'work'
+       ORDER BY id LIMIT 1`,
+    )
+    .get(owner.workspace_id, owner.project_id);
+  const attempts = await Promise.all([
+    setActiveConnectionTarget(database, {
+      userId: owner.id,
+      connectionId,
+      projectId: owner.project_id,
+      contextId: context.id,
+      expectedVersions: { [connectionId]: null },
+    }),
+    setActiveConnectionTarget(database, {
+      userId: owner.id,
+      connectionId,
+      projectId: owner.project_id,
+      contextId: context.id,
+      expectedVersions: { [connectionId]: null },
+    }),
+  ]);
+  assert.equal(attempts.filter(({ conflict }) => conflict === false).length, 1);
+  assert.equal(attempts.filter(({ conflict }) => conflict === true).length, 1);
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM active_connection_targets WHERE connection_id = ?")
+        .get(connectionId)
+    ).count,
+    1,
+  );
 });
 
 test("concurrent identical capture is atomic and idempotent with byte-exact evidence text", async () => {

@@ -1,4 +1,9 @@
 export { saveCandidateUpdate } from "./candidate-updates.ts";
+export {
+  activeTargetForConnection,
+  listSelectableProjectContexts,
+  setActiveConnectionTarget,
+} from "./active-targets.ts";
 export { listIntegrationConnections, revokeIntegrationConnection } from "./connections.ts";
 export { appendAuditEvent } from "./audit.ts";
 export { tenantScopeForConnection, tenantScopeForUser } from "./authorization.ts";

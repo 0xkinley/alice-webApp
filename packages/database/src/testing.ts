@@ -131,7 +131,8 @@ function createSchema(database: DatabaseSync) {
       last_used_at TEXT NOT NULL,
       revoked_at TEXT,
       FOREIGN KEY (workspace_id, user_id) REFERENCES workspaces(id, user_id),
-      UNIQUE (workspace_id, id)
+      UNIQUE (workspace_id, id),
+      UNIQUE (workspace_id, user_id, id)
     ) STRICT;
 
     CREATE TABLE oauth_authorization_codes (
@@ -296,6 +297,22 @@ function createSchema(database: DatabaseSync) {
       FOREIGN KEY (workspace_id, project_id, context_id)
         REFERENCES work_contexts(workspace_id, project_id, id),
       UNIQUE (workspace_id, project_id, context_id, accepted_state_id)
+    ) STRICT;
+
+    CREATE TABLE active_connection_targets (
+      connection_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      surface TEXT NOT NULL,
+      selection_version TEXT NOT NULL,
+      selected_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, user_id, connection_id)
+        REFERENCES integration_connections(workspace_id, user_id, id),
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id)
     ) STRICT;
 
     CREATE TABLE audit_events (

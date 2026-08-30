@@ -9,9 +9,17 @@ export async function listIntegrationConnections(database, userId) {
     .prepare(
       `SELECT connection.id, connection.client_classification, connection.granted_scopes,
               connection.first_connected_at, connection.last_used_at, connection.revoked_at,
-              client.client_name
+              client.client_name, target.project_id, target.context_id,
+              target.selection_version AS target_version,
+              project.name AS project_name, context.name AS context_name
        FROM integration_connections connection
        JOIN oauth_clients client ON client.client_id = connection.client_id
+       LEFT JOIN active_connection_targets target ON target.connection_id = connection.id
+       LEFT JOIN projects project
+         ON project.workspace_id = target.workspace_id AND project.id = target.project_id
+       LEFT JOIN work_contexts context
+         ON context.workspace_id = target.workspace_id
+        AND context.project_id = target.project_id AND context.id = target.context_id
        WHERE connection.user_id = ? AND connection.workspace_id = ?
        ORDER BY connection.revoked_at IS NOT NULL, connection.last_used_at DESC, connection.id`,
     )
