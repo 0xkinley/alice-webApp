@@ -111,6 +111,8 @@ These are distinct controls:
 - **Export project:** provide the user's permitted project data, provenance, and history in a documented portable format without disclosing restricted contexts.
 - **Permanently delete:** execute a policy-governed privacy erasure workflow, including the published backup-expiry behavior. This is a privileged lifecycle operation, not a normal role rewriting individual evidence or audit rows.
 
+Implementation boundary on 2026-08-30: migration `013` and the authenticated Owner lifecycle page implement exact reversible archive/restore, permission-filtered JSON export, and a cancellable deletion request with a seven-day cooling-off period. Archive revokes pending invitations and clears active AI-connection targets but preserves all records. The export queries only contexts currently visible to the Owner and excludes raw multi-destination evidence envelopes, storage locations, credentials, tokens, signed URLs, and file bytes. A deletion request does not erase data and the UI says so explicitly. The privileged PostgreSQL/object-version/backup erasure operator and approved maximum retention/backup-expiry windows remain unimplemented; see `docs/project-lifecycle.md`.
+
 The retention policy must define account deletion, project deletion, collaborator removal, backups, security/audit records, legal holds if applicable, and the maximum erasure window before any friend is invited.
 
 ## Collaboration and permissions

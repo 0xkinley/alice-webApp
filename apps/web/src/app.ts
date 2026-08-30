@@ -7,6 +7,7 @@ import {
   getProject,
   getProjectContext,
   getPrivateAlphaSignals,
+  listArchivedProjects,
   listContextReadEvents,
   listSharedProjects,
   listProjects,
@@ -18,6 +19,7 @@ import { createAuthRouter, renderPage, requireAuthenticatedUser } from "./auth.t
 import { createConnectionsRouter } from "./connections.ts";
 import { createContextAccessRouter } from "./context-access.ts";
 import { createFilesRouter } from "./files.ts";
+import { createProjectLifecycleRouter } from "./project-lifecycle.ts";
 import { createProjectMembershipRouter } from "./project-memberships.ts";
 import { createReviewRouter } from "./review.ts";
 import { createSavedContextRouter } from "./saved-context.ts";
@@ -64,10 +66,12 @@ export async function createApp({
   app.use("/auth", createAuthRouter({ database, publicUrl }));
   app.use("/connections", createConnectionsRouter({ database, mcpPublicUrl }));
   app.use(createProjectMembershipRouter({ database, publicUrl }));
+  app.use(createProjectLifecycleRouter({ database }));
   app.use("/projects", createContextAccessRouter({ database }));
   app.get("/", requireAuthenticatedUser(database), async (request, response) => {
     const projects = await listProjects(database, request.aliceUser!.id);
     const sharedProjects = await listSharedProjects(database, request.aliceUser!.id);
+    const archivedProjects = await listArchivedProjects(database, request.aliceUser!.id);
     const sharedProjectIds = new Set(sharedProjects.map(({ id }) => id));
     const projectList = projects
       .filter(({ id }) => !sharedProjectIds.has(id))
@@ -82,12 +86,18 @@ export async function createApp({
           `<article><h2><a href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p class="muted">Shared with you · ${escapeHtml(project.role)}</p></article>`,
       )
       .join("");
+    const archivedProjectList = archivedProjects
+      .map(
+        (project) =>
+          `<article><h3><a href="/projects/${encodeURIComponent(project.id)}/lifecycle">${escapeHtml(project.name)}</a></h3><p>${escapeHtml(project.brief)}</p><p class="muted">Archived ${escapeHtml(project.archived_at)}</p></article>`,
+      )
+      .join("");
     response
       .type("html")
       .send(
         renderPage(
           "alice. private workspace",
-          `<nav><strong>alice.</strong><span>${escapeHtml(request.aliceUser!.email)}</span><a href="/connections">AI connections</a><a href="/review">Review queue</a><a href="/signals">Alpha signals</a><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></nav><h1>Private workspace</h1><p>Projects you create remain anchored to this account and can be shared only through explicit membership.</p>${projectList || "<p>No projects yet.</p>"}<h2>Shared with you</h2>${sharedProjectList || "<p>No shared projects.</p>"}<h2>Create project</h2><form method="post" action="/projects"><label>Name<input name="name" maxlength="120" required></label><label>Brief<textarea name="brief" maxlength="4000" required></textarea></label><button type="submit">Create project</button></form>`,
+          `<nav><strong>alice.</strong><span>${escapeHtml(request.aliceUser!.email)}</span><a href="/connections">AI connections</a><a href="/review">Review queue</a><a href="/signals">Alpha signals</a><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></nav><h1>Private workspace</h1><p>Projects you create remain anchored to this account and can be shared only through explicit membership.</p>${projectList || "<p>No projects yet.</p>"}<h2>Shared with you</h2>${sharedProjectList || "<p>No shared projects.</p>"}<h2>Archived projects you own</h2>${archivedProjectList || "<p>No archived projects.</p>"}<h2>Create project</h2><form method="post" action="/projects"><label>Name<input name="name" maxlength="120" required></label><label>Brief<textarea name="brief" maxlength="4000" required></textarea></label><button type="submit">Create project</button></form>`,
         ),
       );
   });
@@ -159,6 +169,9 @@ export async function createApp({
     const collaboratorsLink = isOwner
       ? `<a href="/projects/${encodeURIComponent(project.id)}/collaborators">Collaborators</a>`
       : "";
+    const lifecycleLink = isOwner
+      ? `<a href="/projects/${encodeURIComponent(project.id)}/lifecycle">Project lifecycle</a>`
+      : "";
     const readActivity = contextReadEvents.length
       ? contextReadEvents.map(contextReadEventCard).join("")
       : "<p>No host context read has been recorded for your AI connections in this project. This does not mean a host consulted alice.</p>";
@@ -167,7 +180,7 @@ export async function createApp({
       .send(
         renderPage(
           project.name,
-          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a><a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>${collaboratorsLink}</nav><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><p class="muted">Your project role: ${escapeHtml(project.project_role)}</p>${reviewLink}<h2>Project and work contexts</h2><p>Only contexts listed here are visible to you. Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}<h2>Your recent host reads</h2><p>These receipts show retrieval through your own AI connections. A successful retrieval does not prove the host used the context in its answer.</p>${readActivity}${createContext}`,
+          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a><a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>${collaboratorsLink}${lifecycleLink}</nav><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><p class="muted">Your project role: ${escapeHtml(project.project_role)}</p>${reviewLink}<h2>Project and work contexts</h2><p>Only contexts listed here are visible to you. Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}<h2>Your recent host reads</h2><p>These receipts show retrieval through your own AI connections. A successful retrieval does not prove the host used the context in its answer.</p>${readActivity}${createContext}`,
         ),
       );
   });

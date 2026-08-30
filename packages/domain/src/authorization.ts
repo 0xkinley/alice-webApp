@@ -105,7 +105,7 @@ export async function projectScopeForUser(
          ON project.workspace_id = membership.workspace_id
         AND project.id = membership.project_id
        WHERE membership.user_id = ? AND membership.project_id = ?
-         AND membership.ended_at IS NULL`,
+         AND membership.ended_at IS NULL AND project.archived_at IS NULL`,
     )
     .get(tenant.userId, input.projectId);
   if (!row || !projectRoleAllows(row.project_role, input.capability || "read")) return undefined;

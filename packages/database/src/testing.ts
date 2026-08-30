@@ -178,6 +178,9 @@ function createSchema(database: DatabaseSync) {
       brief TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      archived_at TEXT,
+      archived_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      CHECK ((archived_at IS NULL) = (archived_by_user_id IS NULL)),
       UNIQUE (workspace_id, name),
       UNIQUE (workspace_id, id)
     ) STRICT;
@@ -238,6 +241,26 @@ function createSchema(database: DatabaseSync) {
       WHERE accepted_at IS NULL AND declined_at IS NULL AND revoked_at IS NULL;
     CREATE INDEX project_invitations_project_lookup
       ON project_invitations (workspace_id, project_id, created_at DESC, id);
+
+    CREATE TABLE project_deletion_requests (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      requested_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      requested_at TEXT NOT NULL,
+      not_before TEXT NOT NULL,
+      cancelled_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      cancelled_at TEXT,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      CHECK (not_before > requested_at),
+      CHECK ((cancelled_at IS NULL) = (cancelled_by_user_id IS NULL)),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE UNIQUE INDEX project_deletion_requests_active_project
+      ON project_deletion_requests (project_id) WHERE cancelled_at IS NULL;
+    CREATE INDEX project_deletion_requests_operator_queue
+      ON project_deletion_requests (not_before, requested_at, id) WHERE cancelled_at IS NULL;
 
     CREATE TRIGGER projects_create_owner_membership
     AFTER INSERT ON projects
@@ -586,6 +609,55 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON audit_events
     BEGIN
       SELECT RAISE(ABORT, 'audit events are append-only');
+    END;
+
+    CREATE TRIGGER projects_lifecycle_only_update
+    BEFORE UPDATE ON projects
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.created_at IS NOT OLD.created_at
+      OR ((NEW.archived_at IS NULL) IS NOT (NEW.archived_by_user_id IS NULL))
+    BEGIN
+      SELECT RAISE(ABORT, 'project identity is immutable');
+    END;
+
+    CREATE TRIGGER projects_no_delete
+    BEFORE DELETE ON projects
+    BEGIN
+      SELECT RAISE(ABORT, 'projects require privileged erasure');
+    END;
+
+    CREATE TRIGGER project_deletion_requests_validate_insert
+    BEFORE INSERT ON project_deletion_requests
+    WHEN NOT EXISTS (
+      SELECT 1 FROM projects project
+      WHERE project.workspace_id = NEW.workspace_id
+        AND project.id = NEW.project_id
+        AND project.archived_at IS NOT NULL
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'a project must be archived before deletion is requested');
+    END;
+
+    CREATE TRIGGER project_deletion_requests_validate_update
+    BEFORE UPDATE ON project_deletion_requests
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.project_id IS NOT OLD.project_id
+      OR NEW.requested_by_user_id IS NOT OLD.requested_by_user_id
+      OR NEW.requested_at IS NOT OLD.requested_at
+      OR NEW.not_before IS NOT OLD.not_before
+      OR OLD.cancelled_at IS NOT NULL
+      OR NEW.cancelled_at IS NULL
+      OR NEW.cancelled_by_user_id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'deletion request history is immutable');
+    END;
+
+    CREATE TRIGGER project_deletion_requests_no_delete
+    BEFORE DELETE ON project_deletion_requests
+    BEGIN
+      SELECT RAISE(ABORT, 'deletion request history is retained until privileged erasure');
     END;
 
     CREATE TRIGGER project_memberships_validate_update

@@ -64,7 +64,7 @@ async function projectMembership(database, userId: string, projectId: string) {
          ON project.workspace_id = membership.workspace_id
         AND project.id = membership.project_id
        WHERE membership.project_id = ? AND membership.user_id = ?
-         AND membership.ended_at IS NULL`,
+         AND membership.ended_at IS NULL AND project.archived_at IS NULL`,
     )
     .get(projectId, tenant.userId);
 }
@@ -96,6 +96,7 @@ async function invitationForRecipient(database, userId: string, token: unknown, 
          AND invitation.accepted_at IS NULL
          AND invitation.declined_at IS NULL
          AND invitation.revoked_at IS NULL
+         AND project.archived_at IS NULL
        ${lock ? "FOR UPDATE OF invitation" : ""}`,
     )
     .get(tenant.userId, hashToken(validToken), Math.floor(Date.now() / 1_000));
@@ -165,6 +166,7 @@ export async function listSharedProjects(database, userId: string) {
         AND project.id = membership.project_id
        WHERE membership.user_id = ? AND membership.ended_at IS NULL
          AND membership.role <> 'owner'
+         AND project.archived_at IS NULL
        ORDER BY lower(project.name), project.id`,
     )
     .all(tenant.userId);

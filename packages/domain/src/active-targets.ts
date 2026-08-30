@@ -19,6 +19,7 @@ export async function listSelectableProjectContexts(database, userId) {
          ON membership.workspace_id = project.workspace_id
         AND membership.project_id = project.id
        WHERE membership.user_id = ? AND membership.ended_at IS NULL
+         AND project.archived_at IS NULL
        ORDER BY project.name, project.id`,
     )
     .all(tenant.userId);

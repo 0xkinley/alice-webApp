@@ -168,6 +168,7 @@ async function captureCandidates(database, tenant, evidenceId, { lock = false } 
        FROM evidence_events evidence
        JOIN projects project
          ON project.workspace_id = evidence.workspace_id AND project.id = evidence.project_id
+        AND project.archived_at IS NULL
        WHERE evidence.id = ? AND evidence.workspace_id = ?`,
     )
     .get(evidenceId, tenant.workspaceId);

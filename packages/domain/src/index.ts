@@ -55,6 +55,16 @@ export {
 export { ContextBudgetError, getProjectContext, listProjects } from "./project-context.ts";
 export { getPrivateAlphaSignals } from "./product-signals.ts";
 export { getProjectAccessOverview } from "./project-access.ts";
+export {
+  archiveProject,
+  cancelProjectDeletion,
+  exportProjectData,
+  getProjectLifecycle,
+  listArchivedProjects,
+  ProjectLifecycleUserError,
+  requestProjectDeletion,
+  restoreProject,
+} from "./project-lifecycle.ts";
 export { createProject, getProject } from "./projects.ts";
 export {
   acceptProjectInvitation,

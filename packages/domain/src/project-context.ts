@@ -138,6 +138,7 @@ export async function listProjects(database, userId) {
         AND membership.project_id = project.id
         AND membership.user_id = ?
         AND membership.ended_at IS NULL
+       WHERE project.archived_at IS NULL
        ORDER BY project.name, project.id`,
     )
     .all(tenant.userId);

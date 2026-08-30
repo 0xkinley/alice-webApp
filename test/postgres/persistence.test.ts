@@ -5,12 +5,16 @@ import { configureApplicationRole, openDatabase } from "@alice/database";
 import {
   acceptCandidate,
   acceptProjectInvitation,
+  archiveProject,
+  cancelProjectDeletion,
   confirmCapturedUpdate,
   createWorkContext,
   createProjectInvitation,
+  exportProjectData,
   getCapturePreview,
   getProjectContext,
   getPrivateAlphaSignals,
+  getProjectLifecycle,
   getProjectAccessOverview,
   getProjectFileRemovalPreview,
   getProjectFileDownload,
@@ -25,8 +29,10 @@ import {
   removeProjectMember,
   endContextAccess,
   refreshProjectFileScan,
+  requestProjectDeletion,
   saveCandidateUpdate,
   setActiveConnectionTarget,
+  restoreProject,
   supersedeAcceptedState,
   uploadProjectFile,
   updateProjectMemberRole,
@@ -169,12 +175,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 10, filename: "010_project_memberships.sql" },
     { version: 11, filename: "011_context_access.sql" },
     { version: 12, filename: "012_context_read_events.sql" },
+    { version: 13, filename: "013_project_lifecycle.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    12,
+    13,
   );
   await reopened.close();
 });
@@ -918,6 +925,107 @@ test("one concurrent exact file-removal preview wins and preserves immutable his
       .prepare("DELETE FROM file_reference_exclusions WHERE file_reference_id = ?")
       .run(postgresFileReferenceId),
     /permission denied|immutable/i,
+  );
+});
+
+test("PostgreSQL project lifecycle preserves data behind constrained-role archive and requests", async () => {
+  const lifecycleOwner = await createTestIdentity(database, {
+    email: "postgres-lifecycle-owner@alice.example",
+    password: "postgres lifecycle owner private password",
+    projectId: "project_postgres_lifecycle",
+  });
+  const before = await getProjectLifecycle(database, {
+    userId: lifecycleOwner.id,
+    projectId: lifecycleOwner.project_id,
+  });
+  const exported = await exportProjectData(database, {
+    userId: lifecycleOwner.id,
+    projectId: lifecycleOwner.project_id,
+  });
+  assert.equal(exported.format, "alice.project-export");
+  assert.ok(exported.contexts.some(({ name }) => name === "General"));
+
+  const archived = await archiveProject(database, {
+    userId: lifecycleOwner.id,
+    projectId: lifecycleOwner.project_id,
+    expectedPreviewVersion: before.preview_version,
+  });
+  assert.ok(archived.archived_at);
+  assert.equal(
+    await getProjectContext(database, {
+      userId: lifecycleOwner.id,
+      projectId: lifecycleOwner.project_id,
+      task: "Archived projects are unavailable to ordinary reads",
+      contextBudget: 4_000,
+    }),
+    undefined,
+  );
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM work_contexts WHERE project_id = ?")
+        .get(lifecycleOwner.project_id)
+    ).count,
+    2,
+  );
+
+  const archivedView = await getProjectLifecycle(database, {
+    userId: lifecycleOwner.id,
+    projectId: lifecycleOwner.project_id,
+  });
+  const deletionRequest = await requestProjectDeletion(database, {
+    userId: lifecycleOwner.id,
+    projectId: lifecycleOwner.project_id,
+    expectedPreviewVersion: archivedView.preview_version,
+    confirmation: "Private project",
+  });
+  assert.ok(Date.parse(deletionRequest.not_before) > Date.parse(deletionRequest.requested_at));
+  await assert.rejects(
+    database
+      .prepare("UPDATE project_deletion_requests SET requested_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), deletionRequest.id),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database.prepare("DELETE FROM project_deletion_requests WHERE id = ?").run(deletionRequest.id),
+    /permission denied|immutable/i,
+  );
+
+  const pendingView = await getProjectLifecycle(database, {
+    userId: lifecycleOwner.id,
+    projectId: lifecycleOwner.project_id,
+  });
+  await cancelProjectDeletion(database, {
+    userId: lifecycleOwner.id,
+    projectId: lifecycleOwner.project_id,
+    expectedPreviewVersion: pendingView.preview_version,
+  });
+  const cancelledView = await getProjectLifecycle(database, {
+    userId: lifecycleOwner.id,
+    projectId: lifecycleOwner.project_id,
+  });
+  await restoreProject(database, {
+    userId: lifecycleOwner.id,
+    projectId: lifecycleOwner.project_id,
+    expectedPreviewVersion: cancelledView.preview_version,
+  });
+  await assert.rejects(
+    database
+      .prepare("UPDATE projects SET name = 'Rewritten' WHERE id = ?")
+      .run(lifecycleOwner.project_id),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database.prepare("DELETE FROM projects WHERE id = ?").run(lifecycleOwner.project_id),
+    /permission denied|immutable/i,
+  );
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM projects WHERE id = ?")
+        .get(lifecycleOwner.project_id)
+    ).count,
+    1,
   );
 });
 

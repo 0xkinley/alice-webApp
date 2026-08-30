@@ -27,6 +27,7 @@ export async function listReviewProjects(database, userId) {
         AND membership.project_id = project.id
        WHERE membership.user_id = ? AND membership.ended_at IS NULL
          AND membership.role IN ('owner', 'editor')
+         AND project.archived_at IS NULL
        ORDER BY project.name, project.id`,
     )
     .all(tenant.userId);
