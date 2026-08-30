@@ -416,3 +416,131 @@ test("an exact human removal stops consumption without erasing provenance", asyn
     1,
   );
 });
+
+test("an exact repair classifies stale context and removes it without rewriting provenance", async () => {
+  const repair = await capture(
+    "saved-context-repair-stale",
+    general.id,
+    "launch.repair_item",
+    "Outdated launch date",
+  );
+  const savePreview = await getCapturePreview(created.database, {
+    evidenceId: repair.evidence_id,
+    userId: owner.id,
+  });
+  const confirmed = await confirmCapturedUpdate(created.database, {
+    evidenceId: repair.evidence_id,
+    expectedPreviewVersion: savePreview.preview_version,
+    userId: owner.id,
+  });
+  const accepted = confirmed.accepted[0];
+  const acceptedCount = created.database
+    .prepare("SELECT COUNT(*) AS count FROM accepted_project_state")
+    .get().count;
+
+  const previewResponse = await fetch(
+    `${baseUrl}/projects/${owner.project_id}/saved-context/${accepted.acceptedStateId}/repair?context_id=${general.id}`,
+    { headers: { cookie } },
+  );
+  assert.equal(previewResponse.status, 200);
+  const previewHtml = await previewResponse.text();
+  assert.match(previewHtml, /Repair Private project \/ General/);
+  assert.match(previewHtml, /Outdated launch date/);
+  assert.match(previewHtml, /Stale — it is no longer current/);
+  assert.match(previewHtml, /corrected value must arrive as a new candidate/i);
+  const previewVersion = previewHtml.match(/name="preview_version" value="([^"]+)"/)[1];
+
+  const invalid = await fetch(
+    `${baseUrl}/projects/${owner.project_id}/saved-context/${accepted.acceptedStateId}/repair`,
+    {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        context_id: general.id,
+        preview_version: previewVersion,
+        repair_type: "silently_rewrite",
+      }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(invalid.status, 400);
+
+  const response = await fetch(
+    `${baseUrl}/projects/${owner.project_id}/saved-context/${accepted.acceptedStateId}/repair`,
+    {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        context_id: general.id,
+        preview_version: previewVersion,
+        repair_type: "stale",
+        note: "Launch moved to October.",
+      }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(response.status, 303);
+  assert.match(response.headers.get("location"), /view=removed/);
+  const exclusion = created.database
+    .prepare("SELECT reason FROM context_entry_exclusions WHERE accepted_state_id = ?")
+    .get(accepted.acceptedStateId);
+  assert.equal(exclusion.reason, "Stale — Launch moved to October.");
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
+    acceptedCount,
+  );
+  const active = await getProjectContext(created.database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    contextId: general.id,
+    task: "Plan launch",
+    contextBudget: 8_000,
+  });
+  assert.doesNotMatch(JSON.stringify(active), /Outdated launch date/);
+  const removed = await fetch(`${baseUrl}${response.headers.get("location")}`, {
+    headers: { cookie },
+  });
+  assert.match(await removed.text(), /Stale — Launch moved to October/);
+});
+
+test("history labels an older accepted value as superseded by its replacement version", async () => {
+  const first = await capture(
+    "saved-context-superseded-first",
+    general.id,
+    "launch.superseded_item",
+    "First positioning",
+  );
+  const firstPreview = await getCapturePreview(created.database, {
+    evidenceId: first.evidence_id,
+    userId: owner.id,
+  });
+  await confirmCapturedUpdate(created.database, {
+    evidenceId: first.evidence_id,
+    expectedPreviewVersion: firstPreview.preview_version,
+    userId: owner.id,
+  });
+  const replacement = await capture(
+    "saved-context-superseded-replacement",
+    general.id,
+    "launch.superseded_item",
+    "Replacement positioning",
+  );
+  const replacementPreview = await getCapturePreview(created.database, {
+    evidenceId: replacement.evidence_id,
+    userId: owner.id,
+  });
+  await confirmCapturedUpdate(created.database, {
+    evidenceId: replacement.evidence_id,
+    expectedPreviewVersion: replacementPreview.preview_version,
+    userId: owner.id,
+  });
+  const history = await fetch(
+    `${baseUrl}/projects/${owner.project_id}/saved-context?context_id=${general.id}&view=history`,
+    { headers: { cookie } },
+  );
+  const html = await history.text();
+  assert.match(html, /Superseded/);
+  assert.match(html, /Replaced by saved version 2/);
+  assert.match(html, /First positioning/);
+  assert.match(html, /Replacement positioning/);
+});

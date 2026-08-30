@@ -3,6 +3,11 @@ import express from "express";
 import { renderPage, requireAuthenticatedUser } from "./auth.ts";
 
 const VIEWS = new Set(["saved", "attention", "removed", "history"]);
+const REPAIR_TYPES = new Map([
+  ["stale", "Stale"],
+  ["contradicted", "Contradicted"],
+  ["wrong", "Wrong"],
+]);
 
 function escapeHtml(value) {
   return String(value)
@@ -50,7 +55,7 @@ function savedCards(view) {
   return view.saved
     .map(
       (entry) =>
-        `<article><h2>${escapeHtml(entry.state_key)}</h2><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${provenance(entry)}${view.access.can_write ? `<p><a href="/projects/${encodeURIComponent(view.project.id)}/saved-context/${encodeURIComponent(entry.id)}/remove?context_id=${encodeURIComponent(view.context.id)}">Remove from active context</a></p>` : ""}</article>`,
+        `<article><h2>${escapeHtml(entry.state_key)}</h2><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${provenance(entry)}${view.access.can_write ? `<p><a href="/projects/${encodeURIComponent(view.project.id)}/saved-context/${encodeURIComponent(entry.id)}/repair?context_id=${encodeURIComponent(view.context.id)}">Repair stale, contradicted, or wrong context</a> · <a href="/projects/${encodeURIComponent(view.project.id)}/saved-context/${encodeURIComponent(entry.id)}/remove?context_id=${encodeURIComponent(view.context.id)}">Remove from active context</a></p>` : ""}</article>`,
     )
     .join("");
 }
@@ -79,15 +84,23 @@ function historyCards(view) {
   if (view.history.length === 0) return "<p>No context history yet.</p>";
   const labels = { accepted: "Saved", pending: "Needs attention", rejected: "Not saved" };
   return view.history
-    .map(
-      (entry) =>
-        `<article><h2>${escapeHtml(entry.state_key)}</h2><p><strong>${entry.removed_at ? "Removed" : labels[entry.status] || escapeHtml(entry.status)}</strong> · ${escapeHtml(entry.removed_at || entry.accepted_at || entry.created_at)}</p><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${entry.removal_reason ? `<p><strong>Removal reason:</strong> ${escapeHtml(entry.removal_reason)}</p>` : ""}<details><summary>Provenance</summary><dl><dt>Evidence receipt</dt><dd><code>${escapeHtml(entry.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(entry.payload_hash)}</code></dd>${entry.version ? `<dt>Saved version</dt><dd>${entry.version}</dd>` : ""}</dl></details></article>`,
-    )
+    .map((entry) => {
+      const state = entry.removed_at
+        ? "Removed"
+        : entry.superseded_by_version
+          ? "Superseded"
+          : labels[entry.status] || escapeHtml(entry.status);
+      return `<article><h2>${escapeHtml(entry.state_key)}</h2><p><strong>${state}</strong> · ${escapeHtml(entry.removed_at || entry.accepted_at || entry.created_at)}</p>${entry.superseded_by_version ? `<p>Replaced by saved version ${escapeHtml(entry.superseded_by_version)}. This older version remains in history and is not active.</p>` : ""}<pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${entry.removal_reason ? `<p><strong>Removal reason:</strong> ${escapeHtml(entry.removal_reason)}</p>` : ""}<details><summary>Provenance</summary><dl><dt>Evidence receipt</dt><dd><code>${escapeHtml(entry.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(entry.payload_hash)}</code></dd>${entry.version ? `<dt>Saved version</dt><dd>${entry.version}</dd>` : ""}</dl></details></article>`;
+    })
     .join("");
 }
 
 function removalPreviewPage(preview) {
   return `<nav><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Back to Saved context</a></nav><h1>Remove from ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}?</h1><p>This stops the item from being sent as active context. It does not erase the saved version, its evidence, provenance, or audit history.</p><article><h2>${escapeHtml(preview.entry.state_key)}</h2><pre>${renderJson(preview.entry.value)}</pre><p>${escapeHtml(preview.entry.summary)}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/remove"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>Reason (optional)<textarea name="reason" maxlength="500"></textarea></label><button type="submit">Remove from active context</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Keep this saved context</a></p>`;
+}
+
+function repairPreviewPage(preview) {
+  return `<nav><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Back to Saved context</a></nav><h1>Repair ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}</h1><p>Classify what is wrong, then remove this exact version from active context. Its value, evidence, provenance, and history remain immutable. A corrected value must arrive as a new candidate and receive its own exact human confirmation.</p><article><h2>${escapeHtml(preview.entry.state_key)}</h2><pre>${renderJson(preview.entry.value)}</pre><p>${escapeHtml(preview.entry.summary)}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/repair"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>What is wrong?<select name="repair_type" required><option value="stale">Stale — it is no longer current</option><option value="contradicted">Contradicted — reliable information now conflicts with it</option><option value="wrong">Wrong — it should not have been saved as stated</option></select></label><label>Explanation (optional)<textarea name="note" maxlength="450"></textarea></label><button type="submit">Confirm repair and remove from active context</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Keep the current saved context</a></p>`;
 }
 
 export function createSavedContextRouter({ database }) {
@@ -108,6 +121,77 @@ export function createSavedContextRouter({ database }) {
         .send(renderPage("Not found", "<h1>Saved context not found</h1>"));
     }
     response.type("html").send(renderPage("Remove saved context", removalPreviewPage(preview)));
+  });
+
+  router.get("/:projectId/saved-context/:acceptedStateId/repair", async (request, response) => {
+    const preview = await getRemovalPreview(database, {
+      userId: request.aliceUser!.id,
+      projectId: request.params.projectId,
+      contextId: String(request.query.context_id || ""),
+      acceptedStateId: request.params.acceptedStateId,
+    });
+    if (!preview) {
+      return response
+        .status(404)
+        .type("html")
+        .send(renderPage("Not found", "<h1>Saved context not found</h1>"));
+    }
+    response.type("html").send(renderPage("Repair saved context", repairPreviewPage(preview)));
+  });
+
+  router.post("/:projectId/saved-context/:acceptedStateId/repair", async (request, response) => {
+    const repairType = String(request.body.repair_type || "");
+    const label = REPAIR_TYPES.get(repairType);
+    if (!label) {
+      return response
+        .status(400)
+        .type("html")
+        .send(renderPage("Invalid repair", "<h1>Select a valid repair reason.</h1>"));
+    }
+    const note = String(request.body.note || "").trim();
+    if (note.length > 450) {
+      return response
+        .status(400)
+        .type("html")
+        .send(renderPage("Invalid repair", "<h1>Repair explanation exceeds 450 characters.</h1>"));
+    }
+    let result;
+    try {
+      result = await removeSavedContextEntry(database, {
+        userId: request.aliceUser!.id,
+        projectId: request.params.projectId,
+        contextId: String(request.body.context_id || ""),
+        acceptedStateId: request.params.acceptedStateId,
+        expectedPreviewVersion: String(request.body.preview_version || ""),
+        reason: `${label}${note ? ` — ${note}` : ""}`,
+      });
+    } catch (error) {
+      return response
+        .status(400)
+        .type("html")
+        .send(renderPage("Not repaired", `<h1>${escapeHtml(String(error))}</h1>`));
+    }
+    if (!result) {
+      return response
+        .status(404)
+        .type("html")
+        .send(renderPage("Not found", "<h1>Saved context not found</h1>"));
+    }
+    if (result.conflict) {
+      return response
+        .status(409)
+        .type("html")
+        .send(
+          renderPage(
+            "Repair changed",
+            `<h1>This saved context changed.</h1><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/saved-context?context_id=${encodeURIComponent(String(request.body.context_id || ""))}">Review the current context before repairing it.</a></p>`,
+          ),
+        );
+    }
+    response.redirect(
+      303,
+      `/projects/${encodeURIComponent(result.projectId)}/saved-context?context_id=${encodeURIComponent(result.contextId)}&view=removed`,
+    );
   });
 
   router.post("/:projectId/saved-context/:acceptedStateId/remove", async (request, response) => {

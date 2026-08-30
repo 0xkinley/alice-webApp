@@ -565,6 +565,25 @@ test("human acceptance and concurrent supersession preserve one version chain", 
     versions.map(({ version }) => version),
     [1, 2],
   );
+  const contextId = await database
+    .prepare(
+      `SELECT context_id FROM accepted_context_entries
+       WHERE accepted_state_id = ?`,
+    )
+    .get(accepted.acceptedStateId);
+  const history = await getSavedContextView(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    contextId: contextId.context_id,
+  });
+  assert.equal(
+    Number(
+      history.history.find(
+        ({ accepted_state_id: acceptedStateId }) => acceptedStateId === accepted.acceptedStateId,
+      ).superseded_by_version,
+    ),
+    2,
+  );
   assert.equal(
     (
       await database

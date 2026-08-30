@@ -29,7 +29,7 @@ The integration fixture creates two authenticated users, separate private worksp
 | Web | Accepted membership summary | Non-member, removed member, foreign project, and guessed project return the same 404 | None |
 | Web | Project/context discovery | Removed members and members without a selected/personal context grant see no context identifier, name, count, freshness, file, conflict, or provenance metadata | None |
 | Web | Restricted-context access management | A non-Manager, project Viewer elevation attempt, foreign grant, and guessed context/grant return non-disclosing denial | No grant, role, history, or audit mutation |
-| Web | Saved context, review, and files | Context Viewer controls are read-only; members without context access receive the same not-found result as guessed identifiers | No candidate decision, exclusion, upload, scan transition, replacement, or removal |
+| Web | Saved context, repair, review, and files | Context Viewer controls are read-only; members without write access cannot open repair/removal previews; members without context access receive the same not-found result as guessed identifiers | No candidate decision, repair exclusion, upload, scan transition, replacement, or removal |
 | Web | Ownership transfer and departure | Non-Owners cannot transfer; an Owner cannot leave directly; personal or unmanaged selected contexts block departure | Transfer preserves an active Owner; departure ends grants and membership atomically |
 | MCP | `list_projects` | Other project ID, name, and brief are absent | None |
 | MCP | `get_project_context` | Foreign and random project IDs return the same not-found tool error | No accepted value, pending value, candidate, or evidence leaks |

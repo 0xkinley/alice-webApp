@@ -115,7 +115,12 @@ export async function getRemovalPreview(
   database,
   { userId, projectId, contextId, acceptedStateId },
 ) {
-  const access = await contextScopeForUser(database, { userId, projectId, contextId });
+  const access = await contextScopeForUser(database, {
+    userId,
+    projectId,
+    contextId,
+    capability: "write",
+  });
   if (!access) return undefined;
   const tenant = { workspaceId: access.projectWorkspaceId, userId: access.userId };
   return buildRemovalPreview(database, tenant, { projectId, contextId, acceptedStateId });
@@ -378,7 +383,18 @@ export async function getSavedContextView(database, { userId, projectId, context
                 accepted.id AS accepted_state_id, accepted.version, accepted.accepted_at,
                 evidence.payload_hash, evidence.client_classification,
                 exclusion.id AS exclusion_id, exclusion.reason AS removal_reason,
-                exclusion.removed_at
+                exclusion.removed_at,
+                (SELECT MAX(newer.version)
+                 FROM accepted_project_state newer
+                 JOIN accepted_context_entries newer_entry
+                   ON newer_entry.workspace_id = newer.workspace_id
+                  AND newer_entry.project_id = newer.project_id
+                  AND newer_entry.accepted_state_id = newer.id
+                 WHERE newer.workspace_id = accepted.workspace_id
+                   AND newer.project_id = accepted.project_id
+                   AND newer.state_key = accepted.state_key
+                   AND newer_entry.context_id = target.context_id
+                   AND newer.version > accepted.version) AS superseded_by_version
          FROM candidate_claims candidate
          JOIN candidate_context_targets target
            ON target.workspace_id = candidate.workspace_id

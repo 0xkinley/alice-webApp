@@ -18,6 +18,12 @@ The Saved context view and normal MCP consumption omit an excluded latest versio
 
 A later exact confirmed save for the same context and state key creates a new accepted version. Its preview explicitly says that the removed key will be restored; it never reverses or rewrites the earlier exclusion. This append-only chain preserves what was saved, what was removed, and what later became active.
 
+## Repair and supersession
+
+The Saved context view offers a repair action for a current value that the human identifies as stale, contradicted by reliable information, or wrong as stated. The repair page shows the exact current value and provenance before the human confirms. Confirmation uses the same serialized, stale-safe exclusion transaction as ordinary removal and records the bounded classification plus an optional explanation. It never edits the accepted row or manufactures a replacement.
+
+A corrected value must arrive as a new evidence-backed candidate and pass its own exact human confirmation. Once accepted, the prior value remains visible in History as `Superseded`, including the replacement version number, while only the latest non-excluded version is active. Project and context Viewers cannot open or submit repair/removal controls.
+
 ## Explicit non-goals
 
 This control does not archive a context or project, export data, erase source bytes, remove backup copies, or execute a privileged privacy deletion. Those actions require separate controls, consequences, authorization, retention rules, and verification.

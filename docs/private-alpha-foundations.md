@@ -223,6 +223,8 @@ The 2026-08-30 product critique supplied by the product owner is advisory eviden
 
 The critique recommends deferring collaboration and work contexts. The product owner has explicitly retained both for the pre-friend-testing foundation, so the recommendation is recorded as a scope-risk warning rather than silently changing the roadmap. Implementation should still sequence and verify the single-user project/read/save/repair loop before layering collaboration and final presentation work.
 
+The implemented first repair path is deliberately append-only. An authorized Editor/Owner or context Editor/Manager can classify the exact current value as stale, contradicted, or wrong and confirm its removal from active context. The accepted version, evidence, provenance, and audit history are retained; replacement still requires a separate candidate and exact human confirmation. History labels older accepted values as superseded and names the replacing version rather than presenting every accepted row as current.
+
 ## Visual system and copy approval
 
 Keel (`https://keel.framer.ai/`) is the single visual-system reference for the Milestone 06 public site and authenticated product. The choice is based on its calm product-first hierarchy, restrained dark surfaces, real-interface emphasis, legible state presentation, and suitability for connections, projects, context freshness, history, and needs-attention views.
