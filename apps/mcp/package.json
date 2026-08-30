@@ -7,6 +7,7 @@
     "@alice/config": "0.1.0",
     "@alice/database": "0.1.0",
     "@alice/domain": "0.1.0",
+    "@alice/private-files": "0.1.0",
     "@alice/schemas": "0.1.0",
     "@modelcontextprotocol/express": "2.0.0",
     "@modelcontextprotocol/node": "2.0.0",

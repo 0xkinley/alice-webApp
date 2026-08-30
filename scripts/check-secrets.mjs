@@ -50,6 +50,7 @@ export function scanRepository() {
       if (buffer.includes(0)) continue;
       text = buffer.toString("utf8");
     } catch (error) {
+      if (error?.code === "ENOENT") continue;
       findings.push(`${filename}: could not scan file (${String(error)})`);
       continue;
     }

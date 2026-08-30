@@ -9,6 +9,7 @@
     { "path": "../../packages/config" },
     { "path": "../../packages/database" },
     { "path": "../../packages/domain" },
+    { "path": "../../packages/private-files" },
     { "path": "../../packages/schemas" }
   ],
   "include": ["src/**/*.ts"]

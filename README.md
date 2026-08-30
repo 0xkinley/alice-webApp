@@ -31,6 +31,7 @@ packages/config   server-only environment validation
 packages/schemas  shared boundary schemas
 packages/domain   tenant authorization, trusted context, capture, and review rules
 packages/database versioned PostgreSQL schema and asynchronous pooled persistence adapter
+packages/private-files shared exact-version private object-store adapter
 ```
 
 Production JavaScript is emitted under each workspace's ignored `dist/` directory. Run `npm run build` before `npm run start:web` or `npm run start:mcp`. The `dev:web` and `dev:mcp` scripts execute TypeScript source directly for local development.

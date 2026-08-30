@@ -56,6 +56,23 @@ function loadCommon(environment: Environment, defaultPort: number) {
   return { databaseUrl, host, port };
 }
 
+function loadFileStorage(environment: Environment) {
+  const fileStorageProvider = environment.ALICE_FILE_STORAGE || "";
+  const fileStorageValuesPresent = Boolean(
+    fileStorageProvider || environment.ALICE_S3_BUCKET || environment.ALICE_S3_REGION,
+  );
+  if (!fileStorageValuesPresent) return null;
+  if (fileStorageProvider !== "aws_s3") {
+    throw new Error("ALICE_FILE_STORAGE must be aws_s3 when private file storage is enabled.");
+  }
+  const bucket = z.string().min(3).max(63).parse(environment.ALICE_S3_BUCKET);
+  const region = z
+    .string()
+    .regex(/^[a-z]{2}-[a-z]+-\d$/)
+    .parse(environment.ALICE_S3_REGION);
+  return { provider: "aws_s3" as const, bucket, region };
+}
+
 export function loadMcpConfig(environment: Environment = process.env) {
   const common = loadCommon(environment, 8787);
   const publicUrl = parseServerOrigin(
@@ -63,7 +80,7 @@ export function loadMcpConfig(environment: Environment = process.env) {
     environment.ALICE_PUBLIC_URL || `http://127.0.0.1:${common.port}`,
   );
   const reviewUrl = parseServerOrigin("ALICE_WEB_URL", environment.ALICE_WEB_URL || publicUrl);
-  return { ...common, publicUrl, reviewUrl };
+  return { ...common, fileStorage: loadFileStorage(environment), publicUrl, reviewUrl };
 }
 
 export function loadWebConfig(environment: Environment = process.env) {
@@ -76,21 +93,5 @@ export function loadWebConfig(environment: Environment = process.env) {
     "ALICE_MCP_URL",
     environment.ALICE_MCP_URL || "http://127.0.0.1:8787",
   );
-  const fileStorageProvider = environment.ALICE_FILE_STORAGE || "";
-  const fileStorageValuesPresent = Boolean(
-    fileStorageProvider || environment.ALICE_S3_BUCKET || environment.ALICE_S3_REGION,
-  );
-  let fileStorage: { provider: "aws_s3"; bucket: string; region: string } | null = null;
-  if (fileStorageValuesPresent) {
-    if (fileStorageProvider !== "aws_s3") {
-      throw new Error("ALICE_FILE_STORAGE must be aws_s3 when private file storage is enabled.");
-    }
-    const bucket = z.string().min(3).max(63).parse(environment.ALICE_S3_BUCKET);
-    const region = z
-      .string()
-      .regex(/^[a-z]{2}-[a-z]+-\d$/)
-      .parse(environment.ALICE_S3_REGION);
-    fileStorage = { provider: "aws_s3", bucket, region };
-  }
-  return { ...common, fileStorage, mcpPublicUrl, publicUrl };
+  return { ...common, fileStorage: loadFileStorage(environment), mcpPublicUrl, publicUrl };
 }

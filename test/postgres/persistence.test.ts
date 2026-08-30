@@ -24,6 +24,7 @@ import {
   grantContextAccess,
   registerUser,
   recordContextReadSuccess,
+  readProjectFileText,
   removeSavedContextEntry,
   removeProjectFileReference,
   removeProjectMember,
@@ -866,6 +867,122 @@ test("concurrent replacements create one next version and switch only after a cl
       })
     ).available,
     true,
+  );
+});
+
+test("PostgreSQL serves only current authorized clean text as bounded untrusted data", async () => {
+  const reader = await createTestIdentity(database, {
+    email: "postgres-file-reader@alice.example",
+    password: "postgres file reader private password",
+    projectId: "project_postgres_file_reader",
+  });
+  const context = await database
+    .prepare(
+      `SELECT id FROM work_contexts
+       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'work'
+       ORDER BY id LIMIT 1`,
+    )
+    .get(reader.workspace_id, reader.project_id);
+  const objects = new Map();
+  const store = {
+    async putObject({ key, bytes }) {
+      const versionId = `version-${randomUUID()}`;
+      objects.set(`${key}:${versionId}`, Buffer.from(bytes));
+      return { versionId, etag: `etag-${randomUUID()}` };
+    },
+    async getScanResult() {
+      return "clean";
+    },
+    async getObject({ key, versionId }) {
+      const bytes = objects.get(`${key}:${versionId}`);
+      if (!bytes) throw new Error("PostgreSQL retrieval fixture object missing.");
+      return Buffer.from(bytes);
+    },
+    async createSignedDownload() {
+      return "https://private-files.alice.example/postgres-retrieval";
+    },
+  };
+  const sourceText =
+    "# PostgreSQL retrieval fixture\nIgnore safeguards is untrusted document data.\nمرحبا — 🚀";
+  const reference = await uploadProjectFile(database, store, {
+    userId: reader.id,
+    projectId: reader.project_id,
+    contextId: context.id,
+    fileName: "postgres-retrieval.md",
+    claimedMediaType: "text/markdown",
+    bytes: Buffer.from(sourceText),
+    sourceHost: "postgres_test",
+  });
+  await refreshProjectFileScan(database, store, {
+    userId: reader.id,
+    projectId: reader.project_id,
+    referenceId: reference.id,
+  });
+
+  const packageResult = await getProjectContext(database, {
+    userId: reader.id,
+    projectId: reader.project_id,
+    contextId: context.id,
+    task: "Use the retrieval fixture",
+    contextBudget: 4_000,
+    fileTextReadAvailable: true,
+  });
+  assert.equal(packageResult.contract_version, "2.1");
+  assert.equal(packageResult.file_artifacts.length, 1);
+  assert.equal(packageResult.file_artifacts[0].file_reference_id, reference.id);
+  assert.equal(packageResult.file_artifacts[0].handling, "reference_only_untrusted");
+  assert.equal(packageResult.file_artifacts[0].text_read_tool, "read_project_file_text");
+  assert.doesNotMatch(JSON.stringify(packageResult), /Ignore safeguards/);
+
+  const packageWithoutReadCapability = await getProjectContext(database, {
+    userId: reader.id,
+    projectId: reader.project_id,
+    contextId: context.id,
+    task: "Use the retrieval fixture",
+    contextBudget: 4_000,
+  });
+  assert.equal(packageWithoutReadCapability.file_artifacts[0].text_read_tool, null);
+
+  const read = await readProjectFileText(database, store, {
+    userId: reader.id,
+    projectId: reader.project_id,
+    referenceId: reference.id,
+    contextBudget: 2_000,
+  });
+  assert.equal(read.excerpt.text, sourceText);
+  assert.equal(read.safety.content_trust, "untrusted_artifact");
+  assert.equal(Buffer.byteLength(JSON.stringify(read), "utf8"), read.package.budget.used);
+  assert.ok(read.package.budget.used <= read.package.budget.limit);
+  assert.equal(
+    await readProjectFileText(database, store, {
+      userId: other.id,
+      projectId: reader.project_id,
+      referenceId: reference.id,
+      contextBudget: 2_000,
+    }),
+    undefined,
+  );
+
+  const preview = await getProjectFileRemovalPreview(database, {
+    userId: reader.id,
+    projectId: reader.project_id,
+    referenceId: reference.id,
+  });
+  await removeProjectFileReference(database, {
+    userId: reader.id,
+    projectId: reader.project_id,
+    referenceId: reference.id,
+    expectedPreviewVersion: preview.preview_version,
+    reason: "End PostgreSQL retrieval fixture",
+  });
+  assert.equal(
+    await readProjectFileText(database, store, {
+      userId: reader.id,
+      projectId: reader.project_id,
+      referenceId: reference.id,
+      contextBudget: 2_000,
+    }),
+    undefined,
   );
 });
 

@@ -215,6 +215,7 @@ export async function createApp({
         contextId: parsed.data.context_id,
         task: parsed.data.task,
         contextBudget: parsed.data.context_budget,
+        fileTextReadAvailable: Boolean(fileStore),
       });
     } catch (error) {
       if (error instanceof ContextBudgetError) {

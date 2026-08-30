@@ -13,6 +13,21 @@ test("loads bounded server-only configuration for both deployables", () => {
   assert.equal(mcp.port, 9000);
   assert.equal(mcp.publicUrl, "https://mcp.alice.example");
   assert.equal(mcp.reviewUrl, "https://app.alice.example");
+  assert.equal(mcp.fileStorage, null);
+
+  const mcpWithFiles = loadMcpConfig({
+    ALICE_PUBLIC_URL: "https://mcp.alice.example",
+    ALICE_WEB_URL: "https://app.alice.example",
+    ALICE_DATABASE_URL: "postgresql://alice:test@database.example/alice?sslmode=require",
+    ALICE_FILE_STORAGE: "aws_s3",
+    ALICE_S3_BUCKET: "alice-private-files",
+    ALICE_S3_REGION: "eu-central-1",
+  });
+  assert.deepEqual(mcpWithFiles.fileStorage, {
+    provider: "aws_s3",
+    bucket: "alice-private-files",
+    region: "eu-central-1",
+  });
 
   const web = loadWebConfig({
     ALICE_WEB_URL: "http://127.0.0.1:8788",
@@ -54,6 +69,15 @@ test("rejects insecure server configuration", () => {
         ALICE_WEB_URL: "https://app.alice.example",
         ALICE_DATABASE_URL: "postgresql://alice:test@database.example/alice?sslmode=require",
         ALICE_S3_BUCKET: "partially-configured-bucket",
+      }),
+    /ALICE_FILE_STORAGE/,
+  );
+  assert.throws(
+    () =>
+      loadMcpConfig({
+        ALICE_PUBLIC_URL: "https://mcp.alice.example",
+        ALICE_DATABASE_URL: "postgresql://alice:test@database.example/alice?sslmode=require",
+        ALICE_S3_REGION: "eu-central-1",
       }),
     /ALICE_FILE_STORAGE/,
   );

@@ -92,6 +92,7 @@ export {
   getProjectFileRemovalPreview,
   getProjectFileView,
   listProjectFiles,
+  readProjectFileText,
   refreshProjectFileScan,
   removeProjectFileReference,
   uploadProjectFile,

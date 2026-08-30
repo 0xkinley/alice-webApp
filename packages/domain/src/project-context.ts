@@ -52,6 +52,7 @@ const categoryPriority = Object.freeze({
   unresolved_conflicts: 1,
   open_questions: 2,
   artifacts: 3,
+  file_artifacts: 4,
 });
 
 function compareRankedEntries(left, right) {
@@ -228,7 +229,7 @@ function latestEffectiveAcceptedRows(acceptedRows, projectWideId, selectedContex
 
 export async function getProjectContext(
   database,
-  { userId, projectId, contextId, task, contextBudget },
+  { userId, projectId, contextId, task, contextBudget, fileTextReadAvailable = false },
 ) {
   const scope = await projectScopeForUser(database, { userId, projectId });
   if (!scope) return undefined;
@@ -342,6 +343,53 @@ export async function getProjectContext(
     .map((row) => ({ ...row, accepted: effectiveByStateKey.get(row.state_key) }))
     .filter(({ accepted, value_json: valueJson }) => accepted && accepted.value_json !== valueJson);
 
+  const fileRows = await database
+    .prepare(
+      `SELECT reference.id AS file_reference_id, reference.logical_file_id,
+              reference.version, reference.display_name, reference.source_host,
+              reference.referenced_at, reference.context_id,
+              object.content_sha256, object.byte_size,
+              object.verified_media_type AS media_type
+       FROM file_context_references reference
+       JOIN file_objects object
+         ON object.workspace_id = reference.workspace_id
+        AND object.id = reference.file_object_id
+        AND object.scan_status = 'clean'
+       WHERE reference.workspace_id = ? AND reference.project_id = ?
+         AND reference.context_id IN (?, ?)
+         AND NOT EXISTS (
+           SELECT 1 FROM file_context_references grouped
+           JOIN file_reference_exclusions exclusion
+             ON exclusion.workspace_id = grouped.workspace_id
+            AND exclusion.project_id = grouped.project_id
+            AND exclusion.context_id = grouped.context_id
+            AND exclusion.file_reference_id = grouped.id
+           WHERE grouped.workspace_id = reference.workspace_id
+             AND grouped.project_id = reference.project_id
+             AND grouped.context_id = reference.context_id
+             AND grouped.logical_file_id = reference.logical_file_id
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM file_context_references newer
+           JOIN file_objects newer_object
+             ON newer_object.workspace_id = newer.workspace_id
+            AND newer_object.id = newer.file_object_id
+            AND newer_object.scan_status = 'clean'
+           WHERE newer.workspace_id = reference.workspace_id
+             AND newer.project_id = reference.project_id
+             AND newer.context_id = reference.context_id
+             AND newer.logical_file_id = reference.logical_file_id
+             AND newer.version > reference.version
+         )
+       ORDER BY reference.context_id, lower(reference.display_name), reference.id`,
+    )
+    .all(
+      scope.projectWorkspaceId,
+      projectId,
+      projectWide.id,
+      selectedContext?.id || projectWide.id,
+    );
+
   const taskTerms = normalizedTerms(task);
   const rankedAccepted = rows.map((row) => {
     const category = categoryForStateKey(row.state_key);
@@ -409,10 +457,40 @@ export async function getProjectContext(
   const rankedEntries = [...rankedAccepted, ...conflictsByStateKey.values()].sort(
     compareRankedEntries,
   );
+  rankedEntries.push(
+    ...fileRows.map((row) => ({
+      category: "file_artifacts",
+      item: {
+        file_reference_id: row.file_reference_id,
+        logical_file_id: row.logical_file_id,
+        version: Number(row.version),
+        display_name: row.display_name,
+        media_type: row.media_type,
+        byte_size: Number(row.byte_size),
+        content_sha256: row.content_sha256,
+        context_id: row.context_id,
+        context_scope: row.context_id === projectWide.id ? "project_wide" : "selected_context",
+        source_host: row.source_host,
+        referenced_at: row.referenced_at,
+        handling: "reference_only_untrusted",
+        text_read_tool:
+          fileTextReadAvailable && ["text/plain", "text/markdown"].includes(row.media_type)
+            ? "read_project_file_text"
+            : null,
+      },
+      relevance: normalizedTerms(`${row.display_name} ${row.source_host}`).reduce(
+        (score, term) => score + (taskTerms.includes(term) ? 2 : 0),
+        0,
+      ),
+      stableId: row.file_reference_id,
+    })),
+  );
+  rankedEntries.sort(compareRankedEntries);
   const selected = {
     accepted_decisions: [],
     open_questions: [],
     artifacts: [],
+    file_artifacts: [],
     unresolved_conflicts: [],
   };
   const acceptedStateAsOf = latestTimestamp(rows.map((row) => row.accepted_at));
@@ -420,20 +498,28 @@ export async function getProjectContext(
     ...rows.map((row) => row.evidence_captured_at),
     ...conflictRows.map((row) => row.alternative_evidence_captured_at),
   ]);
+  const fileReferenceAsOf = latestTimestamp(fileRows.map((row) => row.referenced_at));
   const freshness = {
     project_updated_at: project.updated_at,
     context_updated_at: context.updated_at,
     accepted_state_as_of: acceptedStateAsOf,
     evidence_as_of: evidenceAsOf,
+    file_reference_as_of: fileReferenceAsOf,
     state_as_of:
-      latestTimestamp([project.updated_at, context.updated_at, acceptedStateAsOf, evidenceAsOf]) ||
-      project.updated_at,
+      latestTimestamp([
+        project.updated_at,
+        context.updated_at,
+        acceptedStateAsOf,
+        evidenceAsOf,
+        fileReferenceAsOf,
+      ]) || project.updated_at,
   };
   const availableCounts = {
     accepted_decisions: rankedAccepted.filter((entry) => entry.category === "accepted_decisions")
       .length,
     open_questions: rankedAccepted.filter((entry) => entry.category === "open_questions").length,
     artifacts: rankedAccepted.filter((entry) => entry.category === "artifacts").length,
+    file_artifacts: fileRows.length,
     unresolved_conflicts: conflictsByStateKey.size,
   };
 
@@ -494,6 +580,14 @@ export async function getProjectContext(
       evidence_payload_hash: row.alternative_evidence_payload_hash,
       evidence_captured_at: row.alternative_evidence_captured_at,
       context_id: row.context_id,
+    })),
+    file_artifacts: fileRows.map((row) => ({
+      file_reference_id: row.file_reference_id,
+      logical_file_id: row.logical_file_id,
+      version: Number(row.version),
+      context_id: row.context_id,
+      content_sha256: row.content_sha256,
+      referenced_at: row.referenced_at,
     })),
   };
   const packageHash = createHash("sha256")
