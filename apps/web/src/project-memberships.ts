@@ -5,7 +5,7 @@ import {
   declineProjectInvitation,
   getProjectCollaborators,
   getProjectInvitationPreview,
-  getProjectMembershipView,
+  getProjectAccessOverview,
   leaveProject,
   ProjectMembershipUserError,
   removeProjectMember,
@@ -127,26 +127,61 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
     "/projects/:projectId/access",
     requireAuthenticatedUser(database),
     async (request, response) => {
-      const membership = await getProjectMembershipView(
-        database,
-        request.aliceUser!.id,
-        request.params.projectId,
-      );
-      if (!membership) return notFound(response);
+      const view = await getProjectAccessOverview(database, {
+        userId: request.aliceUser!.id,
+        projectId: request.params.projectId,
+      });
+      if (!view) return notFound(response);
+      const membership = view.project;
       const ownerLinks =
-        membership.role === "owner"
-          ? ` · <a href="/projects/${encodeURIComponent(membership.project_id)}/collaborators">Manage collaborators</a>`
+        membership.current_user_role === "owner"
+          ? ` · <a href="/projects/${encodeURIComponent(membership.id)}/collaborators">Manage collaborators</a>`
           : "";
       const leaveControl =
-        membership.role === "owner"
+        membership.current_user_role === "owner"
           ? "<p>Transfer ownership before leaving this project.</p>"
-          : `<form method="post" action="/projects/${encodeURIComponent(membership.project_id)}/leave"><button type="submit">Leave project</button></form>`;
+          : `<form method="post" action="/projects/${encodeURIComponent(membership.id)}/leave"><button type="submit">Leave project</button></form>`;
+      const members = view.members
+        .map(
+          (member) =>
+            `<li>${escapeHtml(member.email)}${member.user_id === request.aliceUser!.id ? " (you)" : ""} · ${escapeHtml(member.role)}</li>`,
+        )
+        .join("");
+      const contexts = view.contexts
+        .map((context) => {
+          const accessList = context.members
+            .map(
+              (member) =>
+                `<li>${escapeHtml(member.email)}${member.user_id === request.aliceUser!.id ? " (you)" : ""} · ${escapeHtml(member.context_role)}</li>`,
+            )
+            .join("");
+          const manageLink =
+            context.visibility === "selected_members" && context.can_manage
+              ? `<p><a href="/projects/${encodeURIComponent(membership.id)}/contexts/${encodeURIComponent(context.id)}/access">Manage this context's access</a></p>`
+              : "";
+          return `<article><h3>${escapeHtml(context.name)}</h3><p>${context.context_kind === "project_wide" ? "Project-wide" : "Work context"} · ${escapeHtml(context.visibility)} · your role: ${escapeHtml(context.current_user_role)}</p><ul>${accessList}</ul>${manageLink}</article>`;
+        })
+        .join("");
+      const connections = view.connections
+        .map((connection) => {
+          const target = connection.context_name
+            ? `${escapeHtml(connection.project_name)} / ${escapeHtml(connection.context_name)}`
+            : "No active target";
+          return `<article><h3>${escapeHtml(connection.client_name)}</h3><p>Connected · ${escapeHtml(connection.client_classification)}</p><p><strong>Active target:</strong> ${target}${connection.targets_this_project ? " · this project" : ""}</p><p class="muted">Last used ${escapeHtml(connection.last_used_at)}</p></article>`;
+        })
+        .join("");
+      const events = view.security_events
+        .map(
+          (event) =>
+            `<li><strong>${escapeHtml(event.label)}</strong>${event.context_name ? ` · ${escapeHtml(event.context_name)}` : ""} · ${escapeHtml(event.actor_label)} · <span class="muted">${escapeHtml(event.created_at)}</span></li>`,
+        )
+        .join("");
       response
         .type("html")
         .send(
           renderPage(
             `Project access · ${membership.name}`,
-            `<nav><a href="/">Projects</a></nav><h1>${escapeHtml(membership.name)}</h1><p>${escapeHtml(membership.brief)}</p><p><a href="/projects/${encodeURIComponent(membership.project_id)}">Open project</a>${ownerLinks}</p><article><h2>Your project access</h2><p>${escapeHtml(membership.role)}</p><p>Project membership does not reveal a restricted context. Context-level access is checked separately.</p>${leaveControl}</article>`,
+            `<nav><a href="/">Projects</a><a href="/projects/${encodeURIComponent(membership.id)}">Open project</a><a href="/connections">AI connections</a></nav><h1>${escapeHtml(membership.name)} access and security</h1><p>${escapeHtml(membership.brief)}</p><p>Your project role: <strong>${escapeHtml(membership.current_user_role)}</strong>${ownerLinks}</p><section><h2>People with project access</h2><ul>${members}</ul><p>Project membership alone never reveals a restricted or personal context.</p>${leaveControl}</section><section><h2>Visible context access</h2><p>Only contexts you may know exist appear here. Each card lists the people who can currently read that context.</p>${contexts || "<p>No context is visible to you.</p>"}</section><section><h2>Your active AI connections</h2><p>${escapeHtml(view.privacy.connection_scope)} Collaborators never inherit these credentials or permissions.</p>${connections || "<p>No active AI connection is attached to your account.</p>"}<p><a href="/connections">Review or revoke AI connections</a></p></section><section><h2>Recent security activity</h2><p>${escapeHtml(view.privacy.history_scope)}</p><ul>${events || "<li>No relevant security action has been recorded.</li>"}</ul></section>`,
           ),
         );
     },

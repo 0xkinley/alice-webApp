@@ -98,6 +98,12 @@ Read receipts intentionally omit task text, package contents, accepted values, e
 
 Private-alpha workflow signals add no mutable analytics authority and no content event table. They aggregate existing connection ownership, read-receipt status/timestamps, candidate terminal status/counts, and content-free exact-decision/repair audits. Queries deliberately do not select evidence payloads, candidate/accepted values or summaries, removal explanations, task text, project/context display metadata, emails, or credentials. Cross-host project identifiers are used only as in-memory grouping keys and are never returned by the signals view.
 
+### Derived access and security view
+
+The project access-and-security page adds no access-control or activity table. It derives current membership and context audiences from active membership, context visibility, creator identity, and active grants; derives the signed-in user's connection status from that user's connection rows; and derives recent security history from append-only audits. Context discovery is performed through the same authorization path as project consumption, so inaccessible selected-member and personal contexts are not returned even to a project Owner.
+
+The history projection uses a fixed action allowlist and does not return `safe_metadata_json`, correlation identifiers, grant/membership identifiers, bearer material, or evidence content. Context-bound events are displayed only when their content-free `context_id` resolves to a context currently visible to the viewer. Other users' active-target events and connection rows are not included.
+
 ### Audit events
 
 Append-only records of security- and state-relevant actions. Store identifiers, safe metadata, and correlation IDs rather than unsaved conversation content.

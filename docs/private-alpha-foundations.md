@@ -269,6 +269,8 @@ Privacy-preserving instrumentation records events and bounded identifiers needed
 
 The implemented `Alpha signals` view derives content-free aggregates from existing connection ownership, immutable read receipts, candidate statuses, and decision/repair audits. It measures observed read outcomes, save-offer completion, proposed entries per offer, decision time, cross-host reuse within seven days, and repeat UTC-week use without selecting project values or evidence payloads. It explicitly does not report a host invocation rate because a host turn that never calls alice. produces no observable event. The remaining denominator problem must be solved per supported surface without adding conversation surveillance or pretending absence is a recorded failure. Detailed definitions are in `docs/product-signals.md`.
 
+The implemented project `Access and security` view is an authorization-derived explanation surface, not a second permissions system. It shows active project members, the current audience of each context the viewer is already allowed to know exists, the signed-in user's own active AI connections, and a bounded recent security history. It never reveals another collaborator's connection state. Security rows are mapped through a fixed action allowlist and display only a human-readable action, a currently permitted context name when applicable, a privacy-bounded actor label, and time; raw audit metadata, identifiers, tokens, correlation values, and submitted evidence are never rendered. Full rules are in `docs/project-access-and-security.md`.
+
 ## Verification boundary
 
 Milestone 06 is not complete on local happy paths alone. Verification must cover:

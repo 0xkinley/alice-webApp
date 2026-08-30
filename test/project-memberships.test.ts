@@ -205,6 +205,19 @@ test("only the exact invited account can accept a hash-only project invitation",
   assert.match(sharedHtml, /Shared with you/);
   assert.match(sharedHtml, /Membership safety project/);
   assert.match(sharedHtml, /editor/);
+
+  const accessPage = await fetch(`${baseUrl}/projects/${encodeURIComponent(projectId)}/access`, {
+    headers: { cookie: recipientCookie },
+  });
+  assert.equal(accessPage.status, 200);
+  const accessHtml = await accessPage.text();
+  assert.match(accessHtml, /Membership safety project access and security/);
+  assert.match(accessHtml, /People with project access/);
+  assert.match(accessHtml, /membership-owner@alice\.example/);
+  assert.match(accessHtml, /membership-recipient@alice\.example/);
+  assert.match(accessHtml, /Visible context access/);
+  assert.match(accessHtml, /Project invitation accepted/);
+  assert.match(accessHtml, /Only your own AI connections are shown/);
 });
 
 test("only an Owner can change or end a non-owner membership", async () => {

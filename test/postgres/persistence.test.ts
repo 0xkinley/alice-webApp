@@ -11,6 +11,7 @@ import {
   getCapturePreview,
   getProjectContext,
   getPrivateAlphaSignals,
+  getProjectAccessOverview,
   getProjectFileRemovalPreview,
   getProjectFileDownload,
   getRemovalPreview,
@@ -950,4 +951,24 @@ test("cross-tenant and mismatched-connection access disclose nothing and mutate 
   assert.equal(ownerSignals.privacy.content_fields_read, false);
   assert.equal(otherSignals.saving.offers, 0);
   assert.equal(otherSignals.consumption.observed_attempts, 0);
+
+  const ownerAccess = await getProjectAccessOverview(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+  });
+  assert.equal(ownerAccess.project.current_user_role, "owner");
+  assert.ok(ownerAccess.contexts.length >= 2);
+  assert.ok(
+    ownerAccess.connections.some(
+      ({ client_name: clientName }) => clientName === "PostgreSQL concurrency fixture",
+    ),
+  );
+  assert.equal(
+    await getProjectAccessOverview(database, {
+      userId: other.id,
+      projectId: owner.project_id,
+    }),
+    undefined,
+  );
+  assert.doesNotMatch(JSON.stringify(ownerAccess), /Exact source bytes retained as text/);
 });

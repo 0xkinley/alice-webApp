@@ -9,6 +9,7 @@ import {
   createWorkContext,
   endContextAccess,
   getContextAccessView,
+  getProjectAccessOverview,
   getCapturePreview,
   getProjectContext,
   getProjectCollaborators,
@@ -73,6 +74,34 @@ test("restricted and personal contexts require exact context access independentl
       visibility: "personal",
     },
   });
+
+  const ownerBeforeGrant = await getProjectAccessOverview(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+  });
+  assert.deepEqual(
+    ownerBeforeGrant.members.map(({ email }) => email).sort(),
+    [editor.email, owner.email, viewer.email].sort(),
+  );
+  assert.equal(
+    ownerBeforeGrant.contexts.some(({ id }) => id === restricted.id),
+    false,
+  );
+  assert.equal(
+    ownerBeforeGrant.contexts.some(({ id }) => id === personal.id),
+    false,
+  );
+  assert.equal(
+    ownerBeforeGrant.security_events.some(({ context_name }) => context_name === restricted.name),
+    false,
+  );
+  assert.equal(
+    await getProjectAccessOverview(database, {
+      userId: viewer.id,
+      projectId: editor.project_id,
+    }),
+    undefined,
+  );
 
   assert.ok(
     (await listWorkContexts(database, editor.id, owner.project_id)).some(
@@ -198,6 +227,59 @@ test("restricted and personal contexts require exact context access independentl
     contextId: restricted.id,
     grantId: viewerGrant.id,
   });
+
+  database
+    .prepare(
+      `INSERT INTO audit_events
+        (id, workspace_id, project_id, action, actor_type, actor_id,
+         correlation_id, safe_metadata_json, created_at)
+       VALUES ('audit_access_privacy_fixture', ?, ?, 'context_access_granted',
+               'human_user', ?, 'privacy_fixture', ?, ?)`,
+    )
+    .run(
+      owner.workspace_id,
+      owner.project_id,
+      owner.id,
+      JSON.stringify({
+        context_id: restricted.id,
+        bearer_token: "must-never-render",
+        submitted_evidence_content: "private launch evidence",
+      }),
+      new Date().toISOString(),
+    );
+  const ownerAfterGrant = await getProjectAccessOverview(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+  });
+  const ownerRestricted = ownerAfterGrant.contexts.find(({ id }) => id === restricted.id);
+  assert.deepEqual(
+    ownerRestricted.members.map(({ email, context_role: role }) => [email, role]),
+    [
+      [editor.email, "manager"],
+      [owner.email, "editor"],
+    ],
+  );
+  assert.equal(
+    ownerAfterGrant.contexts.some(({ id }) => id === personal.id),
+    false,
+  );
+  assert.ok(
+    ownerAfterGrant.security_events.some(
+      ({ label, context_name: contextName }) =>
+        label === "Context access granted" && contextName === restricted.name,
+    ),
+  );
+  assert.doesNotMatch(JSON.stringify(ownerAfterGrant), /must-never-render|private launch evidence/);
+
+  const editorOverview = await getProjectAccessOverview(database, {
+    userId: editor.id,
+    projectId: owner.project_id,
+  });
+  const editorPersonal = editorOverview.contexts.find(({ id }) => id === personal.id);
+  assert.deepEqual(
+    editorPersonal.members.map(({ email, context_role: role }) => [email, role]),
+    [[editor.email, "manager"]],
+  );
   assert.equal(
     await contextScopeForUser(database, {
       userId: viewer.id,

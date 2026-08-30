@@ -128,6 +128,19 @@ test("a user explicitly selects one permitted target for all active AI connectio
   });
   assert.equal(response.status, 303);
   assert.equal(response.headers.get("location"), "/connections");
+
+  const accessPage = await fetch(
+    `${baseUrl}/projects/${encodeURIComponent(owner.project_id)}/access`,
+    { headers: { cookie } },
+  );
+  assert.equal(accessPage.status, 200);
+  const accessHtml = await accessPage.text();
+  assert.match(accessHtml, /Your active AI connections/);
+  assert.match(accessHtml, /ChatGPT web/);
+  assert.match(accessHtml, /Claude web/);
+  assert.match(accessHtml, /AI connection target changed/);
+  assert.match(accessHtml, /this project/);
+  assert.doesNotMatch(accessHtml, /Claude Desktop|owner-token-hash/);
   const targets = created.database
     .prepare(
       `SELECT connection_id, project_id, context_id, selection_version
