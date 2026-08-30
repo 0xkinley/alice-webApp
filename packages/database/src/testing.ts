@@ -315,6 +315,21 @@ function createSchema(database: DatabaseSync) {
         REFERENCES work_contexts(workspace_id, project_id, id)
     ) STRICT;
 
+    CREATE TABLE context_entry_exclusions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      accepted_state_id TEXT NOT NULL UNIQUE,
+      reason TEXT NOT NULL CHECK (length(reason) <= 500),
+      removed_by_user_id TEXT NOT NULL,
+      removed_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id, accepted_state_id)
+        REFERENCES accepted_context_entries(workspace_id, project_id, context_id, accepted_state_id),
+      FOREIGN KEY (workspace_id, removed_by_user_id)
+        REFERENCES workspaces(id, user_id)
+    ) STRICT;
+
     CREATE TABLE audit_events (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
@@ -421,6 +436,18 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON accepted_context_entries
     BEGIN
       SELECT RAISE(ABORT, 'accepted context entries are immutable');
+    END;
+
+    CREATE TRIGGER context_entry_exclusions_no_update
+    BEFORE UPDATE ON context_entry_exclusions
+    BEGIN
+      SELECT RAISE(ABORT, 'context entry exclusions are immutable');
+    END;
+
+    CREATE TRIGGER context_entry_exclusions_no_delete
+    BEFORE DELETE ON context_entry_exclusions
+    BEGIN
+      SELECT RAISE(ABORT, 'context entry exclusions are immutable');
     END;
   `);
 }

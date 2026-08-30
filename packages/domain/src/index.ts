@@ -5,7 +5,11 @@ export {
   setActiveConnectionTarget,
 } from "./active-targets.ts";
 export { listIntegrationConnections, revokeIntegrationConnection } from "./connections.ts";
-export { getSavedContextView } from "./saved-context.ts";
+export {
+  getRemovalPreview,
+  getSavedContextView,
+  removeSavedContextEntry,
+} from "./saved-context.ts";
 export { appendAuditEvent } from "./audit.ts";
 export { tenantScopeForConnection, tenantScopeForUser } from "./authorization.ts";
 export type { ConnectionScope, TenantScope } from "./authorization.ts";

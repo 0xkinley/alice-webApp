@@ -1,4 +1,4 @@
-import { getSavedContextView } from "@alice/domain";
+import { getRemovalPreview, getSavedContextView, removeSavedContextEntry } from "@alice/domain";
 import express from "express";
 import { renderPage, requireAuthenticatedUser } from "./auth.ts";
 
@@ -50,7 +50,17 @@ function savedCards(view) {
   return view.saved
     .map(
       (entry) =>
-        `<article><h2>${escapeHtml(entry.state_key)}</h2><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${provenance(entry)}</article>`,
+        `<article><h2>${escapeHtml(entry.state_key)}</h2><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${provenance(entry)}<p><a href="/projects/${encodeURIComponent(view.project.id)}/saved-context/${encodeURIComponent(entry.id)}/remove?context_id=${encodeURIComponent(view.context.id)}">Remove from active context</a></p></article>`,
+    )
+    .join("");
+}
+
+function removedCards(view) {
+  if (view.removed.length === 0) return "<p>Nothing has been removed from this context.</p>";
+  return view.removed
+    .map(
+      (entry) =>
+        `<article><h2>${escapeHtml(entry.state_key)}</h2><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p><p><strong>Removed</strong> · ${escapeHtml(entry.removed_at)}</p>${entry.reason ? `<p><strong>Reason:</strong> ${escapeHtml(entry.reason)}</p>` : ""}${provenance(entry)}</article>`,
     )
     .join("");
 }
@@ -71,14 +81,74 @@ function historyCards(view) {
   return view.history
     .map(
       (entry) =>
-        `<article><h2>${escapeHtml(entry.state_key)}</h2><p><strong>${labels[entry.status] || escapeHtml(entry.status)}</strong> · ${escapeHtml(entry.accepted_at || entry.created_at)}</p><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p><details><summary>Provenance</summary><dl><dt>Evidence receipt</dt><dd><code>${escapeHtml(entry.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(entry.payload_hash)}</code></dd>${entry.version ? `<dt>Saved version</dt><dd>${entry.version}</dd>` : ""}</dl></details></article>`,
+        `<article><h2>${escapeHtml(entry.state_key)}</h2><p><strong>${entry.removed_at ? "Removed" : labels[entry.status] || escapeHtml(entry.status)}</strong> · ${escapeHtml(entry.removed_at || entry.accepted_at || entry.created_at)}</p><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${entry.removal_reason ? `<p><strong>Removal reason:</strong> ${escapeHtml(entry.removal_reason)}</p>` : ""}<details><summary>Provenance</summary><dl><dt>Evidence receipt</dt><dd><code>${escapeHtml(entry.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(entry.payload_hash)}</code></dd>${entry.version ? `<dt>Saved version</dt><dd>${entry.version}</dd>` : ""}</dl></details></article>`,
     )
     .join("");
+}
+
+function removalPreviewPage(preview) {
+  return `<nav><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Back to Saved context</a></nav><h1>Remove from ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}?</h1><p>This stops the item from being sent as active context. It does not erase the saved version, its evidence, provenance, or audit history.</p><article><h2>${escapeHtml(preview.entry.state_key)}</h2><pre>${renderJson(preview.entry.value)}</pre><p>${escapeHtml(preview.entry.summary)}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/remove"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>Reason (optional)<textarea name="reason" maxlength="500"></textarea></label><button type="submit">Remove from active context</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Keep this saved context</a></p>`;
 }
 
 export function createSavedContextRouter({ database }) {
   const router = express.Router();
   router.use(requireAuthenticatedUser(database));
+
+  router.get("/:projectId/saved-context/:acceptedStateId/remove", async (request, response) => {
+    const preview = await getRemovalPreview(database, {
+      userId: request.aliceUser!.id,
+      projectId: request.params.projectId,
+      contextId: String(request.query.context_id || ""),
+      acceptedStateId: request.params.acceptedStateId,
+    });
+    if (!preview) {
+      return response
+        .status(404)
+        .type("html")
+        .send(renderPage("Not found", "<h1>Saved context not found</h1>"));
+    }
+    response.type("html").send(renderPage("Remove saved context", removalPreviewPage(preview)));
+  });
+
+  router.post("/:projectId/saved-context/:acceptedStateId/remove", async (request, response) => {
+    let result;
+    try {
+      result = await removeSavedContextEntry(database, {
+        userId: request.aliceUser!.id,
+        projectId: request.params.projectId,
+        contextId: String(request.body.context_id || ""),
+        acceptedStateId: request.params.acceptedStateId,
+        expectedPreviewVersion: String(request.body.preview_version || ""),
+        reason: request.body.reason,
+      });
+    } catch (error) {
+      return response
+        .status(400)
+        .type("html")
+        .send(renderPage("Not removed", `<h1>${escapeHtml(String(error))}</h1>`));
+    }
+    if (!result) {
+      return response
+        .status(404)
+        .type("html")
+        .send(renderPage("Not found", "<h1>Saved context not found</h1>"));
+    }
+    if (result.conflict) {
+      return response
+        .status(409)
+        .type("html")
+        .send(
+          renderPage(
+            "Removal changed",
+            `<h1>This saved context changed.</h1><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/saved-context?context_id=${encodeURIComponent(String(request.body.context_id || ""))}">Review the current context before deciding.</a></p>`,
+          ),
+        );
+    }
+    response.redirect(
+      303,
+      `/projects/${encodeURIComponent(result.projectId)}/saved-context?context_id=${encodeURIComponent(result.contextId)}&view=removed`,
+    );
+  });
 
   router.get("/:projectId/saved-context", async (request, response) => {
     const selected = String(request.query.view || "saved");
@@ -106,7 +176,7 @@ export function createSavedContextRouter({ database }) {
         : selected === "attention"
           ? attentionCards(view)
           : selected === "removed"
-            ? "<p>Nothing has been removed from this context.</p>"
+            ? removedCards(view)
             : historyCards(view);
     response
       .type("html")

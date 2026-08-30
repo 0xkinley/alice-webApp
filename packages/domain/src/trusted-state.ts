@@ -40,12 +40,17 @@ async function candidateContextId(database, workspaceId, candidate) {
 async function currentAcceptedState(database, workspaceId, candidate, contextId) {
   return database
     .prepare(
-      `SELECT accepted.id, accepted.version, accepted.value_json, accepted.accepted_at
+      `SELECT accepted.id, accepted.version, accepted.value_json, accepted.accepted_at,
+              exclusion.removed_at
        FROM accepted_project_state accepted
        LEFT JOIN accepted_context_entries entry
          ON entry.workspace_id = accepted.workspace_id
         AND entry.project_id = accepted.project_id
         AND entry.accepted_state_id = accepted.id
+       LEFT JOIN context_entry_exclusions exclusion
+         ON exclusion.workspace_id = accepted.workspace_id
+        AND exclusion.project_id = accepted.project_id
+        AND exclusion.accepted_state_id = accepted.id
        WHERE accepted.workspace_id = ? AND accepted.project_id = ?
          AND accepted.state_key = ?
          AND (
@@ -95,6 +100,7 @@ function capturePreviewVersion(preview) {
           current_accepted_state_id: candidate.current?.id || null,
           current_accepted_version: candidate.current?.version || null,
           current_accepted_value_json: candidate.current?.value_json || null,
+          current_removed_at: candidate.current?.removed_at || null,
         })),
       }),
     )

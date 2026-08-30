@@ -372,6 +372,88 @@ test("foreign and guessed exact save previews disclose nothing and cannot decide
   }
 });
 
+test("foreign and guessed saved-context removals disclose nothing and cannot exclude state", async () => {
+  for (const [actorKey, targetKey] of [
+    ["alpha", "beta"],
+    ["beta", "alpha"],
+  ]) {
+    const actor = tenants[actorKey];
+    const target = tenants[targetKey];
+    const targetContext = database
+      .prepare("SELECT context_id FROM accepted_context_entries WHERE accepted_state_id = ?")
+      .get(target.acceptedStateId).context_id;
+    const guessedProjectId = `project_${crypto.randomUUID()}`;
+    const guessedContextId = `context_${crypto.randomUUID()}`;
+    const guessedAcceptedStateId = `accepted_${crypto.randomUUID()}`;
+
+    const foreignPreview = await fetch(
+      `${webBaseUrl}/projects/${target.projectId}/saved-context/${target.acceptedStateId}/remove?context_id=${targetContext}`,
+      { headers: { cookie: actor.cookie } },
+    );
+    const guessedPreview = await fetch(
+      `${webBaseUrl}/projects/${guessedProjectId}/saved-context/${guessedAcceptedStateId}/remove?context_id=${guessedContextId}`,
+      { headers: { cookie: actor.cookie } },
+    );
+    assert.equal(foreignPreview.status, 404);
+    const foreignHtml = await foreignPreview.text();
+    assert.equal(foreignHtml, await guessedPreview.text());
+    assert.doesNotMatch(
+      foreignHtml,
+      new RegExp(`${target.projectName}|${target.acceptedValue}|${target.acceptedStateId}`),
+    );
+
+    const countsBefore = database
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM context_entry_exclusions) AS exclusions,
+          (SELECT COUNT(*) FROM context_history_events) AS history,
+          (SELECT COUNT(*) FROM audit_events) AS audit`,
+      )
+      .get();
+    const options = {
+      method: "POST",
+      headers: {
+        cookie: actor.cookie,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        context_id: targetContext,
+        preview_version: "removal_preview_guessed",
+        reason: "Attempt cross-tenant removal",
+      }),
+      redirect: "manual" as const,
+    };
+    const foreignRemoval = await fetch(
+      `${webBaseUrl}/projects/${target.projectId}/saved-context/${target.acceptedStateId}/remove`,
+      options,
+    );
+    const guessedRemoval = await fetch(
+      `${webBaseUrl}/projects/${guessedProjectId}/saved-context/${guessedAcceptedStateId}/remove`,
+      {
+        ...options,
+        body: new URLSearchParams({
+          context_id: guessedContextId,
+          preview_version: "removal_preview_guessed",
+          reason: "Attempt guessed removal",
+        }),
+      },
+    );
+    assert.equal(foreignRemoval.status, 404);
+    assert.equal(await foreignRemoval.text(), await guessedRemoval.text());
+    assert.deepEqual(
+      database
+        .prepare(
+          `SELECT
+            (SELECT COUNT(*) FROM context_entry_exclusions) AS exclusions,
+            (SELECT COUNT(*) FROM context_history_events) AS history,
+            (SELECT COUNT(*) FROM audit_events) AS audit`,
+        )
+        .get(),
+      countsBefore,
+    );
+  }
+});
+
 test("MCP project listing, accepted context, and candidate capture deny the other tenant", async () => {
   for (const [actorKey, targetKey] of [
     ["alpha", "beta"],

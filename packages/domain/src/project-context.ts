@@ -130,21 +130,46 @@ export async function listProjects(database, userId) {
   return await database
     .prepare(
       `SELECT project.id, project.name, project.brief, project.created_at, project.updated_at,
-              COUNT(accepted.id) AS accepted_state_count,
-              MAX(accepted.accepted_at) AS accepted_state_updated_at
+              COALESCE(active.accepted_state_count, 0) AS accepted_state_count,
+              active.accepted_state_updated_at
        FROM projects project
-       LEFT JOIN accepted_project_state accepted
-         ON accepted.workspace_id = project.workspace_id
-        AND accepted.project_id = project.id
-        AND NOT EXISTS (
-          SELECT 1 FROM accepted_project_state newer
+       LEFT JOIN (
+         SELECT accepted.workspace_id, accepted.project_id,
+                COUNT(accepted.id) AS accepted_state_count,
+                MAX(accepted.accepted_at) AS accepted_state_updated_at
+         FROM accepted_project_state accepted
+         LEFT JOIN accepted_context_entries entry
+           ON entry.workspace_id = accepted.workspace_id
+          AND entry.project_id = accepted.project_id
+          AND entry.accepted_state_id = accepted.id
+         LEFT JOIN work_contexts project_wide
+           ON project_wide.workspace_id = accepted.workspace_id
+          AND project_wide.project_id = accepted.project_id
+          AND project_wide.context_kind = 'project_wide'
+         WHERE NOT EXISTS (
+          SELECT 1 FROM context_entry_exclusions exclusion
+          WHERE exclusion.workspace_id = accepted.workspace_id
+            AND exclusion.project_id = accepted.project_id
+            AND exclusion.accepted_state_id = accepted.id
+         )
+         AND NOT EXISTS (
+          SELECT 1
+          FROM accepted_project_state newer
+          LEFT JOIN accepted_context_entries newer_entry
+            ON newer_entry.workspace_id = newer.workspace_id
+           AND newer_entry.project_id = newer.project_id
+           AND newer_entry.accepted_state_id = newer.id
           WHERE newer.workspace_id = accepted.workspace_id
             AND newer.project_id = accepted.project_id
             AND newer.state_key = accepted.state_key
+            AND COALESCE(newer_entry.context_id, project_wide.id) =
+                COALESCE(entry.context_id, project_wide.id)
             AND newer.version > accepted.version
-        )
+         )
+         GROUP BY accepted.workspace_id, accepted.project_id
+       ) active
+         ON active.workspace_id = project.workspace_id AND active.project_id = project.id
        WHERE project.workspace_id = ?
-       GROUP BY project.id, project.name, project.brief, project.created_at, project.updated_at
        ORDER BY project.name, project.id`,
     )
     .all(tenant.workspaceId);
@@ -162,11 +187,15 @@ function latestEffectiveAcceptedRows(acceptedRows, projectWideId, selectedContex
 
   const effectiveByStateKey = new Map();
   for (const row of latestByContextAndKey.values()) {
-    if (row.context_id === projectWideId) effectiveByStateKey.set(row.state_key, row);
+    if (row.context_id === projectWideId && !row.removed_at) {
+      effectiveByStateKey.set(row.state_key, row);
+    }
   }
   if (selectedContextId) {
     for (const row of latestByContextAndKey.values()) {
-      if (row.context_id === selectedContextId) effectiveByStateKey.set(row.state_key, row);
+      if (row.context_id === selectedContextId && !row.removed_at) {
+        effectiveByStateKey.set(row.state_key, row);
+      }
     }
   }
   return effectiveByStateKey;
@@ -218,7 +247,8 @@ export async function getProjectContext(
               accepted.evidence_id, candidate.summary,
               evidence.payload_hash AS evidence_payload_hash,
               evidence.created_at AS evidence_captured_at,
-              COALESCE(entry.context_id, ?) AS context_id
+              COALESCE(entry.context_id, ?) AS context_id,
+              exclusion.removed_at
        FROM accepted_project_state accepted
        JOIN candidate_claims candidate
          ON candidate.workspace_id = accepted.workspace_id
@@ -233,6 +263,10 @@ export async function getProjectContext(
          ON entry.workspace_id = accepted.workspace_id
         AND entry.project_id = accepted.project_id
         AND entry.accepted_state_id = accepted.id
+       LEFT JOIN context_entry_exclusions exclusion
+         ON exclusion.workspace_id = accepted.workspace_id
+        AND exclusion.project_id = accepted.project_id
+        AND exclusion.accepted_state_id = accepted.id
        WHERE accepted.project_id = ? AND accepted.workspace_id = ?
        ORDER BY accepted.state_key, accepted.version, accepted.id`,
     )

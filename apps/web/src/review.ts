@@ -79,7 +79,9 @@ function capturePreviewPage(preview) {
   const candidateCards = preview.candidates
     .map((candidate) => {
       const current = candidate.current
-        ? `<aside><h3>Will replace saved version ${candidate.current.version}</h3><pre>${renderJson(candidate.current.value_json)}</pre><p class="muted">The earlier version and provenance remain in History.</p></aside>`
+        ? candidate.current.removed_at
+          ? `<aside><h3>Will restore removed key as a new saved version</h3><pre>${renderJson(candidate.current.value_json)}</pre><p class="muted">Removed version ${candidate.current.version} and its provenance remain in History.</p></aside>`
+          : `<aside><h3>Will replace saved version ${candidate.current.version}</h3><pre>${renderJson(candidate.current.value_json)}</pre><p class="muted">The earlier version and provenance remain in History.</p></aside>`
         : "";
       return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p>${current}<p class="muted">Status: ${escapeHtml(candidate.status)}</p></article>`;
     })

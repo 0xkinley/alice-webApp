@@ -6,6 +6,9 @@ import {
   confirmCapturedUpdate,
   createUserSession,
   getCapturePreview,
+  getProjectContext,
+  getRemovalPreview,
+  removeSavedContextEntry,
   saveCandidateUpdate,
 } from "@alice/domain";
 import { createApp } from "../apps/web/src/app.ts";
@@ -219,5 +222,197 @@ test("the project page links every context to its saved-context view", async () 
   assert.match(
     html,
     new RegExp(`/projects/${owner.project_id}/saved-context\\?context_id=${general.id}`),
+  );
+});
+
+test("an exact human removal stops consumption without erasing provenance", async () => {
+  const accepted = created.database
+    .prepare(
+      `SELECT id FROM accepted_project_state
+       WHERE project_id = ? AND state_key = 'launch.saved_item'`,
+    )
+    .get(owner.project_id);
+  const acceptedCountBefore = created.database
+    .prepare("SELECT COUNT(*) AS count FROM accepted_project_state")
+    .get().count;
+  const previewResponse = await fetch(
+    `${baseUrl}/projects/${owner.project_id}/saved-context/${accepted.id}/remove?context_id=${general.id}`,
+    { headers: { cookie } },
+  );
+  assert.equal(previewResponse.status, 200);
+  const previewHtml = await previewResponse.text();
+  assert.match(previewHtml, /Remove from Private project \/ General\?/);
+  assert.match(previewHtml, /Visible saved value/);
+  assert.match(previewHtml, /does not erase the saved version/);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM context_entry_exclusions").get().count,
+    0,
+  );
+  const previewVersion = previewHtml.match(/name="preview_version" value="([^"]+)"/)[1];
+
+  const stale = await fetch(
+    `${baseUrl}/projects/${owner.project_id}/saved-context/${accepted.id}/remove`,
+    {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        context_id: general.id,
+        preview_version: "removal_preview_stale",
+      }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(stale.status, 409);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM context_entry_exclusions").get().count,
+    0,
+  );
+
+  const contextUpdatedBefore = created.database
+    .prepare("SELECT updated_at FROM work_contexts WHERE id = ?")
+    .get(general.id).updated_at;
+  created.database.exec(`
+    CREATE TRIGGER force_removal_audit_failure
+    BEFORE INSERT ON audit_events
+    WHEN NEW.action = 'saved_context_removed'
+    BEGIN
+      SELECT RAISE(ABORT, 'forced saved-context removal audit failure');
+    END;
+  `);
+  const failedAudit = await fetch(
+    `${baseUrl}/projects/${owner.project_id}/saved-context/${accepted.id}/remove`,
+    {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        context_id: general.id,
+        preview_version: previewVersion,
+        reason: "This transaction must roll back.",
+      }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(failedAudit.status, 400);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM context_entry_exclusions").get().count,
+    0,
+  );
+  assert.equal(
+    created.database
+      .prepare(
+        "SELECT COUNT(*) AS count FROM context_history_events WHERE action = 'context_entry_removed'",
+      )
+      .get().count,
+    0,
+  );
+  assert.equal(
+    created.database.prepare("SELECT updated_at FROM work_contexts WHERE id = ?").get(general.id)
+      .updated_at,
+    contextUpdatedBefore,
+  );
+  created.database.exec("DROP TRIGGER force_removal_audit_failure");
+
+  const remove = await fetch(
+    `${baseUrl}/projects/${owner.project_id}/saved-context/${accepted.id}/remove`,
+    {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        context_id: general.id,
+        preview_version: previewVersion,
+        reason: "No longer part of the launch plan.",
+      }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(remove.status, 303);
+  assert.match(remove.headers.get("location"), /view=removed/);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
+    acceptedCountBefore,
+  );
+  const exclusion = created.database.prepare("SELECT * FROM context_entry_exclusions").get();
+  assert.equal(exclusion.accepted_state_id, accepted.id);
+  assert.equal(exclusion.reason, "No longer part of the launch plan.");
+  assert.throws(
+    () =>
+      created.database
+        .prepare("UPDATE context_entry_exclusions SET reason = 'rewritten' WHERE id = ?")
+        .run(exclusion.id),
+    /immutable/,
+  );
+
+  const saved = await fetch(
+    `${baseUrl}/projects/${owner.project_id}/saved-context?context_id=${general.id}`,
+    { headers: { cookie } },
+  );
+  const savedHtml = await saved.text();
+  assert.match(savedHtml, /Saved context \(0\)/);
+  assert.doesNotMatch(savedHtml, /Visible saved value/);
+  const removed = await fetch(
+    `${baseUrl}/projects/${owner.project_id}/saved-context?context_id=${general.id}&view=removed`,
+    { headers: { cookie } },
+  );
+  const removedHtml = await removed.text();
+  assert.match(removedHtml, /Visible saved value/);
+  assert.match(removedHtml, /No longer part of the launch plan/);
+
+  const context = await getProjectContext(created.database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    contextId: general.id,
+    task: "Continue the launch plan",
+    contextBudget: 4_000,
+  });
+  assert.doesNotMatch(JSON.stringify(context), /Visible saved value/);
+  assert.match(JSON.stringify(context), /Project-wide saved value/);
+
+  const domainPreview = await getRemovalPreview(created.database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    contextId: general.id,
+    acceptedStateId: accepted.id,
+  });
+  assert.equal(domainPreview, undefined);
+  const repeated = await removeSavedContextEntry(created.database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    contextId: general.id,
+    acceptedStateId: accepted.id,
+    expectedPreviewVersion: previewVersion,
+  });
+  assert.equal(repeated, undefined);
+
+  const restoration = await capture(
+    "saved-context-restoration",
+    general.id,
+    "launch.saved_item",
+    "Restored saved value",
+  );
+  const restorationPreview = await getCapturePreview(created.database, {
+    evidenceId: restoration.evidence_id,
+    userId: owner.id,
+  });
+  assert.equal(restorationPreview.candidates[0].current.id, accepted.id);
+  assert.equal(restorationPreview.candidates[0].current.removed_at, exclusion.removed_at);
+  const restorationPage = await fetch(`${baseUrl}/review/captures/${restoration.evidence_id}`, {
+    headers: { cookie },
+  });
+  assert.match(await restorationPage.text(), /Will restore removed key as a new saved version/);
+  await confirmCapturedUpdate(created.database, {
+    evidenceId: restoration.evidence_id,
+    expectedPreviewVersion: restorationPreview.preview_version,
+    userId: owner.id,
+  });
+  const restoredView = await fetch(
+    `${baseUrl}/projects/${owner.project_id}/saved-context?context_id=${general.id}`,
+    { headers: { cookie } },
+  );
+  const restoredHtml = await restoredView.text();
+  assert.match(restoredHtml, /Restored saved value/);
+  assert.doesNotMatch(restoredHtml, /Visible saved value/);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM context_entry_exclusions").get().count,
+    1,
   );
 });

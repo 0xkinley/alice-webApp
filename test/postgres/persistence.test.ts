@@ -7,9 +7,11 @@ import {
   confirmCapturedUpdate,
   getCapturePreview,
   getProjectContext,
+  getRemovalPreview,
   getSavedContextView,
   issueAlphaInvitation,
   registerUser,
+  removeSavedContextEntry,
   saveCandidateUpdate,
   setActiveConnectionTarget,
   supersedeAcceptedState,
@@ -143,12 +145,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 3, filename: "003_work_contexts.sql" },
     { version: 4, filename: "004_context_entries.sql" },
     { version: 5, filename: "005_active_context_targets.sql" },
+    { version: 6, filename: "006_context_entry_exclusions.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    5,
+    6,
   );
   await reopened.close();
 });
@@ -252,6 +255,67 @@ test("one concurrent exact-preview confirmation wins and accepts the whole captu
       ["preview.second", "B"],
     ],
   );
+
+  const first = savedView.saved.find(({ state_key: stateKey }) => stateKey === "preview.first");
+  const removalPreview = await getRemovalPreview(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    contextId: preview.context.id,
+    acceptedStateId: first.id,
+  });
+  const removals = await Promise.all([
+    removeSavedContextEntry(database, {
+      userId: owner.id,
+      projectId: owner.project_id,
+      contextId: preview.context.id,
+      acceptedStateId: first.id,
+      expectedPreviewVersion: removalPreview.preview_version,
+      reason: "PostgreSQL concurrent removal fixture",
+    }),
+    removeSavedContextEntry(database, {
+      userId: owner.id,
+      projectId: owner.project_id,
+      contextId: preview.context.id,
+      acceptedStateId: first.id,
+      expectedPreviewVersion: removalPreview.preview_version,
+      reason: "PostgreSQL concurrent removal fixture",
+    }),
+  ]);
+  assert.equal(removals.filter((result) => result?.conflict === false).length, 1);
+  assert.equal(
+    (
+      await database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM context_entry_exclusions WHERE accepted_state_id = ?",
+        )
+        .get(first.id)
+    ).count,
+    1,
+  );
+  const afterRemoval = await getSavedContextView(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    contextId: preview.context.id,
+  });
+  assert.deepEqual(
+    afterRemoval.saved
+      .filter(({ state_key: stateKey }) => stateKey.startsWith("preview."))
+      .map(({ state_key: stateKey }) => stateKey),
+    ["preview.second"],
+  );
+  assert.equal(
+    afterRemoval.removed.find(({ state_key: stateKey }) => stateKey === "preview.first").value,
+    "A",
+  );
+  const consumed = await getProjectContext(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    contextId: preview.context.id,
+    task: "Use preview values",
+    contextBudget: 4_000,
+  });
+  assert.doesNotMatch(JSON.stringify(consumed), /preview\.first|"A"/);
+  assert.match(JSON.stringify(consumed), /preview\.second/);
 });
 
 test("concurrent identical capture is atomic and idempotent with byte-exact evidence text", async () => {
@@ -370,6 +434,14 @@ test("PostgreSQL denies immutable history rewrites through the constrained appli
   );
   await assert.rejects(
     database.prepare("UPDATE candidate_context_targets SET context_id = 'rewritten'").run(),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database.prepare("UPDATE context_entry_exclusions SET reason = 'rewritten'").run(),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database.prepare("DELETE FROM context_entry_exclusions").run(),
     /permission denied|immutable/i,
   );
 });
