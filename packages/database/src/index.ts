@@ -205,6 +205,9 @@ export async function configureApplicationRole(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.file_reference_exclusions FROM ${role}`,
     );
     await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.evidence_file_sources FROM ${role}`,
+    );
+    await database.exec(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.project_memberships FROM ${role}`,
     );
     await database.exec(

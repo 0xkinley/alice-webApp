@@ -177,12 +177,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 11, filename: "011_context_access.sql" },
     { version: 12, filename: "012_context_read_events.sql" },
     { version: 13, filename: "013_project_lifecycle.sql" },
+    { version: 14, filename: "014_pdf_evidence_sources.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    13,
+    14,
   );
   await reopened.close();
 });
@@ -927,11 +928,12 @@ test("PostgreSQL serves only current authorized clean text as bounded untrusted 
     contextBudget: 4_000,
     fileTextReadAvailable: true,
   });
-  assert.equal(packageResult.contract_version, "2.1");
+  assert.equal(packageResult.contract_version, "2.2");
   assert.equal(packageResult.file_artifacts.length, 1);
   assert.equal(packageResult.file_artifacts[0].file_reference_id, reference.id);
   assert.equal(packageResult.file_artifacts[0].handling, "reference_only_untrusted");
   assert.equal(packageResult.file_artifacts[0].text_read_tool, "read_project_file_text");
+  assert.equal(packageResult.file_artifacts[0].pdf_read_tool, null);
   assert.doesNotMatch(JSON.stringify(packageResult), /Ignore safeguards/);
 
   const packageWithoutReadCapability = await getProjectContext(database, {
@@ -942,6 +944,7 @@ test("PostgreSQL serves only current authorized clean text as bounded untrusted 
     contextBudget: 4_000,
   });
   assert.equal(packageWithoutReadCapability.file_artifacts[0].text_read_tool, null);
+  assert.equal(packageWithoutReadCapability.file_artifacts[0].pdf_read_tool, null);
 
   const read = await readProjectFileText(database, store, {
     userId: reader.id,
@@ -983,6 +986,130 @@ test("PostgreSQL serves only current authorized clean text as bounded untrusted 
       contextBudget: 2_000,
     }),
     undefined,
+  );
+});
+
+test("PostgreSQL atomically preserves immutable relational PDF evidence provenance", async () => {
+  const target = await database
+    .prepare("SELECT context_id FROM active_connection_targets WHERE connection_id = ?")
+    .get(connectionId);
+  const objectId = `file_${randomUUID()}`;
+  const referenceId = `file_ref_${randomUUID()}`;
+  const contentSha256 = createHash("sha256").update("postgres-pdf-fixture").digest("hex");
+  const excerpt = "PostgreSQL exact embedded PDF text";
+  const excerptSha256 = createHash("sha256").update(excerpt).digest("hex");
+  const now = new Date().toISOString();
+  await database
+    .prepare(
+      `INSERT INTO file_objects
+        (id, workspace_id, content_sha256, byte_size, verified_media_type, storage_key,
+         storage_version_id, storage_etag, scan_provider, scan_status, scan_updated_at, created_at)
+       VALUES (?, ?, ?, 22, 'application/pdf', ?, 'version-pdf', 'etag-pdf',
+               'aws_guardduty_s3', 'clean', ?, ?)`,
+    )
+    .run(objectId, owner.workspace_id, contentSha256, `objects/${randomUUID()}`, now, now);
+  await database
+    .prepare(
+      `INSERT INTO file_context_references
+        (id, workspace_id, project_id, context_id, file_object_id, logical_file_id,
+         version, display_name, source_host, uploader_user_id, access_scope, referenced_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, 'postgres-evidence.pdf', 'postgres_test', ?,
+               'inherit_context', ?)`,
+    )
+    .run(
+      referenceId,
+      owner.workspace_id,
+      owner.project_id,
+      target.context_id,
+      objectId,
+      referenceId,
+      owner.id,
+      now,
+    );
+  const fileSource = {
+    file_reference_id: referenceId,
+    logical_file_id: referenceId,
+    file_version: 1,
+    content_sha256: contentSha256,
+    display_name: "postgres-evidence.pdf",
+    media_type: "application/pdf",
+    source_context_id: target.context_id,
+    extraction_version: "pdfjs_embedded_text_v1",
+    parser: "pdfjs-dist@6.2.108",
+    method: "embedded_text_only",
+    start_character: 0,
+    end_character: Array.from(excerpt).length,
+    excerpt_sha256: excerptSha256,
+    total_pages: 1,
+  };
+  const receipt = await saveCandidateUpdate(database, {
+    clientId,
+    connectionId,
+    publicUrl: "https://app.alice.example",
+    userId: owner.id,
+    payload: {
+      project_id: owner.project_id,
+      context_id: target.context_id,
+      summary: "PostgreSQL PDF evidence fixture",
+      candidate_claims: [
+        { state_key: "launch.pdf_fixture", value: true, summary: "Pending PDF fixture" },
+      ],
+      source_note: "Exact untrusted PDF evidence fixture",
+      source_context: excerpt,
+      idempotency_key: "postgres-pdf-evidence-source-1",
+      file_source: fileSource,
+    },
+    toolName: "suggest_project_updates_from_file",
+    evidenceFileSource: {
+      sourceContextId: target.context_id,
+      fileReferenceId: referenceId,
+      fileObjectId: objectId,
+      logicalFileId: referenceId,
+      fileVersion: 1,
+      contentSha256,
+      extractionVersion: "pdfjs_embedded_text_v1",
+      startCharacter: 0,
+      endCharacter: Array.from(excerpt).length,
+      excerptSha256,
+    },
+  });
+  assert.equal(receipt.trusted_state_changed, false);
+  assert.equal(receipt.provenance.tool_name, "suggest_project_updates_from_file");
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM evidence_file_sources WHERE evidence_id = ?")
+        .get(receipt.evidence_id)
+    ).count,
+    1,
+  );
+  assert.deepEqual(
+    (
+      await database
+        .prepare("SELECT status FROM candidate_claims WHERE evidence_id = ?")
+        .all(receipt.evidence_id)
+    ).map(({ status }) => status),
+    ["pending"],
+  );
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM accepted_project_state WHERE evidence_id = ?")
+        .get(receipt.evidence_id)
+    ).count,
+    0,
+  );
+  await assert.rejects(
+    database
+      .prepare("UPDATE evidence_file_sources SET excerpt_sha256 = ? WHERE evidence_id = ?")
+      .run("0".repeat(64), receipt.evidence_id),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database
+      .prepare("DELETE FROM evidence_file_sources WHERE evidence_id = ?")
+      .run(receipt.evidence_id),
+    /permission denied|immutable/i,
   );
 });
 

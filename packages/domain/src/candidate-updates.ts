@@ -6,6 +6,19 @@ import {
   tenantScopeForConnection,
 } from "./authorization.ts";
 
+type EvidenceFileSource = {
+  sourceContextId: string;
+  fileReferenceId: string;
+  fileObjectId: string;
+  logicalFileId: string;
+  fileVersion: number;
+  contentSha256: string;
+  extractionVersion: string;
+  startCharacter: number;
+  endCharacter: number;
+  excerptSha256: string;
+};
+
 // Host submissions remain candidate-only domain operations.
 
 async function clientClassification(database, clientId) {
@@ -66,6 +79,12 @@ async function existingSubmission(
        ORDER BY created_at, id`,
     )
     .all(workspaceId, projectId, evidence.id);
+  const fileSources = await database
+    .prepare(
+      `SELECT evidence_id FROM evidence_file_sources
+       WHERE workspace_id = ? AND project_id = ? AND evidence_id = ?`,
+    )
+    .all(workspaceId, projectId, evidence.id);
 
   let submittedClaims;
   try {
@@ -90,7 +109,9 @@ async function existingSubmission(
     orderedCandidates.some((candidate) => !candidate) ||
     [...candidatesByStateKey.values()].some((bucket) => bucket.length > 0) ||
     auditEvents.length !== 1 ||
-    targets.length !== 1
+    targets.length !== 1 ||
+    (evidence.tool_name === "suggest_project_updates_from_file" && fileSources.length !== 1) ||
+    (evidence.tool_name !== "suggest_project_updates_from_file" && fileSources.length !== 0)
   ) {
     return { error: "The stored capture receipt is incomplete." };
   }
@@ -133,8 +154,30 @@ async function existingSubmission(
 
 export async function saveCandidateUpdate(
   database,
-  { clientId, connectionId, publicUrl, userId, payload },
+  {
+    clientId,
+    connectionId,
+    publicUrl,
+    userId,
+    payload,
+    toolName = "save_project_update",
+    evidenceFileSource = undefined,
+  }: {
+    clientId: string;
+    connectionId: string;
+    publicUrl: string;
+    userId: string;
+    payload: any;
+    toolName?: "save_project_update" | "suggest_project_updates_from_file";
+    evidenceFileSource?: EvidenceFileSource;
+  },
 ) {
+  if (
+    !["save_project_update", "suggest_project_updates_from_file"].includes(toolName) ||
+    (toolName === "suggest_project_updates_from_file") !== Boolean(evidenceFileSource)
+  ) {
+    throw new Error("Candidate capture provenance configuration is invalid.");
+  }
   const tenant = await tenantScopeForConnection(database, { userId, connectionId });
   if (!tenant || tenant.clientId !== clientId) {
     return { error: "Authenticated tenant context is missing." };
@@ -190,6 +233,82 @@ export async function saveCandidateUpdate(
   });
   if (!targetContext) return { error: "Context not found in the authenticated project." };
 
+  const evidenceFileSourceIsValid = async () => {
+    if (!evidenceFileSource) return true;
+    const exactSource = await database
+      .prepare(
+        `SELECT reference.id, reference.context_id, context.context_kind,
+                reference.file_object_id, reference.logical_file_id, reference.version,
+                object.content_sha256
+         FROM file_context_references reference
+         JOIN file_objects object
+           ON object.workspace_id = reference.workspace_id
+          AND object.id = reference.file_object_id
+         JOIN work_contexts context
+           ON context.workspace_id = reference.workspace_id
+          AND context.project_id = reference.project_id
+          AND context.id = reference.context_id
+         WHERE reference.workspace_id = ? AND reference.project_id = ?
+           AND reference.context_id = ? AND reference.id = ? AND reference.file_object_id = ?
+           AND reference.logical_file_id = ? AND reference.version = ?
+           AND object.content_sha256 = ? AND object.verified_media_type = 'application/pdf'
+           AND object.scan_status = 'clean' AND object.storage_version_id IS NOT NULL
+           AND context.archived_at IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM file_reference_exclusions exclusion
+             JOIN file_context_references grouped
+               ON grouped.workspace_id = exclusion.workspace_id
+              AND grouped.project_id = exclusion.project_id
+              AND grouped.context_id = exclusion.context_id
+              AND grouped.id = exclusion.file_reference_id
+             WHERE grouped.workspace_id = reference.workspace_id
+               AND grouped.project_id = reference.project_id
+               AND grouped.context_id = reference.context_id
+               AND grouped.logical_file_id = reference.logical_file_id
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM file_context_references newer
+             JOIN file_objects newer_object
+               ON newer_object.workspace_id = newer.workspace_id
+              AND newer_object.id = newer.file_object_id
+             WHERE newer.workspace_id = reference.workspace_id
+               AND newer.project_id = reference.project_id
+               AND newer.context_id = reference.context_id
+               AND newer.logical_file_id = reference.logical_file_id
+               AND newer.version > reference.version
+               AND newer_object.scan_status = 'clean'
+           )`,
+      )
+      .get(
+        project.projectWorkspaceId,
+        project.projectId,
+        evidenceFileSource.sourceContextId,
+        evidenceFileSource.fileReferenceId,
+        evidenceFileSource.fileObjectId,
+        evidenceFileSource.logicalFileId,
+        evidenceFileSource.fileVersion,
+        evidenceFileSource.contentSha256,
+      );
+    const payloadSource = payload.file_source;
+    return !(
+      !exactSource ||
+      (exactSource.context_kind !== "project_wide" &&
+        exactSource.context_id !== targetContext.contextId) ||
+      !payloadSource ||
+      payloadSource.file_reference_id !== evidenceFileSource.fileReferenceId ||
+      payloadSource.logical_file_id !== evidenceFileSource.logicalFileId ||
+      payloadSource.file_version !== evidenceFileSource.fileVersion ||
+      payloadSource.content_sha256 !== evidenceFileSource.contentSha256 ||
+      payloadSource.source_context_id !== evidenceFileSource.sourceContextId ||
+      payloadSource.extraction_version !== evidenceFileSource.extractionVersion ||
+      payloadSource.start_character !== evidenceFileSource.startCharacter ||
+      payloadSource.end_character !== evidenceFileSource.endCharacter ||
+      payloadSource.excerpt_sha256 !== evidenceFileSource.excerptSha256 ||
+      payloadSource.parser !== "pdfjs-dist@6.2.108" ||
+      payloadSource.method !== "embedded_text_only"
+    );
+  };
+
   const exactPayloadJson = JSON.stringify(payload);
   const payloadHash = createHash("sha256").update(exactPayloadJson).digest("hex");
   const evidenceId = `evidence_${randomUUID()}`;
@@ -202,6 +321,14 @@ export async function saveCandidateUpdate(
       await database
         .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
         .get(`${connectionId}:${project.projectId}:${payload.idempotency_key}`);
+      if (evidenceFileSource) {
+        await database
+          .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
+          .get(`${project.projectWorkspaceId}:logical-file:${evidenceFileSource.logicalFileId}`);
+        if (!(await evidenceFileSourceIsValid())) {
+          return { error: "The exact PDF evidence provenance is invalid or no longer current." };
+        }
+      }
       const duplicate = await existingSubmission(
         database,
         project.projectWorkspaceId,
@@ -233,11 +360,39 @@ export async function saveCandidateUpdate(
           project.userWorkspaceId,
           clientId,
           await clientClassification(database, clientId),
-          "save_project_update",
+          toolName,
           payload.idempotency_key,
           payloadHash,
           createdAt,
         );
+
+      if (evidenceFileSource) {
+        await database
+          .prepare(
+            `INSERT INTO evidence_file_sources
+              (evidence_id, workspace_id, project_id, source_context_id, file_reference_id,
+               file_object_id, logical_file_id, file_version, content_sha256,
+               extraction_version, extraction_start_character, extraction_end_character,
+               excerpt_sha256, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            evidenceId,
+            project.projectWorkspaceId,
+            project.projectId,
+            evidenceFileSource.sourceContextId,
+            evidenceFileSource.fileReferenceId,
+            evidenceFileSource.fileObjectId,
+            evidenceFileSource.logicalFileId,
+            evidenceFileSource.fileVersion,
+            evidenceFileSource.contentSha256,
+            evidenceFileSource.extractionVersion,
+            evidenceFileSource.startCharacter,
+            evidenceFileSource.endCharacter,
+            evidenceFileSource.excerptSha256,
+            createdAt,
+          );
+      }
 
       const insertCandidate = database.prepare(
         `INSERT INTO candidate_claims

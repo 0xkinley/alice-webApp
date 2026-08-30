@@ -477,6 +477,10 @@ export async function getProjectContext(
           fileTextReadAvailable && ["text/plain", "text/markdown"].includes(row.media_type)
             ? "read_project_file_text"
             : null,
+        pdf_read_tool:
+          fileTextReadAvailable && row.media_type === "application/pdf"
+            ? "read_project_file_pdf_text"
+            : null,
       },
       relevance: normalizedTerms(`${row.display_name} ${row.source_host}`).reduce(
         (score, term) => score + (taskTerms.includes(term) ? 2 : 0),

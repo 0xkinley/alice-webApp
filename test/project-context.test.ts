@@ -138,7 +138,7 @@ test("lists only projects in the authenticated workspace", async () => {
     arguments: {},
   });
   assert.equal(response.status, 200);
-  assert.equal(payload.result.structuredContent.contract_version, "2.1");
+  assert.equal(payload.result.structuredContent.contract_version, "2.2");
   assert.deepEqual(
     payload.result.structuredContent.projects.map((project) => project.id),
     ["project_switchboard_launch"],
@@ -329,7 +329,7 @@ test("returns accepted context with provenance and excludes pending candidates",
     evidence_captured_at: fixtureTimestamp,
   });
   assert.doesNotMatch(JSON.stringify(context), /must not leak/);
-  assert.equal(context.contract_version, "2.1");
+  assert.equal(context.contract_version, "2.2");
   assert.equal(context.package.selection_strategy, "deterministic_full_text_v2");
   assert.equal(context.context.includes_project_wide, true);
   assert.equal(context.package.budget.unit, "utf8_bytes");

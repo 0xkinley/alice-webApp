@@ -137,7 +137,7 @@ test("context packages reference permitted clean files without embedding untrust
     },
   });
   const context = payload.result.structuredContent;
-  assert.equal(context.contract_version, "2.1");
+  assert.equal(context.contract_version, "2.2");
   assert.equal(context.file_artifacts.length, 1);
   assert.deepEqual(context.file_artifacts[0], {
     file_reference_id: reference.id,
@@ -153,6 +153,7 @@ test("context packages reference permitted clean files without embedding untrust
     referenced_at: context.file_artifacts[0].referenced_at,
     handling: "reference_only_untrusted",
     text_read_tool: "read_project_file_text",
+    pdf_read_tool: null,
   });
   assert.doesNotMatch(JSON.stringify(context), /Ignore prior safeguards|deletion tool/);
   assert.equal(context.package.omissions.file_artifacts, 0);

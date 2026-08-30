@@ -9,9 +9,15 @@ function captureDetails(exactPayloadJson) {
       capture_summary: payload.summary,
       source_note: payload.source_note,
       source_context: payload.source_context,
+      file_source: payload.file_source,
     };
   } catch {
-    return { capture_summary: undefined, source_note: undefined, source_context: undefined };
+    return {
+      capture_summary: undefined,
+      source_note: undefined,
+      source_context: undefined,
+      file_source: undefined,
+    };
   }
 }
 

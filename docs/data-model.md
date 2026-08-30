@@ -50,6 +50,8 @@ Milestone 04 moved the idempotency lookup inside the same SQLite `BEGIN IMMEDIAT
 
 The idempotency uniqueness scope is the authenticated integration connection plus project plus caller key. An identical validated payload returns the original ordered evidence/candidate/audit identifiers and provenance without inserting anything. A different payload under the same key fails closed. Retry reconstruction uses the immutable evidence payload's candidate order rather than UUID sort order, and a partial or inconsistent stored receipt fails closed instead of being repaired or duplicated.
 
+Migration `014_pdf_evidence_sources.sql` adds an optional one-to-one immutable source row for evidence created by `suggest_project_updates_from_file`. It binds the evidence to the exact workspace/project/source context, file reference and object, logical-file version, content SHA-256, fixed extraction version, Unicode range, excerpt SHA-256, and capture time. Composite foreign keys require the reference and object to be the exact pair already attached to that context. The capture layer additionally requires a current clean PDF, exact payload/source agreement, and a project-wide or destination-matching context. The evidence, file source, candidates, targets, and audit commit atomically; a file-backed retry is incomplete unless all are present. Runtime roles and triggers reject source-row update and deletion.
+
 ### Candidate claims
 
 Untrusted proposed decisions, facts, requirements, constraints, preferences, or open questions. Each candidate references its source evidence.
@@ -78,9 +80,11 @@ Milestone 05 derives an unresolved conflict signal during context reads when a p
 
 ### Artifacts
 
-Project references such as URLs and metadata. Binary ingestion and file intelligence are deferred.
+Project references such as URLs, uploaded file metadata, and bounded untrusted extraction evidence.
 
 Milestone 05 classifies accepted state under the `artifact.` or `artifacts.` prefix as a reference-only artifact. The reference value retains accepted-state/candidate/evidence provenance, but assembly neither fetches the target nor treats its external contents as verified. Accepted `question.`, `questions.`, `open_question.`, and `open_questions.` state keys are similarly represented as open questions rather than trusted decisions.
+
+Milestone 06 keeps uploaded objects and immutable metadata separate. Deterministic PDF embedded-text extraction never creates an artifact or candidate by itself. An explicit file-suggestion capture retains the exact excerpt inside evidence and its exact file/extraction link in `evidence_file_sources`; the proposed claims remain ordinary pending candidates. Malware-clean and successfully extracted remain distinct from human-accepted.
 
 ## Integrations and audit
 

@@ -30,6 +30,11 @@ function renderJson(valueJson) {
   }
 }
 
+function fileSourceDetails(fileSource) {
+  if (!fileSource) return "";
+  return `<aside><h3>Untrusted PDF evidence</h3><p>This source is evidence only. Its claims are not active alice.-verified state unless you confirm the exact entries below.</p><dl><dt>File</dt><dd>${escapeHtml(fileSource.display_name)}</dd><dt>File reference</dt><dd><code>${escapeHtml(fileSource.file_reference_id)}</code></dd><dt>Immutable version</dt><dd>${escapeHtml(fileSource.file_version)}</dd><dt>Content SHA-256</dt><dd><code>${escapeHtml(fileSource.content_sha256)}</code></dd><dt>Extraction</dt><dd>${escapeHtml(fileSource.extraction_version)} · ${escapeHtml(fileSource.method)} · characters ${escapeHtml(fileSource.start_character)}–${escapeHtml(fileSource.end_character)}</dd><dt>Excerpt SHA-256</dt><dd><code>${escapeHtml(fileSource.excerpt_sha256)}</code></dd></dl></aside>`;
+}
+
 function reviewProjectIndex(projects) {
   const cards = projects
     .map(
@@ -51,7 +56,7 @@ function evidenceDetails(candidate) {
   const sourceContext = candidate.source_context
     ? `<details><summary>Explicitly saved source context</summary><pre>${escapeHtml(candidate.source_context)}</pre></details>`
     : "";
-  return `<details><summary>Capture evidence and provenance</summary><p><strong>Capture summary:</strong> ${escapeHtml(candidate.capture_summary || "Not supplied")}</p>${sourceNote}${sourceContext}<dl><dt>Evidence</dt><dd><code>${escapeHtml(candidate.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(candidate.payload_hash)}</code></dd><dt>Source client</dt><dd>${escapeHtml(candidate.client_classification)}</dd><dt>Tool</dt><dd>${escapeHtml(candidate.tool_name)}</dd><dt>Captured</dt><dd>${escapeHtml(candidate.evidence_created_at)}</dd></dl></details>`;
+  return `<details><summary>Capture evidence and provenance</summary><p><strong>Capture summary:</strong> ${escapeHtml(candidate.capture_summary || "Not supplied")}</p>${sourceNote}${fileSourceDetails(candidate.file_source)}${sourceContext}<dl><dt>Evidence</dt><dd><code>${escapeHtml(candidate.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(candidate.payload_hash)}</code></dd><dt>Source client</dt><dd>${escapeHtml(candidate.client_classification)}</dd><dt>Tool</dt><dd>${escapeHtml(candidate.tool_name)}</dd><dt>Captured</dt><dd>${escapeHtml(candidate.evidence_created_at)}</dd></dl></details>`;
 }
 
 function candidateCard(candidate) {
@@ -96,7 +101,7 @@ function capturePreviewPage(preview) {
   const actions = pending
     ? `<div class="actions"><form method="post" action="/review/captures/${encodeURIComponent(preview.evidence_id)}/confirm"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><button type="submit" aria-label="Save every entry shown in this preview">✓ Save these entries</button></form><form method="post" action="/review/captures/${encodeURIComponent(preview.evidence_id)}/cancel"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><button type="submit" aria-label="Cancel this save preview">× Not now</button></form></div>`
     : `<p><strong>This preview has already been decided.</strong></p>`;
-  return `<nav><a href="/review?project_id=${encodeURIComponent(preview.project.id)}">Needs attention</a><a href="/projects/${encodeURIComponent(preview.project.id)}">Project</a></nav><h1>Save to ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}?</h1><p>Check the exact entries below. Only the ✓ action saves them as active context. × performs no activation.</p><dl><dt>Destination project</dt><dd>${escapeHtml(preview.project.name)}</dd><dt>Work context</dt><dd>${escapeHtml(preview.context.name)}</dd><dt>Access</dt><dd>${escapeHtml(preview.context.visibility)}</dd><dt>Proposed by</dt><dd>${escapeHtml(preview.client_classification)}</dd><dt>Captured</dt><dd>${escapeHtml(preview.captured_at)}</dd></dl><p><strong>Save summary:</strong> ${escapeHtml(preview.capture_summary || "Not supplied")}</p>${sourceNote}${sourceContext}<h2>Exact proposed entries</h2>${candidateCards}${actions}<details><summary>Evidence receipt</summary><dl><dt>Evidence</dt><dd><code>${escapeHtml(preview.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(preview.payload_hash)}</code></dd></dl></details>`;
+  return `<nav><a href="/review?project_id=${encodeURIComponent(preview.project.id)}">Needs attention</a><a href="/projects/${encodeURIComponent(preview.project.id)}">Project</a></nav><h1>Save to ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}?</h1><p>Check the exact entries below. Only the ✓ action saves them as active context. × performs no activation.</p><dl><dt>Destination project</dt><dd>${escapeHtml(preview.project.name)}</dd><dt>Work context</dt><dd>${escapeHtml(preview.context.name)}</dd><dt>Access</dt><dd>${escapeHtml(preview.context.visibility)}</dd><dt>Proposed by</dt><dd>${escapeHtml(preview.client_classification)}</dd><dt>Captured</dt><dd>${escapeHtml(preview.captured_at)}</dd></dl><p><strong>Save summary:</strong> ${escapeHtml(preview.capture_summary || "Not supplied")}</p>${sourceNote}${fileSourceDetails(preview.file_source)}${sourceContext}<h2>Exact proposed entries</h2>${candidateCards}${actions}<details><summary>Evidence receipt</summary><dl><dt>Evidence</dt><dd><code>${escapeHtml(preview.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(preview.payload_hash)}</code></dd></dl></details>`;
 }
 
 function paginationLinks(queue) {

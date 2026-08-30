@@ -543,6 +543,7 @@ function createSchema(database: DatabaseSync) {
       FOREIGN KEY (uploader_user_id) REFERENCES users(id) ON DELETE RESTRICT,
       UNIQUE (workspace_id, id),
       UNIQUE (workspace_id, project_id, context_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id, file_object_id),
       UNIQUE (workspace_id, project_id, context_id, logical_file_id, version),
       UNIQUE (workspace_id, project_id, context_id, file_object_id)
     ) STRICT;
@@ -560,6 +561,35 @@ function createSchema(database: DatabaseSync) {
         REFERENCES file_context_references(workspace_id, project_id, context_id, id),
       FOREIGN KEY (removed_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
     ) STRICT;
+
+    CREATE TABLE evidence_file_sources (
+      evidence_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      source_context_id TEXT NOT NULL,
+      file_reference_id TEXT NOT NULL,
+      file_object_id TEXT NOT NULL,
+      logical_file_id TEXT NOT NULL,
+      file_version INTEGER NOT NULL CHECK (file_version > 0),
+      content_sha256 TEXT NOT NULL CHECK (length(content_sha256) = 64),
+      extraction_version TEXT NOT NULL CHECK (extraction_version = 'pdfjs_embedded_text_v1'),
+      extraction_start_character INTEGER NOT NULL CHECK (extraction_start_character >= 0),
+      extraction_end_character INTEGER NOT NULL,
+      excerpt_sha256 TEXT NOT NULL CHECK (length(excerpt_sha256) = 64),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, evidence_id)
+        REFERENCES evidence_events(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, source_context_id, file_reference_id, file_object_id)
+        REFERENCES file_context_references(workspace_id, project_id, context_id, id, file_object_id),
+      CHECK (extraction_end_character > extraction_start_character),
+      CHECK (extraction_end_character - extraction_start_character <= 12000),
+      UNIQUE (workspace_id, project_id, evidence_id)
+    ) STRICT;
+
+    CREATE INDEX evidence_file_sources_reference_lookup
+      ON evidence_file_sources (
+        workspace_id, project_id, file_reference_id, created_at, evidence_id
+      );
 
     CREATE INDEX file_reference_exclusions_lookup
       ON file_reference_exclusions (workspace_id, project_id, context_id, removed_at, id);
@@ -977,6 +1007,18 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON file_reference_exclusions
     BEGIN
       SELECT RAISE(ABORT, 'file reference exclusions are immutable');
+    END;
+
+    CREATE TRIGGER evidence_file_sources_no_update
+    BEFORE UPDATE ON evidence_file_sources
+    BEGIN
+      SELECT RAISE(ABORT, 'evidence file sources are immutable');
+    END;
+
+    CREATE TRIGGER evidence_file_sources_no_delete
+    BEFORE DELETE ON evidence_file_sources
+    BEGIN
+      SELECT RAISE(ABORT, 'evidence file sources are immutable');
     END;
   `);
 }

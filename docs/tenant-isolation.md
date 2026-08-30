@@ -2,7 +2,7 @@
 
 Status: Verified through the Milestone 06 project and context authorization conversion
 
-Verification date: 2026-08-30
+Verification date: 2026-08-31
 
 ## Policy
 
@@ -34,6 +34,8 @@ The integration fixture creates two authenticated users, separate private worksp
 | MCP | `list_projects` | Other project ID, name, and brief are absent | None |
 | MCP | `get_project_context` | Foreign and random project IDs return the same not-found tool error | No accepted value, pending value, candidate, or evidence leaks |
 | MCP | `read_project_file_text` | Foreign, guessed, superseded, removed, non-clean, and inaccessible file references share a non-disclosing unavailable result; restricted-context metadata and bytes are absent | Exact-version integrity-checked reads create no evidence, candidate, accepted-state, audit, file, or project mutation |
+| MCP | `read_project_file_pdf_text` | The text-read denial matrix also applies to PDF extraction; selected-context boundaries are reauthorized before exact-version parsing | Embedded-text reads remain byte-bounded, no-OCR, untrusted, and project-state read-only |
+| MCP | `suggest_project_updates_from_file` | Read-only tokens, foreign/guessed/stale/removed sources, hash/range mismatches, and a selected-context source outside the active target fail without file content or metadata disclosure | No evidence source or candidate is created on denial; success creates pending candidates and zero accepted state |
 | Web/MCP | Package preview and context-read receipts | Preview requires current project/context access; inaccessible explicit reads retain no foreign destination metadata; historical destination details disappear when context access ends | Preview creates no receipt; successful/failed receipts are append-only and contain no task or package content |
 | Web | Private-alpha product signals | Aggregates select only the signed-in user's connection-bound read/capture metadata; foreign project and collaborator identifiers, names, and content are never returned | Read-only derivation creates no analytics or project-state write |
 | Web | Project access and security | Non-members receive the same not-found result as a guessed project; members see only currently visible contexts and only their own connection state; inaccessible context events and other users' target changes are filtered | Read-only derivation creates no permission, audit, connection, or project-state write |
@@ -41,6 +43,7 @@ The integration fixture creates two authenticated users, separate private worksp
 | MCP | `save_project_update` | Foreign and random project IDs return the same not-found tool error | Evidence, candidate, accepted-state, and audit counts do not change |
 | MCP | Own accepted context | Other tenant values are absent; own pending value is excluded | None |
 | Database | Evidence reference | Foreign workspace/project/connection combination is rejected | No evidence row is inserted |
+| Database | PDF evidence source | Composite evidence/reference/object/context keys reject detached or cross-project provenance; the constrained role and triggers reject updates/deletes | Exact source provenance commits with evidence and pending candidates or all roll back |
 | Database | Candidate reference | Foreign evidence is rejected by composite key | No candidate row is inserted |
 | Database | Accepted-state reference | Foreign candidate/evidence pair is rejected by composite key | No accepted row is inserted |
 | Database | Audit reference | Foreign workspace/project pair is rejected by composite key | No audit row is inserted |
@@ -49,7 +52,7 @@ The integration fixture creates two authenticated users, separate private worksp
 | Database | Context access grant | Exact active membership/project/context keys, selected-context validation, and Viewer bounding reject mismatches and elevation; triggers reject identity rewrite, ended-row rewrite, and deletion | Concurrent duplicate grants create one active grant; ending preserves history |
 | Database | Collaborator connection target/evidence | User-workspace connection keys and separate project-workspace context keys reject mismatched connection or project references | Evidence remains in the project workspace while connection ownership remains personal |
 
-Project archive/restore, permission-filtered Owner export, cancellable deletion requests, current file-reference packaging, and text/Markdown retrieval are now covered by exact-recipient, stale-preview, non-owner, foreign/guessed, removed-reference, restricted-context, constrained-role, and immutability tests. Privileged permanent erasure, project editing, and PDF/OCR/file-to-candidate extraction remain unfinished and therefore keep the broader milestone authorization task open. Organizations and merged/shared workspaces remain absent. The collaboration boundary also retains exact invitation-recipient, ended-member, insufficient-context-role, Owner-without-restricted-grant, project-Viewer bounding, cross-workspace collaborator connection, revoked-grant, and concurrent-acceptance/grant tests.
+Project archive/restore, permission-filtered Owner export, cancellable deletion requests, current file-reference packaging, text/Markdown retrieval, deterministic PDF embedded-text extraction, and provenance-bound file suggestions are now covered by exact-recipient, stale-preview, read-only-token, non-owner, foreign/guessed, removed/superseded-reference, active-context, restricted-context, constrained-role, and immutability tests. Privileged permanent erasure, project editing, OCR, other binary extraction, live providers, and host attachment transfer remain unfinished and therefore keep the broader milestone authorization task open. Organizations and merged/shared workspaces remain absent. The collaboration boundary also retains exact invitation-recipient, ended-member, insufficient-context-role, Owner-without-restricted-grant, project-Viewer bounding, cross-workspace collaborator connection, revoked-grant, and concurrent-acceptance/grant tests.
 
 Milestone 04 adds only the authenticated workspace review dashboard and bounded project status/pagination views. Both are covered in both tenant directions; they introduce no caller-supplied workspace scope and no sharing surface.
 

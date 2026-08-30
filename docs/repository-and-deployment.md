@@ -71,7 +71,7 @@ Both processes validate configuration at startup and fail before listening when 
 | `ALICE_DATABASE_URL` | Required PostgreSQL application connection | Required PostgreSQL application connection | Server-only URL; TLS required outside loopback |
 | `ALICE_MIGRATION_DATABASE_URL` | Migration command only | Migration command only | Separate owner/migrator URL; never supplied to a deployable |
 | `ALICE_APPLICATION_DATABASE_ROLE` | Migration command only | Migration command only | Constrained runtime role receiving schema/table grants |
-| `ALICE_FILE_STORAGE` | Optional `aws_s3`; enables private file routes | Optional `aws_s3`; enables exact text/Markdown MCP reads | Shared server-only provider selection; partial configuration fails startup |
+| `ALICE_FILE_STORAGE` | Optional `aws_s3`; enables private file routes | Optional `aws_s3`; enables exact text/Markdown reads, bounded PDF embedded-text reads, and explicit PDF-backed candidate capture | Shared server-only provider selection; partial configuration fails startup |
 | `ALICE_S3_BUCKET` | Required with file storage | Required with file storage | Private, blocked-public-access, versioned bucket name |
 | `ALICE_S3_REGION` | Required with file storage | Required with file storage | AWS region containing both the bucket and GuardDuty scan plan |
 | `HOST` | Listen address | Listen address | Defaults to `127.0.0.1` |
@@ -81,7 +81,7 @@ Local `.env` files and `.data/` are ignored, and the committed `.env.example` co
 
 OAuth client secrets and authorization codes are also hash-only at rest. Integration connection rows store ownership, client classification, scope grants, usage timestamps, and revocation state—not bearer values or provider credentials.
 
-AWS access keys, session credentials, and roles use the standard server runtime credential chain and are never returned by configuration, rendered into HTML, or stored in PostgreSQL. Web file routes and the MCP text/Markdown read tool are absent when storage configuration is missing. Both deployables use the same `@alice/private-files` exact-version adapter. PostgreSQL stores only immutable file metadata and references plus the bounded storage/scan lifecycle; private bytes remain in object storage.
+AWS access keys, session credentials, and roles use the standard server runtime credential chain and are never returned by configuration, rendered into HTML, or stored in PostgreSQL. Web file routes and all three MCP file tools are absent when storage configuration is missing. Both deployables use the same `@alice/private-files` exact-version adapter. PostgreSQL stores immutable file metadata/references, bounded storage/scan lifecycle, and immutable extraction provenance; private bytes remain in object storage. The MCP deployable parses PDF embedded text in-process under explicit page/item/character limits, so hosted resource limits and dependency monitoring remain required before live alpha claims.
 
 Alpha and project invitation tokens are also hash-only at rest. Their URLs are one-time credentials; both invitation query values and path segments must be redacted from edge and application logs.
 
@@ -91,7 +91,7 @@ Both deployables use one versioned PostgreSQL database through a pooled asynchro
 
 The constrained runtime role cannot create schema, manage migrations, truncate tables, or rewrite immutable evidence, accepted history, and audit events. Host writes remain candidate-only, evidence remains immutable, accepted context is authenticated and provenance-bearing, and only the web review action changes trusted state.
 
-File objects and context references are likewise immutable through the runtime role. Only storage-version and scan-lifecycle columns may advance through database-enforced transitions. Remove-from-context appends an immutable file-reference exclusion; it does not grant the runtime role object/reference deletion or permanent erasure authority.
+File objects, context references, and PDF evidence-source links are likewise immutable through the runtime role. Only storage-version and scan-lifecycle columns may advance through database-enforced transitions. Remove-from-context appends an immutable file-reference exclusion; it does not grant the runtime role object/reference deletion or permanent erasure authority.
 
 Project membership and invitation history is also non-deletable through the runtime role. The role may update only bounded membership role/end columns and one invitation terminal outcome; database triggers reject identity rewrites, terminal-history rewrites, ended-membership rewrites, and removal or demotion of the final active Owner. Migration grants must be refreshed after adding these tables.
 

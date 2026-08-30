@@ -8,6 +8,8 @@ Decision date: 2026-08-30
 
 `save_project_update` remains a candidate-only MCP operation. It stores immutable evidence and pending candidate claims, returns a receipt, and cannot accept, supersede, reject, or otherwise activate project context. Its review URL now names the immutable evidence identifier and opens the smallest alice.-controlled confirmation page for that exact capture.
 
+`suggest_project_updates_from_file` uses the same candidate-only authority. Its evidence additionally carries server-generated exact PDF reference/version/content hash, extraction contract/range, excerpt hash, and source text, backed by an immutable relational source row. The preview labels that PDF evidence untrusted and exposes the provenance before the proposed entries. Successful extraction or capture does not check the confirmation box and cannot activate a statement.
+
 Only an authenticated alice. web session can decide the preview. The page names the destination project, work context, access mode, source host, capture time, exact proposed state keys/values/summaries, deliberately included source material, and any current saved version that will be replaced. Host text, tool arguments, and model-generated confirmation fields cannot invoke either decision operation.
 
 ## One-decision transaction

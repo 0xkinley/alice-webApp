@@ -1,4 +1,5 @@
 export { saveCandidateUpdate } from "./candidate-updates.ts";
+export { suggestProjectUpdatesFromFile } from "./file-candidate-suggestions.ts";
 export {
   activeTargetForConnection,
   listSelectableProjectContexts,
@@ -92,6 +93,7 @@ export {
   getProjectFileRemovalPreview,
   getProjectFileView,
   listProjectFiles,
+  readProjectFilePdfText,
   readProjectFileText,
   refreshProjectFileScan,
   removeProjectFileReference,
