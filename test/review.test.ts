@@ -565,5 +565,10 @@ test("a failed supersession audit preserves the current trusted version and pend
 test("MCP exposes no trusted-state review action", async () => {
   const { payload } = await callMcp(baseUrl, accessToken, "tools/list");
   const tools = payload.result.tools.map(({ name }) => name);
-  assert.deepEqual(tools.sort(), ["get_project_context", "list_projects", "save_project_update"]);
+  assert.deepEqual(tools.sort(), [
+    "get_active_context",
+    "get_project_context",
+    "list_projects",
+    "save_project_update",
+  ]);
 });

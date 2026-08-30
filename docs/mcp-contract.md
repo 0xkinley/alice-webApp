@@ -1,6 +1,6 @@
 # alice. MCP Contract
 
-Status: Consumption and capture contracts finalized through Milestone 05
+Status: Active-target consumption and capture contracts extended in Milestone 06
 
 Decision date: 2026-08-28; updated 2026-08-30
 
@@ -19,23 +19,29 @@ Decision date: 2026-08-28; updated 2026-08-30
 
 Lists projects available to the authenticated user in their private workspace.
 
-Input is a strict empty object. Output contract `1.0` contains the project identifier, name, brief, creation/update timestamps, current accepted-state count, and latest accepted-state timestamp. Projects are ordered by name and then identifier. Foreign projects are absent rather than disclosed.
+Input is a strict empty object. Output contract `2.0` contains each project identity, current accepted-state count/freshness, permitted selectable work contexts, and the authenticated connection's active target or `null`. Projects and contexts have deterministic ordering. Foreign projects and contexts are absent rather than disclosed.
 
 Project-state side effects: none. The read does not append audit rows or mutate projects, evidence, candidates, or accepted state. Bearer authentication may update safe connection-usage metadata outside the project-intelligence boundary.
+
+### `get_active_context`
+
+Builds a bounded context package for the exact project/work context selected by the authenticated human for this connection. The strict input contains only `task` and optional `context_budget`; a host cannot supply or change destination identifiers. The output is the version `2.0` context package described below. With no selection, the tool returns an explicit error and points to the alice. connection center. This is the normal supported-host continuation path and does not require the user to repeat a project identifier or “use alice.” phrasing.
 
 ### `get_project_context`
 
 Builds a bounded, task-specific context package from accepted project state.
 
-Version `1.0` input:
+Version `2.0` input:
 
 - `project_id`
+- optional `context_id` for an explicit work-context fallback; omission returns project-wide context only
 - `task`: 1-2,000 trimmed characters
 - optional `context_budget`: 2,000-32,000 UTF-8 bytes; default 16,000
 
-Version `1.0` output:
+Version `2.0` output:
 
 - project identity
+- selected context identity and freshness, with an explicit project-wide inclusion marker
 - accepted decisions and constraints selected for the task
 - separately labeled relevant open questions, artifact references, and unresolved-conflict notices when available
 - accepted-state, candidate, and evidence provenance references for every accepted assertion
@@ -54,7 +60,7 @@ Captures an explicitly requested project update.
 
 Minimum input:
 
-- `project_id`
+- optional `project_id` and `context_id`; the connection's active target supplies both when omitted
 - summary
 - one or more candidate claims
 - optional source note
@@ -78,6 +84,8 @@ The input object and each candidate object are strict; unrecognized fields are r
 
 The idempotency key identifies one explicit save within the authenticated connection and project. Reusing it with an identical validated payload returns the original evidence and candidate identifiers. Reusing it with any different validated payload fails closed. Whitespace normalization on bounded textual fields occurs before the exact validated payload is serialized, hashed, and retained as evidence.
 
+When a human-selected active target exists, omitted destination fields resolve to that target and any explicit destination must match it exactly. Without an active target, the explicit project fallback remains available and an omitted context resolves to project-wide. Foreign, archived, mismatched, or inaccessible destinations fail without evidence, candidates, or audit writes. MCP cannot change an active target.
+
 The server must atomically:
 
 1. Store the exact validated payload as an immutable evidence event.
@@ -94,7 +102,7 @@ The tool description explicitly forbids invocation for ordinary project activity
 
 The versioned tool-selection fixture and deterministic scoring rules are documented in `docs/capture-evaluations.md`. Correct traces include an explicit-save write and non-capture reads/no-ops; incorrect traces include false-positive writes, missed explicit saves, invented review tools, and duplicate logical capture selection.
 
-Milestone 03 enforces this separation structurally: candidate capture and human acceptance are separate domain operations, and only the web review control plane imports acceptance. Accepted rows are append-only versions whose candidate/evidence pair is constraint-verified. The MCP tool list continues to expose only the three tools above.
+Milestone 03 enforces this separation structurally: candidate capture and human acceptance are separate domain operations, and only the web review control plane imports acceptance. Accepted rows are append-only versions whose candidate/evidence pair is constraint-verified. The MCP tool list exposes only the four tools above; none can accept, reject, supersede, or remove trusted state.
 
 ## Deferred tools
 

@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { openSqliteTestDatabase } from "@alice/database/testing";
-import { getProjectContext, issueAlphaInvitation, registerUser } from "@alice/domain";
+import {
+  getProjectContext,
+  issueAlphaInvitation,
+  provisionInitialWorkContexts,
+  registerUser,
+} from "@alice/domain";
 
 const fixturePath = resolve(import.meta.dirname, "../evals/cross-host-context.json");
 const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
@@ -31,6 +36,12 @@ async function seedCase(evaluationCase) {
       timestamp,
       timestamp,
     );
+  await provisionInitialWorkContexts(database, {
+    userId: identity.id,
+    workspaceId: identity.workspace_id,
+    projectId: fixture.project.id,
+    createdAt: timestamp,
+  });
   database
     .prepare(
       `INSERT INTO oauth_clients

@@ -134,9 +134,26 @@ export async function saveCandidateUpdate(
   if (!tenant || tenant.clientId !== clientId) {
     return { error: "Authenticated tenant context is missing." };
   }
+  const activeTarget = await database
+    .prepare(
+      `SELECT project_id, context_id FROM active_connection_targets
+       WHERE connection_id = ? AND user_id = ? AND workspace_id = ?`,
+    )
+    .get(connectionId, tenant.userId, tenant.workspaceId);
+  if (
+    activeTarget &&
+    ((payload.project_id && payload.project_id !== activeTarget.project_id) ||
+      (payload.context_id && payload.context_id !== activeTarget.context_id))
+  ) {
+    return { error: "The requested destination does not match this connection's active target." };
+  }
+  const projectId = activeTarget?.project_id || payload.project_id;
+  if (!projectId) {
+    return { error: "Select an active alice. project and work context before saving." };
+  }
   const project = await database
     .prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ?")
-    .get(payload.project_id, tenant.workspaceId);
+    .get(projectId, tenant.workspaceId);
   if (!project) return { error: "Project not found in the authenticated workspace." };
 
   const targetContext = await database
@@ -144,9 +161,15 @@ export async function saveCandidateUpdate(
       `SELECT id
        FROM work_contexts
        WHERE workspace_id = ? AND project_id = ? AND archived_at IS NULL
-         AND ${payload.context_id ? "id = ?" : "context_kind = 'project_wide'"}`,
+         AND ${activeTarget?.context_id || payload.context_id ? "id = ?" : "context_kind = 'project_wide'"}`,
     )
-    .get(tenant.workspaceId, project.id, ...(payload.context_id ? [payload.context_id] : []));
+    .get(
+      tenant.workspaceId,
+      project.id,
+      ...(activeTarget?.context_id || payload.context_id
+        ? [activeTarget?.context_id || payload.context_id]
+        : []),
+    );
   if (!targetContext) return { error: "Context not found in the authenticated project." };
 
   const reviewUrl = new URL(

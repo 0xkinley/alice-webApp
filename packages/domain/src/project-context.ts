@@ -94,6 +94,7 @@ function omissionCounts(availableCounts, selected) {
 
 function buildContext({
   project,
+  context,
   task,
   selected,
   freshness,
@@ -105,11 +106,12 @@ function buildContext({
   return updateBudgetUsed({
     contract_version: consumptionContractVersion,
     project,
+    context,
     task,
     ...selected,
     package: {
       version,
-      selection_strategy: "deterministic_full_text_v1",
+      selection_strategy: "deterministic_full_text_v2",
       freshness,
       budget: { unit: "utf8_bytes", limit: contextBudget, used: 0 },
       omissions: {
@@ -148,31 +150,75 @@ export async function listProjects(database, userId) {
     .all(tenant.workspaceId);
 }
 
-export async function getProjectContext(database, { userId, projectId, task, contextBudget }) {
+function latestEffectiveAcceptedRows(acceptedRows, projectWideId, selectedContextId) {
+  const allowedContextIds = new Set([projectWideId, selectedContextId].filter(Boolean));
+  const latestByContextAndKey = new Map();
+  for (const row of acceptedRows) {
+    if (!allowedContextIds.has(row.context_id)) continue;
+    const key = `${row.context_id}\u0000${row.state_key}`;
+    const previous = latestByContextAndKey.get(key);
+    if (!previous || row.version > previous.version) latestByContextAndKey.set(key, row);
+  }
+
+  const effectiveByStateKey = new Map();
+  for (const row of latestByContextAndKey.values()) {
+    if (row.context_id === projectWideId) effectiveByStateKey.set(row.state_key, row);
+  }
+  if (selectedContextId) {
+    for (const row of latestByContextAndKey.values()) {
+      if (row.context_id === selectedContextId) effectiveByStateKey.set(row.state_key, row);
+    }
+  }
+  return effectiveByStateKey;
+}
+
+export async function getProjectContext(
+  database,
+  { userId, projectId, contextId, task, contextBudget },
+) {
   const tenant = await tenantScopeForUser(database, userId);
   if (!tenant) return undefined;
   const project = await database
     .prepare(
       `SELECT id, name, brief, created_at, updated_at
-       FROM projects
-       WHERE id = ? AND workspace_id = ?`,
+       FROM projects WHERE id = ? AND workspace_id = ?`,
     )
     .get(projectId, tenant.workspaceId);
   if (!project) return undefined;
 
-  const rows = await database
+  const contexts = await database
     .prepare(
-      `SELECT
-         accepted.id AS accepted_state_id,
-         accepted.state_key,
-         accepted.value_json,
-         accepted.version,
-         accepted.accepted_at,
-         accepted.candidate_id,
-         accepted.evidence_id,
-         candidate.summary,
-         evidence.payload_hash AS evidence_payload_hash,
-         evidence.created_at AS evidence_captured_at
+      `SELECT id, name, description, context_kind, visibility, updated_at
+       FROM work_contexts
+       WHERE workspace_id = ? AND project_id = ? AND archived_at IS NULL
+         AND (context_kind = 'project_wide' OR id = ?)
+       ORDER BY context_kind, id`,
+    )
+    .all(tenant.workspaceId, projectId, contextId || "");
+  const projectWide = contexts.find(({ context_kind: kind }) => kind === "project_wide");
+  const selectedContext = contextId
+    ? contexts.find(({ id, context_kind: kind }) => id === contextId && kind === "work")
+    : undefined;
+  if (!projectWide || (contextId && !selectedContext)) return undefined;
+  const allowedContextIds = new Set([projectWide.id, selectedContext?.id].filter(Boolean));
+  const selectedContextRow = selectedContext || projectWide;
+  const context = {
+    id: selectedContextRow.id,
+    name: selectedContextRow.name,
+    description: selectedContextRow.description,
+    visibility: selectedContextRow.visibility,
+    updated_at: selectedContextRow.updated_at,
+    includes_project_wide: true,
+  };
+
+  const acceptedRows = await database
+    .prepare(
+      `SELECT accepted.id AS accepted_state_id, accepted.state_key, accepted.value_json,
+              accepted.version, accepted.accepted_at, accepted.candidate_id,
+              accepted.evidence_id, candidate.summary,
+              evidence.payload_hash AS evidence_payload_hash,
+              evidence.created_at AS evidence_captured_at,
+              COALESCE(entry.context_id, ?) AS context_id
        FROM accepted_project_state accepted
        JOIN candidate_claims candidate
          ON candidate.workspace_id = accepted.workspace_id
@@ -183,67 +229,49 @@ export async function getProjectContext(database, { userId, projectId, task, con
          ON evidence.workspace_id = accepted.workspace_id
         AND evidence.project_id = accepted.project_id
         AND evidence.id = accepted.evidence_id
-       WHERE accepted.project_id = ?
-         AND accepted.workspace_id = ?
-         AND NOT EXISTS (
-           SELECT 1 FROM accepted_project_state newer
-           WHERE newer.project_id = accepted.project_id
-             AND newer.state_key = accepted.state_key
-             AND newer.version > accepted.version
-         )
-       ORDER BY accepted.state_key`,
+       LEFT JOIN accepted_context_entries entry
+         ON entry.workspace_id = accepted.workspace_id
+        AND entry.project_id = accepted.project_id
+        AND entry.accepted_state_id = accepted.id
+       WHERE accepted.project_id = ? AND accepted.workspace_id = ?
+       ORDER BY accepted.state_key, accepted.version, accepted.id`,
     )
-    .all(projectId, tenant.workspaceId);
+    .all(projectWide.id, projectId, tenant.workspaceId);
+  const effectiveByStateKey = latestEffectiveAcceptedRows(
+    acceptedRows,
+    projectWide.id,
+    selectedContext?.id,
+  );
+  const rows = [...effectiveByStateKey.values()].sort((left, right) =>
+    compareText(left.state_key, right.state_key),
+  );
 
-  const conflictRows = await database
+  const pendingRows = await database
     .prepare(
-      `SELECT
-         accepted.id AS accepted_state_id,
-         accepted.state_key,
-         accepted.value_json,
-         accepted.version,
-         accepted.accepted_at,
-         accepted.candidate_id AS accepted_candidate_id,
-         accepted.evidence_id AS accepted_evidence_id,
-         accepted_candidate.summary,
-         accepted_evidence.payload_hash AS accepted_evidence_payload_hash,
-         accepted_evidence.created_at AS accepted_evidence_captured_at,
-         alternative.id AS alternative_candidate_id,
-         alternative.evidence_id AS alternative_evidence_id,
-         alternative_evidence.payload_hash AS alternative_evidence_payload_hash,
-         alternative_evidence.created_at AS alternative_evidence_captured_at
+      `SELECT alternative.id AS alternative_candidate_id, alternative.state_key,
+              alternative.value_json,
+              alternative.evidence_id AS alternative_evidence_id,
+              alternative_evidence.payload_hash AS alternative_evidence_payload_hash,
+              alternative_evidence.created_at AS alternative_evidence_captured_at,
+              COALESCE(target.context_id, ?) AS context_id
        FROM candidate_claims alternative
-       JOIN accepted_project_state accepted
-         ON accepted.workspace_id = alternative.workspace_id
-        AND accepted.project_id = alternative.project_id
-        AND accepted.state_key = alternative.state_key
-        AND NOT EXISTS (
-          SELECT 1 FROM accepted_project_state newer
-          WHERE newer.workspace_id = accepted.workspace_id
-            AND newer.project_id = accepted.project_id
-            AND newer.state_key = accepted.state_key
-            AND newer.version > accepted.version
-        )
-       JOIN candidate_claims accepted_candidate
-         ON accepted_candidate.workspace_id = accepted.workspace_id
-        AND accepted_candidate.project_id = accepted.project_id
-        AND accepted_candidate.id = accepted.candidate_id
-        AND accepted_candidate.evidence_id = accepted.evidence_id
-       JOIN evidence_events accepted_evidence
-         ON accepted_evidence.workspace_id = accepted.workspace_id
-        AND accepted_evidence.project_id = accepted.project_id
-        AND accepted_evidence.id = accepted.evidence_id
        JOIN evidence_events alternative_evidence
          ON alternative_evidence.workspace_id = alternative.workspace_id
         AND alternative_evidence.project_id = alternative.project_id
         AND alternative_evidence.id = alternative.evidence_id
-       WHERE alternative.workspace_id = ?
-         AND alternative.project_id = ?
+       LEFT JOIN candidate_context_targets target
+         ON target.workspace_id = alternative.workspace_id
+        AND target.project_id = alternative.project_id
+        AND target.candidate_id = alternative.id
+       WHERE alternative.workspace_id = ? AND alternative.project_id = ?
          AND alternative.status = 'pending'
-         AND alternative.value_json <> accepted.value_json
-       ORDER BY accepted.state_key, alternative.id`,
+       ORDER BY alternative.state_key, alternative.id`,
     )
-    .all(tenant.workspaceId, projectId);
+    .all(projectWide.id, tenant.workspaceId, projectId);
+  const conflictRows = pendingRows
+    .filter((row) => allowedContextIds.has(row.context_id))
+    .map((row) => ({ ...row, accepted: effectiveByStateKey.get(row.state_key) }))
+    .filter(({ accepted, value_json: valueJson }) => accepted && accepted.value_json !== valueJson);
 
   const taskTerms = normalizedTerms(task);
   const rankedAccepted = rows.map((row) => {
@@ -273,6 +301,7 @@ export async function getProjectContext(database, { userId, projectId, task, con
 
   const conflictsByStateKey = new Map();
   for (const row of conflictRows) {
+    const accepted = row.accepted;
     let conflict = conflictsByStateKey.get(row.state_key);
     if (!conflict) {
       conflict = {
@@ -281,21 +310,21 @@ export async function getProjectContext(database, { userId, projectId, task, con
           state_key: row.state_key,
           status: "unresolved",
           trusted_current: {
-            version: row.version,
+            version: accepted.version,
             provenance: {
-              accepted_state_id: row.accepted_state_id,
-              candidate_id: row.accepted_candidate_id,
-              evidence_id: row.accepted_evidence_id,
-              evidence_payload_hash: row.accepted_evidence_payload_hash,
-              evidence_captured_at: row.accepted_evidence_captured_at,
+              accepted_state_id: accepted.accepted_state_id,
+              candidate_id: accepted.candidate_id,
+              evidence_id: accepted.evidence_id,
+              evidence_payload_hash: accepted.evidence_payload_hash,
+              evidence_captured_at: accepted.evidence_captured_at,
             },
           },
           unreviewed_alternatives: [],
           notice:
             "Pending alternatives exist for this accepted state key. Their values are excluded and are not alice.-verified.",
         },
-        relevance: relevanceScore(row, taskTerms),
-        stableId: row.accepted_state_id,
+        relevance: relevanceScore(accepted, taskTerms),
+        stableId: accepted.accepted_state_id,
       };
       conflictsByStateKey.set(row.state_key, conflict);
     }
@@ -324,10 +353,12 @@ export async function getProjectContext(database, { userId, projectId, task, con
   ]);
   const freshness = {
     project_updated_at: project.updated_at,
+    context_updated_at: context.updated_at,
     accepted_state_as_of: acceptedStateAsOf,
     evidence_as_of: evidenceAsOf,
     state_as_of:
-      latestTimestamp([project.updated_at, acceptedStateAsOf, evidenceAsOf]) || project.updated_at,
+      latestTimestamp([project.updated_at, context.updated_at, acceptedStateAsOf, evidenceAsOf]) ||
+      project.updated_at,
   };
   const availableCounts = {
     accepted_decisions: rankedAccepted.filter((entry) => entry.category === "accepted_decisions")
@@ -340,6 +371,7 @@ export async function getProjectContext(database, { userId, projectId, task, con
   const placeholderVersion = `context_${"0".repeat(64)}`;
   const emptyContext = buildContext({
     project,
+    context,
     task,
     selected,
     freshness,
@@ -360,6 +392,7 @@ export async function getProjectContext(database, { userId, projectId, task, con
     };
     const attemptedContext = buildContext({
       project,
+      context,
       task,
       selected: attempted,
       freshness,
@@ -384,12 +417,14 @@ export async function getProjectContext(database, { userId, projectId, task, con
       evidence_id: row.evidence_id,
       evidence_payload_hash: row.evidence_payload_hash,
       evidence_captured_at: row.evidence_captured_at,
+      context_id: row.context_id,
     })),
     pending_conflict_alternatives: conflictRows.map((row) => ({
       candidate_id: row.alternative_candidate_id,
       evidence_id: row.alternative_evidence_id,
       evidence_payload_hash: row.alternative_evidence_payload_hash,
       evidence_captured_at: row.alternative_evidence_captured_at,
+      context_id: row.context_id,
     })),
   };
   const packageHash = createHash("sha256")
@@ -397,6 +432,7 @@ export async function getProjectContext(database, { userId, projectId, task, con
       JSON.stringify({
         contractVersion: consumptionContractVersion,
         project,
+        context,
         task,
         contextBudget,
         selected,
@@ -409,6 +445,7 @@ export async function getProjectContext(database, { userId, projectId, task, con
 
   return buildContext({
     project,
+    context,
     task,
     selected,
     freshness,

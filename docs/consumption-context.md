@@ -1,14 +1,16 @@
 # Consumption Context Packages
 
-Status: Verified for Milestone 05
+Status: Extended for selected work contexts in Milestone 06
 
 Decision date: 2026-08-30
 
 ## Contract boundary
 
-`list_projects` and `get_project_context` use consumption contract `1.0`. Both are authenticated, tenant-scoped, deny-by-default reads with no project-state mutation. Their strict input and output schemas are advertised through MCP, and foreign or guessed project identifiers remain indistinguishable. Bearer authentication may refresh safe integration `last_used_at` telemetry; it cannot change project, evidence, candidate, accepted-state, or audit records.
+`list_projects`, `get_active_context`, and `get_project_context` use consumption contract `2.0`. All are authenticated, tenant-scoped, deny-by-default reads with no project-state mutation. Their strict input and output schemas are advertised through MCP, and foreign or guessed project/context identifiers remain indistinguishable. Bearer authentication may refresh safe integration `last_used_at` telemetry; it cannot change project, context selection, evidence, candidate, accepted-state, or audit records.
 
-`list_projects` returns deterministic project discovery metadata: identity, brief, project timestamps, current accepted-state count, and latest acceptance timestamp. `get_project_context` accepts a project identifier, a normalized task, and an optional maximum serialized-package budget measured in UTF-8 bytes.
+`list_projects` returns deterministic project discovery metadata, selectable work contexts, and the exact authenticated connection's active target when one exists. `get_active_context` is the normal continuation path: it accepts only the task and budget, resolves the connection's human-selected project/context, and fails explicitly with the connection-center fallback when no target exists. `get_project_context` remains the explicit fallback and accepts a project, optional work-context identifier, task, and budget.
+
+Every work-context package includes project-wide entries plus entries mapped to the selected work context. When both scopes contain the same state key, the selected work-context value takes precedence; entries from every other work context are excluded. Pending conflict detection uses the same allowed scopes. The returned context identity, context freshness, selection strategy `deterministic_full_text_v2`, and complete scoped source inventory participate in the package hash. This makes the same state and request deterministic while ensuring a target change produces a distinct package.
 
 ## Trust and provenance shape
 
@@ -32,7 +34,7 @@ Package versions are content hashes over the normalized authenticated request, p
 
 Selection uses the latest accepted version of each state key and excludes every other candidate status. The task is normalized with Unicode NFKC, lowercased with the fixed `en-US` locale, split into unique alphanumeric terms, and sorted. Each accepted item receives a deterministic relevance score: exact structured state-key terms have weight 8, candidate-summary terms weight 4, and accepted-value terms weight 2. Higher scores sort first; state key and accepted-state identifier are stable ordinal tie-breakers. Budget selection walks that order once. This is explainable lexical selection, not semantic inference, stemming, embeddings, or model orchestration.
 
-Freshness reports the persisted project update timestamp, latest included accepted-state timestamp, latest included evidence-capture timestamp, and their maximum as `state_as_of`. These values describe source freshness; they do not claim that the underlying project assertion is still true outside alice.
+Freshness reports the persisted project and selected-context update timestamps, latest included accepted-state timestamp, latest included evidence-capture timestamp, and their maximum as `state_as_of`. These values describe source freshness; they do not claim that the underlying project assertion is still true outside alice.
 
 ## Budget and omission contract
 
@@ -42,4 +44,4 @@ Omissions are counted separately for accepted decisions, open questions, artifac
 
 ## Scope exclusions
 
-Milestone 05 uses deterministic structured and full-text selection only. It adds no embeddings, vector store, secondary model, orchestration, file intelligence, teams, sharing, organizations, or provider credential storage.
+Milestone 06 continues to use deterministic structured and full-text selection only. It adds no embeddings, vector store, secondary model, orchestration, file intelligence, teams, sharing, organizations, or provider credential storage.

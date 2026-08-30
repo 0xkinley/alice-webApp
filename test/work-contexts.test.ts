@@ -4,6 +4,7 @@ import { openSqliteTestDatabase } from "@alice/database/testing";
 import {
   acceptCandidate,
   createWorkContext,
+  getProjectContext,
   getWorkContextHistory,
   listWorkContexts,
   saveCandidateUpdate,
@@ -161,6 +162,30 @@ test("candidate and accepted entries retain an immutable context destination", a
         .prepare("UPDATE candidate_context_targets SET context_id = ? WHERE candidate_id = ?")
         .run(pricing.id, first.receipt.candidate_ids[0]),
     /immutable/,
+  );
+  const launchContext = await getProjectContext(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    contextId: launch.id,
+    task: "Check the launch price",
+    contextBudget: 4_000,
+  });
+  const pricingContext = await getProjectContext(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    contextId: pricing.id,
+    task: "Check the pricing decision",
+    contextBudget: 4_000,
+  });
+  assert.equal(launchContext.accepted_decisions[0].value, 24);
+  assert.equal(pricingContext.accepted_decisions[0].value, 29);
+  assert.deepEqual(
+    launchContext.accepted_decisions.map(({ value }) => value),
+    [24],
+  );
+  assert.deepEqual(
+    pricingContext.accepted_decisions.map(({ value }) => value),
+    [29],
   );
   database.close();
 });

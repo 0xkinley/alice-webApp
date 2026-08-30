@@ -13,12 +13,15 @@ import {
 import { openDatabase } from "@alice/database";
 import {
   ContextBudgetError,
+  activeTargetForConnection,
   getProjectContext,
   listProjects,
+  listSelectableProjectContexts,
   saveCandidateUpdate,
 } from "@alice/domain";
 import {
   consumptionContractVersion,
+  getActiveContextSchema,
   getProjectContextOutputSchema,
   getProjectContextSchema,
   listProjectsOutputSchema,
@@ -75,12 +78,81 @@ function createProtocolServer(database, publicUrl) {
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (_input, context) => {
-      const projects = await listProjects(database, authenticatedUserId(context));
-      const output = { contract_version: consumptionContractVersion, projects };
+      const userId = authenticatedUserId(context);
+      const connectionId = authenticatedConnectionId(context);
+      const [projects, selectable, activeTarget] = await Promise.all([
+        listProjects(database, userId),
+        listSelectableProjectContexts(database, userId),
+        activeTargetForConnection(database, { userId, connectionId }),
+      ]);
+      const contextsByProject = new Map(
+        selectable.map((project) => [project.id, project.contexts]),
+      );
+      const output = {
+        contract_version: consumptionContractVersion,
+        projects: projects.map((project) => ({
+          ...project,
+          contexts: contextsByProject.get(project.id) || [],
+        })),
+        active_target: activeTarget || null,
+      };
       return {
         content: [{ type: "text", text: JSON.stringify(output) }],
         structuredContent: output,
       };
+    },
+  );
+
+  server.registerTool(
+    "get_active_context",
+    {
+      title: "Get the active alice. context",
+      description:
+        "Retrieve the deterministic, budget-bounded context package for the project and work context that this user selected for this exact AI connection in alice. Includes project-wide entries plus the selected work context. Use this normal continuation path without asking the user to repeat a project identifier or say ‘use alice.’. Returns an explicit error when no target is selected and cannot change selection or trusted state.",
+      inputSchema: getActiveContextSchema,
+      outputSchema: getProjectContextOutputSchema,
+      ...oauthToolSecurity("mcp:read"),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async ({ task, context_budget: contextBudget }, context) => {
+      const userId = authenticatedUserId(context);
+      const connectionId = authenticatedConnectionId(context);
+      const target = await activeTargetForConnection(database, { userId, connectionId });
+      if (!target) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `No active alice. project/work context is selected for this connection. Select one at ${new URL("/connections", publicUrl).href}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+      try {
+        const activeContext = await getProjectContext(database, {
+          userId,
+          projectId: target.project_id,
+          contextId: target.context_id,
+          task,
+          contextBudget,
+        });
+        if (!activeContext) {
+          return {
+            content: [{ type: "text", text: "The active target is no longer accessible." }],
+            isError: true,
+          };
+        }
+        return {
+          content: [{ type: "text", text: JSON.stringify(activeContext) }],
+          structuredContent: activeContext,
+        };
+      } catch (error) {
+        if (error instanceof ContextBudgetError) {
+          return { content: [{ type: "text", text: error.message }], isError: true };
+        }
+        throw error;
+      }
     },
   );
 
@@ -95,12 +167,16 @@ function createProtocolServer(database, publicUrl) {
       ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
-    async ({ project_id: projectId, task, context_budget: contextBudget }, context) => {
+    async (
+      { project_id: projectId, context_id: contextId, task, context_budget: contextBudget },
+      context,
+    ) => {
       let projectContext;
       try {
         projectContext = await getProjectContext(database, {
           userId: authenticatedUserId(context),
           projectId,
+          contextId,
           task,
           contextBudget,
         });
@@ -128,7 +204,7 @@ function createProtocolServer(database, publicUrl) {
     {
       title: "Save a candidate project update to alice.",
       description:
-        "Use only after the user explicitly asks to save or record an update in alice. Do not call for ordinary project work, suggestions, summaries, or inferred save intent. Stores the bounded validated payload as immutable evidence and creates pending candidate claims for human review. Never accepts, rejects, supersedes, or otherwise changes trusted project state.",
+        "Use only after the user explicitly asks to save or record an update in alice. Do not call for ordinary project work, suggestions, summaries, or inferred save intent. Uses this connection's active alice. project/work context when destination fields are omitted; explicit destination fields must match that active target. Stores the bounded validated payload as immutable evidence and creates pending candidate claims for exact human confirmation. Never accepts, rejects, supersedes, or otherwise changes trusted project state.",
       inputSchema: saveProjectUpdateSchema,
       ...oauthToolSecurity("mcp:write"),
       annotations: {

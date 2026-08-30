@@ -15,7 +15,7 @@ export const captureValidationLimits = Object.freeze({
   payloadBytes: 32 * 1_024,
 });
 
-export const consumptionContractVersion = "1.0";
+export const consumptionContractVersion = "2.0";
 
 export const consumptionValidationLimits = Object.freeze({
   taskCharacters: 2_000,
@@ -120,7 +120,7 @@ export const candidateClaimSchema = z
 
 export const saveProjectUpdateSchema = z
   .object({
-    project_id: projectIdSchema,
+    project_id: projectIdSchema.optional(),
     context_id: contextIdSchema.optional(),
     summary: z.string().trim().min(1).max(captureValidationLimits.summaryCharacters),
     candidate_claims: z
@@ -175,6 +175,7 @@ export const listProjectsSchema = z.object({}).strict();
 export const getProjectContextSchema = z
   .object({
     project_id: projectIdSchema,
+    context_id: contextIdSchema.optional(),
     task: z
       .string()
       .trim()
@@ -192,12 +193,43 @@ export const getProjectContextSchema = z
   })
   .strict();
 
+export const getActiveContextSchema = getProjectContextSchema
+  .omit({ project_id: true, context_id: true })
+  .strict();
+
 const projectIdentitySchema = z
   .object({
     id: z.string(),
     name: z.string(),
     brief: z.string(),
     created_at: z.string(),
+    updated_at: z.string(),
+  })
+  .strict();
+
+const workContextIdentitySchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string(),
+    visibility: z.enum(["all_members", "selected_members", "personal"]),
+    created_at: z.string(),
+    updated_at: z.string(),
+  })
+  .strict();
+
+const activeTargetSchema = z
+  .object({
+    connection_id: z.string(),
+    surface: z.string(),
+    project_id: z.string(),
+    project_name: z.string(),
+    context_id: z.string(),
+    context_name: z.string(),
+    context_description: z.string(),
+    visibility: z.enum(["all_members", "selected_members", "personal"]),
+    selection_version: z.string(),
+    selected_at: z.string(),
     updated_at: z.string(),
   })
   .strict();
@@ -231,9 +263,11 @@ export const listProjectsOutputSchema = z
         .extend({
           accepted_state_count: z.number().int().nonnegative(),
           accepted_state_updated_at: z.string().nullable(),
+          contexts: z.array(workContextIdentitySchema),
         })
         .strict(),
     ),
+    active_target: activeTargetSchema.nullable(),
   })
   .strict();
 
@@ -241,6 +275,10 @@ export const getProjectContextOutputSchema = z
   .object({
     contract_version: z.literal(consumptionContractVersion),
     project: projectIdentitySchema,
+    context: workContextIdentitySchema
+      .pick({ id: true, name: true, description: true, visibility: true, updated_at: true })
+      .extend({ includes_project_wide: z.literal(true) })
+      .strict(),
     task: z.string(),
     accepted_decisions: z.array(acceptedContextItemSchema),
     open_questions: z.array(
@@ -286,10 +324,11 @@ export const getProjectContextOutputSchema = z
     package: z
       .object({
         version: z.string(),
-        selection_strategy: z.literal("deterministic_full_text_v1"),
+        selection_strategy: z.literal("deterministic_full_text_v2"),
         freshness: z
           .object({
             project_updated_at: z.string(),
+            context_updated_at: z.string(),
             accepted_state_as_of: z.string().nullable(),
             evidence_as_of: z.string().nullable(),
             state_as_of: z.string(),
