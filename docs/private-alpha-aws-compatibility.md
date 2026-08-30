@@ -10,7 +10,7 @@ Official references revalidated: 2026-08-31
 
 This checkpoint supersedes the unprovisioned Railway/Neon recommendation after the product owner chose to investigate the account's USD 100 AWS credit. It does not create an AWS resource, public origin, access key, invitation, or external data transfer. The existing USD 5 monthly AWS budget remains an alert, not a hard spending stop.
 
-No cloud deployment is approved yet. The next work is repository-only: adapt and test the application for the selected AWS candidate, then return with the final CloudFormation change set and the account-plan/service-eligibility screen before any resource is created.
+No cloud deployment is approved yet. The repository adaptation and final CloudFormation change set are complete; the remaining pre-creation work is the account-plan/service-eligibility screen, final full/image gate, and explicit product-owner approval of the dated runbook.
 
 ## Current result
 
@@ -69,7 +69,9 @@ Function URLs attached to VPC-enabled Lambdas do not provide response streaming.
 
 Items 1-4 and 6-7 are complete in the repository. The production image pins Lambda Web Adapter `1.0.1` by its multi-architecture manifest digest, keeps the non-root `node` runtime, and remains an ordinary container when it is not running inside Lambda. Migration `015_file_upload_intents.sql` records immutable, user/project/context-bound declarations and one immutable completion receipt. The browser computes SHA-256, obtains a ten-minute checksum/encryption-bound S3 PUT, uploads without an AWS credential, and submits the exact S3 version for finalization. Finalization returns pending without reading bytes until GuardDuty reports `NO_THREATS_FOUND`; it then reauthorizes the initiating user and exact context, reads that version, verifies signature, type, extension, size, and hash, and only then uses the existing immutable reference path. Foreign, expired, threat-marked, unsupported, failed, and mismatched uploads create no reference. Tests cover the domain boundary, exact-origin HTTP routes, S3 signing contract, migration 15, and constrained-role immutability.
 
-Provisioning remains blocked on item 5's privileged staging cleanup/lifecycle rule, exact bucket CORS exposing only the required version header to the web origin, execution-role replacement of the old IAM-user template, a current account-plan eligibility check, the full rebuilt container gate, and the separately approved live protocol rounds.
+Items 1-7 are now complete in the repository. The final template adds privileged staging lifecycle cleanup, exact-origin PUT-only bucket CORS, separate credential-free Lambda roles, an isolated two-AZ VPC, an auto-pausing Aurora writer, and a temporary private Fargate migration path. The migration task creates or rotates the constrained `alice_app` role with a generated password without raw credential interpolation, applies the exact ledger, refreshes grants, and is then removed together with its four paid interface endpoints. Public Function URL permissions are a separate final condition, so generated origins can be inspected before either endpoint becomes invokable. The 41-resource staged change set passes `cfn-lint` 1.55.1 and six structural boundary tests.
+
+Provisioning remains blocked on a current account-plan/service-eligibility check, product-owner approval of the exact resources/security/cost envelope in `docs/private-alpha-aws-deployment-runbook.md`, CI confirmation of the approval commit, and the separately approved live protocol rounds. The full local gate and rebuilt ARM64 container gate pass. Repository readiness is not hosted evidence.
 
 ## Cost checkpoint
 
@@ -78,9 +80,12 @@ These are planning estimates before credits, not a quote:
 - Lambda request/compute usage should be below USD 1/month at friend-alpha traffic, subject to the account's actual Free Plan eligibility and measured duration.
 - Aurora Serverless v2 in Frankfurt is USD 0.14 per ACU-hour. At the expected 0.5 ACU while awake, ten active hours cost about USD 0.70 and 100 active hours cost about USD 7.00; paused compute is not charged.
 - Aurora Standard storage is USD 0.119 per GB-month and I/O is USD 0.22 per million requests in the dated Frankfurt catalog.
-- ECR, CloudWatch, S3, GuardDuty, and transfer should remain below a few dollars at the bounded proof volume, but each remains usage-priced.
+- Two Secrets Manager secrets cost USD 0.80/month. A 10 GiB Aurora working volume costs about USD 1.19/month before I/O.
+- ECR, CloudWatch, S3, GuardDuty, and transfer should remain below a few dollars at the bounded proof volume, but each remains usage-priced. The one-off private migration endpoints cost about USD 0.096/hour while all four services exist across two Availability Zones and must be removed immediately after migration.
 
 The target is USD 1-5 for the bounded hosted proof and approximately USD 5-15/month for a low-traffic alpha before credits, primarily determined by Aurora awake time. The existing USD 5 budget alerts stay active. Stop before further testing if actual or forecast usage reaches USD 5, and return for product-owner approval before raising that threshold or keeping resources running for friend testing.
+
+A constant keepalive would defeat the ten-minute pause and cost about USD 51.10/month at the 0.5 ACU floor before storage and ancillary services. The dormant 15-minute hosted-health workflow therefore remains disabled for this topology. The full dated unit-price model and staged stop rules are in `docs/private-alpha-aws-deployment-runbook.md`.
 
 The account's Free Plan expires after six months or when credits are exhausted, whichever occurs first, while the promotional credit itself can have a later expiration date. Before provisioning, verify the account-plan deadline and that Lambda, ECR, VPC, Aurora express configuration, S3, GuardDuty, and CloudFormation are available on this account. Do not join AWS Organizations or enable Control Tower because AWS documents that either action expires the credits and upgrades the plan.
 
@@ -90,8 +95,11 @@ The account's Free Plan expires after six months or when credits are exhausted, 
 - [Amazon ECS Express Mode overview](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/express-service-overview.html)
 - [AWS Lambda quotas](https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html)
 - [AWS Lambda Web Adapter](https://github.com/aws/aws-lambda-web-adapter)
+- [Lambda Function URL authorization](https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html)
 - [Aurora Serverless v2 automatic pause](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2-auto-pause.html)
+- [ECR VPC endpoint requirements](https://docs.aws.amazon.com/AmazonECR/latest/userguide/vpc-endpoints.html)
 - [S3 gateway endpoints](https://docs.aws.amazon.com/vpc/latest/privatelink/vpc-endpoints-s3.html)
+- [AWS CLI login with console credentials](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-in.html)
 - [AWS Free Tier plans](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/free-tier-plans.html)
 - [AWS Free Tier FAQ](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/free-tier-FAQ.html)
 

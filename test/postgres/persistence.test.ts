@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
-import { configureApplicationRole, openDatabase } from "@alice/database";
+import { configureApplicationRole, ensureApplicationRole, openDatabase } from "@alice/database";
 import {
   acceptCandidate,
   acceptProjectInvitation,
@@ -89,9 +89,7 @@ before(async () => {
     maxConnections: 2,
     migrate: true,
   });
-  await migrationDatabase.exec(
-    `CREATE ROLE "${applicationRole}" LOGIN PASSWORD '${applicationPassword}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`,
-  );
+  await ensureApplicationRole(migrationDatabase, applicationRole, applicationPassword);
   await configureApplicationRole(migrationDatabase, applicationRole);
   const applicationUrl = new URL(connectionString);
   applicationUrl.username = applicationRole;

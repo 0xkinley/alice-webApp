@@ -10,7 +10,6 @@ docs
 evals
 infra
 test
-scripts
 *.log
 *.md
 !README.md

@@ -5,6 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
 COPY apps ./apps
 COPY packages ./packages
+COPY scripts/migrate-postgres.mjs scripts/migrate-postgres-container.mjs ./scripts/
 
 RUN npm ci --ignore-scripts && npm run build && npm prune --omit=dev --ignore-scripts
 
@@ -23,6 +24,7 @@ COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/apps ./apps
 COPY --from=build --chown=node:node /app/packages ./packages
+COPY --from=build --chown=node:node /app/scripts ./scripts
 
 USER node
 STOPSIGNAL SIGTERM

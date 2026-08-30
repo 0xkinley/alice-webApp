@@ -247,6 +247,40 @@ export async function configureApplicationRole(
   });
 }
 
+export async function ensureApplicationRole(
+  database: AliceDatabase,
+  applicationRole: string,
+  password: string,
+): Promise<void> {
+  if (!identifierPattern.test(applicationRole)) {
+    throw new Error("Application database roles must be lowercase SQL identifiers.");
+  }
+  if (typeof password !== "string" || password.length < 20 || password.length > 1_024) {
+    throw new Error(
+      "The application database password must contain between 20 and 1024 characters.",
+    );
+  }
+  const existing = await database
+    .prepare("SELECT 1 AS present FROM pg_roles WHERE rolname = ?")
+    .get(applicationRole);
+  const formatted = await database
+    .prepare(
+      `SELECT format(
+         ?,
+         CAST(? AS text),
+         CAST(? AS text)
+       ) AS statement`,
+    )
+    .get(
+      existing
+        ? "ALTER ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION"
+        : "CREATE ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION",
+      applicationRole,
+      password,
+    );
+  await database.exec(formatted.statement);
+}
+
 export type OpenDatabaseOptions = Readonly<{
   connectionString: string;
   schema?: string;

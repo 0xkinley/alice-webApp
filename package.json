@@ -21,6 +21,7 @@
     "eval:capture": "node scripts/evaluate-capture-tool-selection.mjs",
     "eval:context": "node --conditions=development scripts/evaluate-cross-host-context.mjs",
     "db:migrate": "node --conditions=development scripts/migrate-postgres.mjs",
+    "db:migrate:container": "node scripts/migrate-postgres-container.mjs",
     "db:backup:verify": "node --conditions=development scripts/verify-postgres-backup.mjs",
     "alpha:invite": "node --conditions=development scripts/create-alpha-invitation.mjs",
     "typecheck": "tsc -b --pretty false",

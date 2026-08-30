@@ -1,4 +1,4 @@
-import { configureApplicationRole, openDatabase } from "@alice/database";
+import { configureApplicationRole, ensureApplicationRole, openDatabase } from "@alice/database";
 
 const connectionString = process.env.ALICE_MIGRATION_DATABASE_URL || process.env.ALICE_DATABASE_URL;
 if (!connectionString) {
@@ -13,6 +13,13 @@ const database = await openDatabase({
   maxConnections: 1,
   migrate: true,
 });
+if (process.env.ALICE_APPLICATION_DATABASE_PASSWORD) {
+  await ensureApplicationRole(
+    database,
+    applicationRole,
+    process.env.ALICE_APPLICATION_DATABASE_PASSWORD,
+  );
+}
 await configureApplicationRole(database, applicationRole);
 const migrations = await database
   .prepare("SELECT version, filename, applied_at FROM alice_schema_migrations ORDER BY version")
