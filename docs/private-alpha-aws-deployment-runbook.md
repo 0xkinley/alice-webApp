@@ -1,6 +1,6 @@
 # Private Alpha AWS Deployment Runbook
 
-Status: reviewed repository change set; no AWS workload resource has been created
+Status: reviewed and CI-confirmed repository change set; no AWS workload resource has been created
 
 Date: 2026-08-31
 
@@ -99,7 +99,7 @@ CloudShell is pre-authenticated and AWS documents native Docker/ECR support. AWS
 - `infra/aws/private-files.template.json` parses as JSON and passes `cfn-lint` 1.55.1 with no findings.
 - Structural deployment tests verify region, network isolation, Aurora bounds, role separation, staged permissions, CORS/lifecycle rules, and temporary migration endpoints.
 - The migration entrypoint applied all 15 migrations to disposable PostgreSQL 17, created the constrained application role without raw credential interpolation, and passed the 17-test PostgreSQL suite.
-- The complete repository gate passes 111 fast tests, 17 constrained-role PostgreSQL tests, both evaluations, formatting, linting, typechecking, secret scanning, and both builds. The final ARM64 image rebuild succeeds, runs as the non-root `node` user, contains both migration scripts, and executes migration 015 against disposable PostgreSQL 17. CI must confirm the approval commit before upload.
+- The complete repository gate passes 111 fast tests, 17 constrained-role PostgreSQL tests, both evaluations, formatting, linting, typechecking, secret scanning, and both builds. The final ARM64 image rebuild succeeds, runs as the non-root `node` user, contains both migration scripts, and executes migration 015 against disposable PostgreSQL 17. GitHub Actions CI run `33340204691` passed approval commit `e8bb958` in 1 minute 20 seconds.
 
 ## Primary references
 

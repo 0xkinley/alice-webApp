@@ -71,7 +71,7 @@ Items 1-4 and 6-7 are complete in the repository. The production image pins Lamb
 
 Items 1-7 are now complete in the repository. The final template adds privileged staging lifecycle cleanup, exact-origin PUT-only bucket CORS, separate credential-free Lambda roles, an isolated two-AZ VPC, an auto-pausing Aurora writer, and a temporary private Fargate migration path. The migration task creates or rotates the constrained `alice_app` role with a generated password without raw credential interpolation, applies the exact ledger, refreshes grants, and is then removed together with its four paid interface endpoints. Public Function URL permissions are a separate final condition, so generated origins can be inspected before either endpoint becomes invokable. The 41-resource staged change set passes `cfn-lint` 1.55.1 and six structural boundary tests.
 
-Provisioning remains blocked on a current account-plan/service-eligibility check, product-owner approval of the exact resources/security/cost envelope in `docs/private-alpha-aws-deployment-runbook.md`, CI confirmation of the approval commit, and the separately approved live protocol rounds. The full local gate and rebuilt ARM64 container gate pass. Repository readiness is not hosted evidence.
+Provisioning remains blocked on a current account-plan/service-eligibility check, product-owner approval of the exact resources/security/cost envelope in `docs/private-alpha-aws-deployment-runbook.md`, and the separately approved live protocol rounds. The full local gate, rebuilt ARM64 container gate, and GitHub Actions CI run `33340204691` for approval commit `e8bb958` pass. Repository readiness is not hosted evidence.
 
 ## Cost checkpoint
 
