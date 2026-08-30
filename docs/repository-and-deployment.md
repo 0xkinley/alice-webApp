@@ -40,7 +40,8 @@ Responsibilities:
 - register and authenticate users with one private workspace each;
 - create and revisit tenant-scoped projects;
 - render the candidate review interface;
-- execute explicit human candidate acceptance, rejection, and supersession; and
+- execute explicit human candidate acceptance, rejection, and supersession;
+- when private file storage is explicitly configured, validate bounded human uploads, expose their fail-closed scan state, and authorize short-lived exact-version downloads; and
 - expose `/health` for process checks.
 
 The web process is server-rendered. It creates no browser JavaScript bundle and exposes no configuration or secret through a client-public environment prefix.
@@ -70,12 +71,17 @@ Both processes validate configuration at startup and fail before listening when 
 | `ALICE_DATABASE_URL` | Required PostgreSQL application connection | Required PostgreSQL application connection | Server-only URL; TLS required outside loopback |
 | `ALICE_MIGRATION_DATABASE_URL` | Migration command only | Migration command only | Separate owner/migrator URL; never supplied to a deployable |
 | `ALICE_APPLICATION_DATABASE_ROLE` | Migration command only | Migration command only | Constrained runtime role receiving schema/table grants |
+| `ALICE_FILE_STORAGE` | Optional `aws_s3`; enables private file routes | Not used | Server-only provider selection; partial configuration fails startup |
+| `ALICE_S3_BUCKET` | Required with file storage | Not used | Private, blocked-public-access, versioned bucket name |
+| `ALICE_S3_REGION` | Required with file storage | Not used | AWS region containing both the bucket and GuardDuty scan plan |
 | `HOST` | Listen address | Listen address | Defaults to `127.0.0.1` |
 | `PORT` | Listen port | Listen port | Defaults to 8788 for web and 8787 for MCP |
 
 Local `.env` files and `.data/` are ignored, and the committed `.env.example` contains names and non-secret placeholders only. Connection URLs are server-only. alice. passwords are salted and memory-hard hashed. ChatGPT and Claude passwords are never collected. Web session tokens and OAuth access and refresh tokens are hashed before persistence; plaintext bearer values are returned only at issuance and are not logged.
 
 OAuth client secrets and authorization codes are also hash-only at rest. Integration connection rows store ownership, client classification, scope grants, usage timestamps, and revocation state—not bearer values or provider credentials.
+
+AWS access keys, session credentials, and roles use the standard server runtime credential chain and are never returned by configuration, rendered into HTML, or stored in PostgreSQL. File routes are not mounted when storage configuration is absent. PostgreSQL stores only immutable file metadata and references plus the bounded storage/scan lifecycle; private bytes remain in object storage.
 
 Alpha invitation tokens are also hash-only at rest. The invitation URL is a one-time credential and its query value must be redacted from edge and application logs.
 

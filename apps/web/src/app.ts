@@ -10,8 +10,10 @@ import {
 } from "@alice/domain";
 import { createAuthRouter, renderPage, requireAuthenticatedUser } from "./auth.ts";
 import { createConnectionsRouter } from "./connections.ts";
+import { createFilesRouter } from "./files.ts";
 import { createReviewRouter } from "./review.ts";
 import { createSavedContextRouter } from "./saved-context.ts";
+import type { PrivateFileStore } from "@alice/domain";
 
 function escapeHtml(value) {
   return String(value)
@@ -27,6 +29,7 @@ export async function createApp({
   databaseUrl,
   publicUrl,
   mcpPublicUrl = publicUrl,
+  fileStore = undefined as PrivateFileStore | undefined,
 }) {
   const database = suppliedDatabase || (await openDatabase({ connectionString: databaseUrl }));
   const app = express();
@@ -93,7 +96,7 @@ export async function createApp({
     const contextCards = contexts
       .map(
         (context) =>
-          `<article id="${escapeHtml(context.id)}"><h2>${escapeHtml(context.name)}</h2><p>${escapeHtml(context.description)}</p><p class="muted">${context.context_kind === "project_wide" ? "Included with every selected work context" : "Work context"} · ${escapeHtml(context.visibility)}</p><p><a href="/projects/${encodeURIComponent(project.id)}/saved-context?context_id=${encodeURIComponent(context.id)}">View saved context</a></p></article>`,
+          `<article id="${escapeHtml(context.id)}"><h2>${escapeHtml(context.name)}</h2><p>${escapeHtml(context.description)}</p><p class="muted">${context.context_kind === "project_wide" ? "Included with every selected work context" : "Work context"} · ${escapeHtml(context.visibility)}</p><p><a href="/projects/${encodeURIComponent(project.id)}/saved-context?context_id=${encodeURIComponent(context.id)}">View saved context</a>${fileStore ? ` · <a href="/projects/${encodeURIComponent(project.id)}/files?context_id=${encodeURIComponent(context.id)}">Files</a>` : ""}</p></article>`,
       )
       .join("");
     response
@@ -174,6 +177,7 @@ export async function createApp({
     },
   );
   app.use("/projects", createSavedContextRouter({ database }));
+  if (fileStore) app.use("/projects", createFilesRouter({ database, fileStore, publicUrl }));
   app.use("/review", createReviewRouter({ database }));
 
   return { app, database };

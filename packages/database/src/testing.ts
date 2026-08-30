@@ -330,6 +330,55 @@ function createSchema(database: DatabaseSync) {
         REFERENCES workspaces(id, user_id)
     ) STRICT;
 
+    CREATE TABLE file_objects (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+      content_sha256 TEXT NOT NULL CHECK (length(content_sha256) = 64),
+      byte_size INTEGER NOT NULL CHECK (byte_size BETWEEN 1 AND 26214400),
+      verified_media_type TEXT NOT NULL CHECK (verified_media_type IN (
+        'application/pdf', 'image/png', 'image/jpeg', 'image/webp',
+        'text/plain', 'text/markdown'
+      )),
+      storage_key TEXT NOT NULL UNIQUE,
+      storage_version_id TEXT,
+      storage_etag TEXT,
+      scan_provider TEXT NOT NULL CHECK (scan_provider = 'aws_guardduty_s3'),
+      scan_status TEXT NOT NULL CHECK (scan_status IN (
+        'pending_upload', 'scanning', 'clean', 'threats_found',
+        'unsupported', 'scan_failed', 'storage_failed'
+      )),
+      scan_updated_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (workspace_id, id),
+      UNIQUE (workspace_id, content_sha256)
+    ) STRICT;
+
+    CREATE TABLE file_context_references (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      file_object_id TEXT NOT NULL,
+      display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 180),
+      source_host TEXT NOT NULL CHECK (length(source_host) BETWEEN 1 AND 80),
+      uploader_user_id TEXT NOT NULL,
+      access_scope TEXT NOT NULL CHECK (access_scope = 'inherit_context'),
+      referenced_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, file_object_id)
+        REFERENCES file_objects(workspace_id, id),
+      FOREIGN KEY (workspace_id, uploader_user_id)
+        REFERENCES workspaces(id, user_id),
+      UNIQUE (workspace_id, id),
+      UNIQUE (workspace_id, project_id, context_id, file_object_id)
+    ) STRICT;
+
+    CREATE INDEX file_objects_scan_queue
+      ON file_objects (workspace_id, scan_status, scan_updated_at, id);
+    CREATE INDEX file_context_references_lookup
+      ON file_context_references (workspace_id, project_id, context_id, referenced_at, id);
+
     CREATE TABLE audit_events (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
@@ -448,6 +497,55 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON context_entry_exclusions
     BEGIN
       SELECT RAISE(ABORT, 'context entry exclusions are immutable');
+    END;
+
+    CREATE TRIGGER file_objects_validate_update
+    BEFORE UPDATE ON file_objects
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.content_sha256 IS NOT OLD.content_sha256
+      OR NEW.byte_size IS NOT OLD.byte_size
+      OR NEW.verified_media_type IS NOT OLD.verified_media_type
+      OR NEW.storage_key IS NOT OLD.storage_key
+      OR NEW.scan_provider IS NOT OLD.scan_provider
+      OR NEW.created_at IS NOT OLD.created_at
+      OR (OLD.storage_version_id IS NOT NULL AND (
+        NEW.storage_version_id IS NOT OLD.storage_version_id
+        OR NEW.storage_etag IS NOT OLD.storage_etag
+      ))
+      OR (OLD.scan_status = 'pending_upload' AND NEW.scan_status NOT IN (
+        'pending_upload', 'scanning', 'storage_failed'
+      ))
+      OR (OLD.scan_status = 'storage_failed' AND NEW.scan_status NOT IN (
+        'storage_failed', 'pending_upload'
+      ))
+      OR (OLD.scan_status = 'scanning' AND NEW.scan_status NOT IN (
+        'scanning', 'clean', 'threats_found', 'unsupported', 'scan_failed'
+      ))
+      OR (OLD.scan_status IN ('clean', 'threats_found', 'unsupported', 'scan_failed')
+        AND NEW.scan_status IS NOT OLD.scan_status)
+      OR (NEW.scan_status NOT IN ('pending_upload', 'storage_failed')
+        AND NEW.storage_version_id IS NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid or immutable file object update');
+    END;
+
+    CREATE TRIGGER file_objects_no_delete
+    BEFORE DELETE ON file_objects
+    BEGIN
+      SELECT RAISE(ABORT, 'file objects preserve history');
+    END;
+
+    CREATE TRIGGER file_context_references_no_update
+    BEFORE UPDATE ON file_context_references
+    BEGIN
+      SELECT RAISE(ABORT, 'file context references are immutable');
+    END;
+
+    CREATE TRIGGER file_context_references_no_delete
+    BEFORE DELETE ON file_context_references
+    BEGIN
+      SELECT RAISE(ABORT, 'file context references are immutable');
     END;
   `);
 }

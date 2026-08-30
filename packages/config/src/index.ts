@@ -76,5 +76,21 @@ export function loadWebConfig(environment: Environment = process.env) {
     "ALICE_MCP_URL",
     environment.ALICE_MCP_URL || "http://127.0.0.1:8787",
   );
-  return { ...common, mcpPublicUrl, publicUrl };
+  const fileStorageProvider = environment.ALICE_FILE_STORAGE || "";
+  const fileStorageValuesPresent = Boolean(
+    fileStorageProvider || environment.ALICE_S3_BUCKET || environment.ALICE_S3_REGION,
+  );
+  let fileStorage: { provider: "aws_s3"; bucket: string; region: string } | null = null;
+  if (fileStorageValuesPresent) {
+    if (fileStorageProvider !== "aws_s3") {
+      throw new Error("ALICE_FILE_STORAGE must be aws_s3 when private file storage is enabled.");
+    }
+    const bucket = z.string().min(3).max(63).parse(environment.ALICE_S3_BUCKET);
+    const region = z
+      .string()
+      .regex(/^[a-z]{2}-[a-z]+-\d$/)
+      .parse(environment.ALICE_S3_REGION);
+    fileStorage = { provider: "aws_s3", bucket, region };
+  }
+  return { ...common, fileStorage, mcpPublicUrl, publicUrl };
 }

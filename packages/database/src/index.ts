@@ -194,6 +194,13 @@ export async function configureApplicationRole(
     await database.exec(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.context_entry_exclusions FROM ${role}`,
     );
+    await database.exec(`REVOKE UPDATE, DELETE ON TABLE ${schema}.file_objects FROM ${role}`);
+    await database.exec(
+      `GRANT UPDATE (storage_version_id, storage_etag, scan_status, scan_updated_at) ON TABLE ${schema}.file_objects TO ${role}`,
+    );
+    await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.file_context_references FROM ${role}`,
+    );
     await database.exec(
       `REVOKE INSERT, UPDATE, DELETE ON TABLE ${schema}.alice_schema_migrations FROM ${role}`,
     );

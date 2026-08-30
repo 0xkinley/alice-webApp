@@ -146,12 +146,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 4, filename: "004_context_entries.sql" },
     { version: 5, filename: "005_active_context_targets.sql" },
     { version: 6, filename: "006_context_entry_exclusions.sql" },
+    { version: 7, filename: "007_project_files.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    6,
+    7,
   );
   await reopened.close();
 });
@@ -442,6 +443,82 @@ test("PostgreSQL denies immutable history rewrites through the constrained appli
   );
   await assert.rejects(
     database.prepare("DELETE FROM context_entry_exclusions").run(),
+    /permission denied|immutable/i,
+  );
+});
+
+test("PostgreSQL file lifecycle is fail-closed and immutable through the application role", async () => {
+  const context = await database
+    .prepare(
+      `SELECT id FROM work_contexts
+       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'work'
+       ORDER BY id LIMIT 1`,
+    )
+    .get(owner.workspace_id, owner.project_id);
+  const objectId = `file_${randomUUID()}`;
+  const referenceId = `file_ref_${randomUUID()}`;
+  const now = new Date().toISOString();
+  await database
+    .prepare(
+      `INSERT INTO file_objects
+        (id, workspace_id, content_sha256, byte_size, verified_media_type, storage_key,
+         scan_provider, scan_status, scan_updated_at, created_at)
+       VALUES (?, ?, ?, 12, 'text/plain', ?, 'aws_guardduty_s3', 'pending_upload', ?, ?)`,
+    )
+    .run(objectId, owner.workspace_id, "a".repeat(64), `objects/${randomUUID()}`, now, now);
+  await database
+    .prepare(
+      `INSERT INTO file_context_references
+        (id, workspace_id, project_id, context_id, file_object_id, display_name,
+         source_host, uploader_user_id, access_scope, referenced_at)
+       VALUES (?, ?, ?, ?, ?, 'fixture.txt', 'postgres_test', ?, 'inherit_context', ?)`,
+    )
+    .run(referenceId, owner.workspace_id, owner.project_id, context.id, objectId, owner.id, now);
+
+  await assert.rejects(
+    database.prepare("UPDATE file_objects SET scan_status = 'clean' WHERE id = ?").run(objectId),
+    /version is required|lifecycle/i,
+  );
+  await database
+    .prepare(
+      `UPDATE file_objects
+       SET storage_version_id = 'version-1', storage_etag = 'etag-1',
+           scan_status = 'scanning', scan_updated_at = ?
+       WHERE id = ?`,
+    )
+    .run(new Date().toISOString(), objectId);
+  await database
+    .prepare("UPDATE file_objects SET scan_status = 'clean', scan_updated_at = ? WHERE id = ?")
+    .run(new Date().toISOString(), objectId);
+
+  await assert.rejects(
+    database.prepare("UPDATE file_objects SET scan_status = 'scanning' WHERE id = ?").run(objectId),
+    /terminal file scan status is immutable/i,
+  );
+  await assert.rejects(
+    database
+      .prepare("UPDATE file_objects SET storage_version_id = 'version-2' WHERE id = ?")
+      .run(objectId),
+    /stored file object version is immutable/i,
+  );
+  await assert.rejects(
+    database
+      .prepare("UPDATE file_objects SET content_sha256 = ? WHERE id = ?")
+      .run("b".repeat(64), objectId),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database.prepare("DELETE FROM file_objects WHERE id = ?").run(objectId),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database
+      .prepare("UPDATE file_context_references SET display_name = 'rewritten.txt' WHERE id = ?")
+      .run(referenceId),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database.prepare("DELETE FROM file_context_references WHERE id = ?").run(referenceId),
     /permission denied|immutable/i,
   );
 });

@@ -75,13 +75,15 @@ Cloudflare R2 remains the storage fallback. It currently includes 10 GB-month St
 The first implementation keeps the trust boundary at alice.:
 
 1. an authenticated browser streams a bounded file to the alice. web origin;
-2. alice. bounds bytes, sanitizes the display name, verifies the allowlisted signature/media type, and computes SHA-256 before any active reference exists;
-3. alice. uploads the verified bytes to a random private S3 object key and records metadata as `scanning`;
+2. alice. bounds bytes, sanitizes the display name, verifies the allowlisted signature/media type, and computes SHA-256 before any downloadable reference exists;
+3. alice. records an immutable non-downloadable reference, uploads the verified bytes to a random private S3 object key, and advances metadata from `pending_upload` to `scanning`;
 4. GuardDuty scans the exact new object version;
 5. alice. observes and stores the scan disposition; only `NO_THREATS_FOUND` can become a downloadable active artifact reference; and
 6. every preview/download request rechecks current project/context access before returning a very short-lived exact-version URL.
 
 The browser never receives reusable AWS credentials. Direct-to-S3 upload is deferred until an equally strong finalize-and-scan protocol is necessary for measured file sizes; it is not assumed merely for progress UI. File contents remain untrusted input after a clean malware scan. Clean means only that the scanner found no known threat, not that claims or embedded instructions are trusted.
+
+The provider-neutral interface, S3 adapter, migration, and authenticated fallback routes were implemented locally on 2026-08-30. They require `ALICE_FILE_STORAGE=aws_s3`, `ALICE_S3_BUCKET`, `ALICE_S3_REGION`, standard server-only AWS credentials, bucket versioning, and the policies above. Configuration is fail-closed when partial and the routes remain absent when disabled. This implementation has not contacted AWS and does not alter the separate provisioning approval gate.
 
 ## Cost envelope and stop conditions
 

@@ -1,6 +1,6 @@
 # Private Alpha Foundations
 
-Status: Proposed for Milestone 06
+Status: Accepted for Milestone 06; implementation in progress
 
 Decision date: 2026-08-30
 
@@ -8,7 +8,7 @@ Decision date: 2026-08-30
 
 Hands-on testing after Milestone 05 proved the core cross-host consumption loop but exposed too much setup and governance friction for friend testing. The current two-process SQLite topology also cannot safely support an independently deployed hosted alpha, and the one-private-workspace model cannot express the requested project collaboration.
 
-Milestone 06 must make the experience deployable, understandable, and low-friction before recruitment. This document records the product and architectural direction. It does not start Milestone 06 or claim these controls already exist.
+Milestone 06 must make the experience deployable, understandable, and low-friction before recruitment. This document records the product and architectural direction plus dated implementation boundaries. A described control exists only when its implementation note and verification evidence say so.
 
 ## Invariants that do not change
 
@@ -83,6 +83,16 @@ A model statement that the user approved, a generated `confirmed` argument, or a
 AI-generated files follow the same flow and are labelled with their source host. The integration stores no host password, session cookie, unrelated conversation history, or reusable attachment URL. Provider capabilities and limits are dated and evaluated separately for ChatGPT and Claude.
 
 Normal context packages include bounded, permission-filtered artifact references and omission reporting rather than automatically embedding every file. A separate explicit read retrieves a selected supported file or bounded excerpt when the host capability and context budget allow it. Remove-from-context stops normal retrieval without erasing history; permanent object erasure follows the published project/account retention and backup policy.
+
+#### Implemented local file foundation — 2026-08-30
+
+Migration `007_project_files.sql` adds immutable per-workspace file objects and context references. PostgreSQL retains SHA-256, verified media type, byte size, opaque storage key/version metadata, scan lifecycle, uploader/source provenance, and inherited context access; bytes are not stored in PostgreSQL. Normal application roles can advance only the storage/scan lifecycle and cannot rewrite content metadata, references, or terminal scan results.
+
+The authenticated web fallback accepts exact raw bytes only from the configured same origin. It normalizes and sanitizes display names, checks filename/type consistency, verifies PDF/PNG/JPEG/WebP signatures or fatal UTF-8 text/Markdown, applies 25 MiB/10 MiB/2 MiB type-specific limits, and hashes the accepted bytes. Exact content may reuse one immutable object only within the same workspace; every authorized context retains a separate immutable reference and no hash/dedup result crosses an authorization boundary.
+
+The optional production adapter uploads to a private versioned S3 bucket, observes the exact-version GuardDuty result tag, and treats missing, pending, threat, unsupported, access-denied, and failed results as non-downloadable. Only `NO_THREATS_FOUND` maps to `clean`. A current alice. authorization check is required before issuing a 60-second exact-version signed download; the browser receives no AWS credential and permanent object URLs are never persisted or rendered. A clean scan means only that the configured scanner reported no known threat. It never verifies claims or authorizes document instructions.
+
+This is a local/provider-adapter foundation, not completion of the file milestone tasks. No AWS resource or IAM policy exists yet, live GuardDuty behavior and public-access denial have not been exercised, and preview/version/removal/export/erasure, host attachment transfer, extraction, and MCP file retrieval remain unimplemented. File routes stay disabled when the server-only storage configuration is absent.
 
 ### Removal, archive, export, and erasure
 

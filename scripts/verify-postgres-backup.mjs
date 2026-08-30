@@ -68,6 +68,8 @@ async function tableCounts(databaseUrl) {
       "active_connection_targets",
       "context_entry_exclusions",
       "evidence_events",
+      "file_context_references",
+      "file_objects",
       "candidate_claims",
       "accepted_project_state",
       "audit_events",
