@@ -29,6 +29,8 @@ npm run build
 
 Generated `dist/` directories are deployment artifacts, not source. They and TypeScript build metadata remain ignored. A deployment must run `npm run build` before starting either server.
 
+The production `Dockerfile` builds both deployables from the locked workspace on Node.js 24, disables dependency lifecycle scripts, prunes development dependencies, runs as the unprivileged `node` user, and defaults to the MCP start command. The Railway web service overrides only the start command with `npm run start:web`; both services use the injected `PORT`, explicit `HOST=0.0.0.0`, and the same immutable image contract. Neither service uses a volume or an application-local persistence path. Both entry points drain HTTP and close the PostgreSQL pool on `SIGTERM`, with a bounded forced-close fallback.
+
 ## Deployables
 
 ### Web control plane
@@ -109,3 +111,5 @@ The dated read-only comparison in `docs/private-alpha-infrastructure-selection.m
 - scheduled encrypted backups, restore drills, and an operator-run versioned migration path.
 
 Provider-specific behavior stays inside the MCP integration surface. The web application does not receive provider credentials or configuration, and neither deployable routes work between AI models.
+
+The exact pre-provisioning settings and approval gates are in `docs/private-alpha-production-deployment.md`. `infra/aws/private-files.template.json` contains no credential and must be applied only after its CloudFormation change set, GuardDuty terms, regions, residual credential risks, and spend ceiling are approved. `.github/workflows/hosted-health.yml` remains dormant until the two public origin repository variables exist; once enabled, it probes only public health and MCP metadata on a 15-minute schedule.

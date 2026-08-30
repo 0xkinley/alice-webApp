@@ -546,8 +546,10 @@ export async function createApp({
     try {
       await protocolServer.connect(transport);
       await transport.handleRequest(request, response, request.body);
-    } catch (error) {
-      console.error("MCP request failed", error);
+    } catch {
+      // Request errors may carry bearer values or submitted evidence. Keep the
+      // hosted log content-free; the client receives only a fixed error code.
+      console.error("MCP request failed.");
       if (!response.headersSent) {
         response.status(500).json({ error: "internal_server_error" });
       }

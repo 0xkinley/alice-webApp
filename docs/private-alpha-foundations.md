@@ -182,7 +182,7 @@ The alice. web application provides Connect ChatGPT and Connect Claude surfaces 
 
 Vercel may host the deployables only if the built Express applications, MCP request/transport behavior, stable OAuth origins, PostgreSQL connection strategy, migration process, and operational limits pass hosted tests. Platform choice is subordinate to these properties.
 
-The read-only provider comparison and current recommendation are recorded in `docs/private-alpha-infrastructure-selection.md`. It recommends Railway for the two Node services, Neon for managed PostgreSQL, and private Amazon S3 with GuardDuty Malware Protection for file bytes. No resource, paid plan, public origin, invitation, or external data transfer exists merely because that recommendation is documented; provisioning remains an explicit product-owner approval gate.
+The read-only provider comparison and current recommendation are recorded in `docs/private-alpha-infrastructure-selection.md`. It recommends Railway for the two Node services, Neon for managed PostgreSQL, and private Amazon S3 with GuardDuty Malware Protection for file bytes. The exact no-provisioning topology, USD 12-36 estimate, USD 45 approval ceiling, Neon Launch public-endpoint limitation, Railway-to-AWS long-term-key limitation, security settings, and evidence checklist are recorded in `docs/private-alpha-production-deployment.md`. A production Docker build, dormant public probe, and credential-free CloudFormation template are committed, but no resource, paid plan, public origin, invitation, access key, or external data transfer exists merely because those artifacts are present; provisioning remains an explicit product-owner approval gate.
 
 ## Host-surface compatibility
 

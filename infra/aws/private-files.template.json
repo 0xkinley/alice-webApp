@@ -1,0 +1,309 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Private versioned alice. file storage with GuardDuty Malware Protection for S3. Creates no access keys.",
+  "Parameters": {
+    "AlertEmail": {
+      "Type": "String",
+      "Description": "Product-owner email for AWS budget alerts."
+    },
+    "BucketName": {
+      "Type": "String",
+      "AllowedPattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$",
+      "Description": "Globally unique private file bucket name."
+    },
+    "ResourcePrefix": {
+      "Type": "String",
+      "Default": "alice-private-alpha",
+      "AllowedPattern": "^[a-z][a-z0-9-]{2,31}$"
+    }
+  },
+  "Resources": {
+    "PrivateFilesBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketName": { "Ref": "BucketName" },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            { "ServerSideEncryptionByDefault": { "SSEAlgorithm": "AES256" } }
+          ]
+        },
+        "OwnershipControls": {
+          "Rules": [{ "ObjectOwnership": "BucketOwnerEnforced" }]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "VersioningConfiguration": { "Status": "Enabled" },
+        "Tags": [
+          { "Key": "alice:data-classification", "Value": "private-alpha-files" },
+          { "Key": "alice:managed-by", "Value": "cloudformation" }
+        ]
+      }
+    },
+    "GuardDutyMalwareRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "${ResourcePrefix}-guardduty-malware" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "malware-protection-plan.guardduty.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "scan-exact-private-bucket",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "AllowManagedRuleToSendS3EventsToGuardDuty",
+                  "Effect": "Allow",
+                  "Action": [
+                    "events:PutRule",
+                    "events:DeleteRule",
+                    "events:PutTargets",
+                    "events:RemoveTargets"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*"
+                  },
+                  "Condition": {
+                    "StringLike": {
+                      "events:ManagedBy": "malware-protection-plan.guardduty.amazonaws.com"
+                    }
+                  }
+                },
+                {
+                  "Sid": "AllowGuardDutyToMonitorEventBridgeManagedRule",
+                  "Effect": "Allow",
+                  "Action": ["events:DescribeRule", "events:ListTargetsByRule"],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*"
+                  }
+                },
+                {
+                  "Sid": "AllowPostScanTag",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:PutObjectTagging",
+                    "s3:GetObjectTagging",
+                    "s3:PutObjectVersionTagging",
+                    "s3:GetObjectVersionTagging"
+                  ],
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                },
+                {
+                  "Sid": "AllowEnableS3EventBridgeEvents",
+                  "Effect": "Allow",
+                  "Action": ["s3:PutBucketNotification", "s3:GetBucketNotification"],
+                  "Resource": { "Fn::GetAtt": ["PrivateFilesBucket", "Arn"] }
+                },
+                {
+                  "Sid": "AllowPutValidationObject",
+                  "Effect": "Allow",
+                  "Action": "s3:PutObject",
+                  "Resource": {
+                    "Fn::Sub": "${PrivateFilesBucket.Arn}/malware-protection-resource-validation-object"
+                  }
+                },
+                {
+                  "Sid": "AllowCheckBucketOwnership",
+                  "Effect": "Allow",
+                  "Action": "s3:ListBucket",
+                  "Resource": { "Fn::GetAtt": ["PrivateFilesBucket", "Arn"] }
+                },
+                {
+                  "Sid": "AllowMalwareScan",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "PrivateFilesBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": { "Ref": "PrivateFilesBucket" },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                { "Fn::GetAtt": ["PrivateFilesBucket", "Arn"] },
+                { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+              ],
+              "Condition": { "Bool": { "aws:SecureTransport": "false" } }
+            },
+            {
+              "Sid": "NoReadUnlessGuardDutyMarkedClean",
+              "Effect": "Deny",
+              "NotPrincipal": {
+                "AWS": [
+                  { "Fn::GetAtt": ["GuardDutyMalwareRole", "Arn"] },
+                  {
+                    "Fn::Sub": "arn:${AWS::Partition}:sts::${AWS::AccountId}:assumed-role/${GuardDutyMalwareRole}/GuardDutyMalwareProtection"
+                  }
+                ]
+              },
+              "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+              "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" },
+              "Condition": {
+                "StringNotEquals": {
+                  "s3:ExistingObjectTag/GuardDutyMalwareScanStatus": "NO_THREATS_FOUND"
+                }
+              }
+            },
+            {
+              "Sid": "OnlyGuardDutyCanSetScanStatus",
+              "Effect": "Deny",
+              "NotPrincipal": {
+                "AWS": [
+                  { "Fn::GetAtt": ["GuardDutyMalwareRole", "Arn"] },
+                  {
+                    "Fn::Sub": "arn:${AWS::Partition}:sts::${AWS::AccountId}:assumed-role/${GuardDutyMalwareRole}/GuardDutyMalwareProtection"
+                  }
+                ]
+              },
+              "Action": ["s3:PutObjectTagging", "s3:PutObjectVersionTagging"],
+              "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" },
+              "Condition": {
+                "ForAnyValue:StringEquals": {
+                  "s3:RequestObjectTagKeys": "GuardDutyMalwareScanStatus"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "WebFilesUser": {
+      "Type": "AWS::IAM::User",
+      "Properties": {
+        "UserName": { "Fn::Sub": "${ResourcePrefix}-web-files" },
+        "Policies": [
+          {
+            "PolicyName": "web-exact-version-file-access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "UploadBoundedObjects",
+                  "Effect": "Allow",
+                  "Action": "s3:PutObject",
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                },
+                {
+                  "Sid": "ObserveExactScanTag",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObjectTagging", "s3:GetObjectVersionTagging"],
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                },
+                {
+                  "Sid": "ReadExactCleanVersions",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "McpFilesUser": {
+      "Type": "AWS::IAM::User",
+      "Properties": {
+        "UserName": { "Fn::Sub": "${ResourcePrefix}-mcp-files" },
+        "Policies": [
+          {
+            "PolicyName": "mcp-exact-version-read-only",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "ObserveExactScanTag",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObjectTagging", "s3:GetObjectVersionTagging"],
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                },
+                {
+                  "Sid": "ReadExactCleanVersions",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "MalwareProtectionPlan": {
+      "Type": "AWS::GuardDuty::MalwareProtectionPlan",
+      "DependsOn": "PrivateFilesBucketPolicy",
+      "Properties": {
+        "Actions": { "Tagging": { "Status": "ENABLED" } },
+        "ProtectedResource": {
+          "S3Bucket": { "BucketName": { "Ref": "PrivateFilesBucket" } }
+        },
+        "Role": { "Fn::GetAtt": ["GuardDutyMalwareRole", "Arn"] },
+        "Tags": [{ "Key": "alice:environment", "Value": "private-alpha-production" }]
+      }
+    },
+    "AwsMonthlyBudget": {
+      "Type": "AWS::Budgets::Budget",
+      "Properties": {
+        "Budget": {
+          "BudgetLimit": { "Amount": "5", "Unit": "USD" },
+          "BudgetName": { "Fn::Sub": "${ResourcePrefix}-monthly" },
+          "BudgetType": "COST",
+          "TimeUnit": "MONTHLY"
+        },
+        "NotificationsWithSubscribers": [
+          {
+            "Notification": {
+              "ComparisonOperator": "GREATER_THAN",
+              "NotificationType": "ACTUAL",
+              "Threshold": 80,
+              "ThresholdType": "PERCENTAGE"
+            },
+            "Subscribers": [{ "Address": { "Ref": "AlertEmail" }, "SubscriptionType": "EMAIL" }]
+          },
+          {
+            "Notification": {
+              "ComparisonOperator": "GREATER_THAN",
+              "NotificationType": "FORECASTED",
+              "Threshold": 100,
+              "ThresholdType": "PERCENTAGE"
+            },
+            "Subscribers": [{ "Address": { "Ref": "AlertEmail" }, "SubscriptionType": "EMAIL" }]
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "BucketName": { "Value": { "Ref": "PrivateFilesBucket" } },
+    "GuardDutyPlanArn": { "Value": { "Fn::GetAtt": ["MalwareProtectionPlan", "Arn"] } },
+    "McpFilesUserName": { "Value": { "Ref": "McpFilesUser" } },
+    "WebFilesUserName": { "Value": { "Ref": "WebFilesUser" } }
+  }
+}

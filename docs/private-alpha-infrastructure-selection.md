@@ -1,14 +1,16 @@
 # Private Alpha Infrastructure Selection
 
-Status: Recommended; no resources provisioned
+Status: Recommended; pre-provisioning artifacts ready; no resources provisioned
 
 Decision date: 2026-08-30
 
-Official references revalidated: 2026-08-30
+Official references revalidated: 2026-08-31
 
 ## Decision boundary
 
 This document is a read-only provider comparison approved by the product owner. It does not create an account, resource, DNS record, credential, paid plan, public deployment, invitation, or external data transfer. Provisioning and any spend remain a separate approval gate.
+
+The exact resource topology, current cost envelope, security settings, residual risks, provisioning order, and evidence gates are in `docs/private-alpha-production-deployment.md`. The committed Docker build, dormant hosted probe, and no-credential AWS CloudFormation template prepare that gate without crossing it.
 
 ## Recommended stack
 
@@ -25,7 +27,7 @@ Amsterdam and Frankfurt are the closest available matching European regions in t
 
 Railway is preferred over Render, Vercel, and Fly.io for this milestone:
 
-- Railway documents deployment of a TypeScript Streamable HTTP MCP server and supplies public HTTPS domains, custom-domain certificates, service health checks during deployment, replica resource limits, hard usage limits, and an EU West region. Its Hobby plan is currently a USD 5 monthly minimum whose credit applies to resource use; published usage rates are USD 10/GB-month RAM, USD 20/vCPU-month, USD 0.05/GB egress, and USD 0.15/GB-month volume storage. [Railway MCP deployment](https://docs.railway.com/guides/mcp-server), [regions](https://docs.railway.com/deployments/regions), [pricing](https://docs.railway.com/pricing), [cost controls](https://docs.railway.com/pricing/cost-control), [domains and TLS](https://docs.railway.com/networking/domains/working-with-domains)
+- Railway documents deployment of a TypeScript Streamable HTTP MCP server and supplies public HTTPS domains, custom-domain certificates, service health checks during deployment, replica resource limits, hard usage limits, and an EU West region. Its Hobby plan is currently a USD 5 monthly minimum whose credit applies to resource use; published usage rates are USD 10/GB-month RAM, USD 20/vCPU-month, USD 0.05/GB egress, and USD 0.15/GB-month volume storage. [Railway MCP deployment](https://docs.railway.com/guides/mcp-server), [regions](https://docs.railway.com/deployments/regions), [pricing](https://docs.railway.com/pricing/plans), [cost controls](https://docs.railway.com/pricing/cost-control), [domains and TLS](https://docs.railway.com/networking/domains/working-with-domains)
 - Render is technically viable and has stronger continuous platform health checking, native Node 24, stable web services, and paid PostgreSQL recovery. Its free services sleep after 15 minutes and free PostgreSQL expires after 30 days, so the free tier cannot be the friend-alpha environment. Render remains the fallback if Railway's hosted protocol probe or operational behavior fails. [Render health checks](https://render.com/docs/health-checks), [Node versions](https://render.com/docs/node-version), [free-tier limits](https://render.com/docs/free), [PostgreSQL backups](https://render.com/docs/postgresql-backups)
 - Vercel is not selected for the first hosted verification. Its function duration and serverless lifecycle are a less direct match for the repository's two independent Express processes and remote MCP protocol verification. It may be reconsidered only after a hosted proof, not assumed from generic Express support. [Vercel function limits](https://vercel.com/docs/functions/limitations)
 - Fly.io can run the services and offers precise machine sizing, but it adds more infrastructure operation than Railway for a small friend alpha. Its health checks route around unhealthy machines but do not themselves restart them. [Fly.io pricing](https://fly.io/docs/about/pricing/), [health checks](https://fly.io/docs/reference/health-checks/)
@@ -33,6 +35,8 @@ Railway is preferred over Render, Vercel, and Fly.io for this milestone:
 The web and MCP services remain separate processes and stable origins. They receive the same constrained application database credential but different public URLs and health checks. Deployment never runs migrations automatically. A release first runs the existing clean check, then an explicit migration using a separately supplied owner credential, then deploys only after the migration ledger matches.
 
 Railway's deployment health check is not continuous after a release. The application already makes `/health` query PostgreSQL; a scheduled GitHub Actions probe must exercise both origins after provisioning and report a failure without sending authentication or user data. This is a required mitigation, not an optional monitoring enhancement.
+
+Railway deprecated its legacy per-service Config as Code format and directs new infrastructure automation toward its IaC path. The pre-provisioning checkpoint therefore uses one committed non-root production `Dockerfile` plus exact dashboard settings instead of adding a new legacy `railway.json`. Both Node processes now drain HTTP connections and close PostgreSQL on `SIGTERM`; MCP transport failures log a fixed content-free message rather than an error object that might carry bearer or evidence data.
 
 ## PostgreSQL decision
 
@@ -44,7 +48,9 @@ The production wiring uses:
 - a direct, TLS-required owner URL only for the explicit migration/role-grant command;
 - the existing application role with no schema creation and no update/delete privilege over immutable evidence, accepted state, audit history, context mappings, or exclusions;
 - scheduled provider snapshots plus the repository's logical `pg_dump`/restore drill; and
-- a disabled or tightly allowlisted public endpoint after migration and operational access are proven, where the selected plan permits it.
+- a fixed 0.25 CU ceiling, five-minute scale to zero, and seven-day restore window for the first alpha.
+
+Neon Launch does not include IP allow rules or private networking. The selected endpoint therefore remains internet-reachable through the Neon proxy and relies on mandatory TLS, channel binding, high-entropy credentials, and the constrained database role. Scale would add IP allow rules but its cost is disproportionate to the friend alpha. alice. must disclose this boundary and must not claim a private database network.
 
 The Neon free tier is suitable only for pre-provisioning experiments. Its sleep behavior and shorter restore window do not satisfy the stable friend-alpha target. Railway PostgreSQL and Render PostgreSQL remain fallbacks, but neither is selected merely to reduce the number of vendors.
 
@@ -57,7 +63,7 @@ S3 configuration requirements:
 - one general-purpose bucket in `eu-central-1`, with account- and bucket-level Block Public Access, ACLs disabled, versioning enabled, and no website or public object endpoint;
 - default server-side encryption and TLS-only bucket policy;
 - opaque non-reused object keys, with the exact S3 version identifier, SHA-256 content hash, verified media type, size, and lifecycle state stored in PostgreSQL;
-- an application IAM principal that can put bounded objects and read only an exact clean object version, but cannot list the bucket, alter policies, disable scanning/versioning, or permanently delete bytes;
+- separate web and MCP IAM principals: web can put bounded objects and both can read only exact clean versions; neither can list the bucket, alter policies, tag scan state, disable scanning/versioning, or permanently delete bytes;
 - GuardDuty scanning enabled before the first upload, with managed scan-result tags and tag-based access control denying reads unless the result is `NO_THREATS_FOUND`;
 - `THREATS_FOUND`, `UNSUPPORTED`, `ACCESS_DENIED`, missing, and `FAILED` results all treated as non-readable failures;
 - PostgreSQL remains `scanning` until alice. independently observes the exact bucket/key/version scan result; duplicate at-least-once scan events remain idempotent;
@@ -83,20 +89,20 @@ The first implementation keeps the trust boundary at alice.:
 
 The browser never receives reusable AWS credentials. Direct-to-S3 upload is deferred until an equally strong finalize-and-scan protocol is necessary for measured file sizes; it is not assumed merely for progress UI. File contents remain untrusted input after a clean malware scan. Clean means only that the scanner found no known threat, not that claims or embedded instructions are trusted.
 
-The provider-neutral interface, S3 adapter, migration, and authenticated fallback routes were implemented locally on 2026-08-30. They require `ALICE_FILE_STORAGE=aws_s3`, `ALICE_S3_BUCKET`, `ALICE_S3_REGION`, standard server-only AWS credentials, bucket versioning, and the policies above. Configuration is fail-closed when partial and the routes remain absent when disabled. This implementation has not contacted AWS and does not alter the separate provisioning approval gate.
+The provider-neutral interface, S3 adapter, migration, and authenticated fallback routes were implemented locally on 2026-08-30. They require `ALICE_FILE_STORAGE=aws_s3`, `ALICE_S3_BUCKET`, `ALICE_S3_REGION`, standard server-only AWS credentials, bucket versioning, and the policies above. Configuration is fail-closed when partial and the routes remain absent when disabled. The 2026-08-31 CloudFormation template encodes the retained bucket, GuardDuty role/plan, tag-based read denial, distinct no-delete runtime users, and USD 5 alert budget but deliberately creates no access key. No implementation has contacted AWS, and the separate provisioning approval gate remains intact.
 
 ## Cost envelope and stop conditions
 
-For a low-volume friend alpha, the planning estimate is USD 20-45/month plus a domain, dominated by two Railway services and Neon Launch; S3 and GuardDuty should be small at the stated test volume. This is not a quote. Before provisioning:
+For a low-volume friend alpha, the revalidated planning estimate is USD 12-36/month using Railway-generated domains. The approval ceiling is USD 45/month: Railway receives a USD 20 compute hard limit, fixed 0.25 CU Neon compute is approximately USD 19.35 if active for all 730 hours before storage/history, and AWS receives USD 5 budget alerts. S3 and GuardDuty should remain below USD 1 at the stated test volume, but AWS Budgets alerts rather than stopping services. This is not a quote. Before provisioning:
 
 - set a Railway hard usage limit and alert;
 - set AWS Budgets alerts and retain only the required GuardDuty protection plan;
 - record Neon compute/storage limits and restore settings;
 - disable automatic paid preview environments;
-- choose a monthly ceiling with the product owner; and
+- obtain product-owner approval for the USD 45 monthly ceiling; and
 - recheck all displayed prices in the actual billing region.
 
-Provisioning stops if the expected steady-state estimate exceeds USD 50/month, if a required control needs a higher plan than documented here, or if the exact storage/subprocessor region cannot be disclosed accurately. Any such change returns to the product owner for approval.
+Provisioning stops if the expected steady-state estimate exceeds USD 45/month, if a required control needs a higher plan than documented here, or if the exact storage/subprocessor region cannot be disclosed accurately. Any such change returns to the product owner for approval.
 
 ## Verification required before invitations
 
