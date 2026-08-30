@@ -43,14 +43,14 @@ Runtime startup does not invoke DDL. It compares the database migration ledger w
 
 ## Backup and restore
 
-`npm run db:backup:verify` uses the migration/owner credential and PostgreSQL client tools to:
+`npm run db:backup:verify` uses the migration/owner credential and version-matched PostgreSQL client tools to:
 
 1. create a custom-format dump without ownership or ACL metadata;
 2. restore it into a unique temporary database;
 3. compare protected-table row counts across every application/test schema; and
 4. drop the restored database and remove the temporary dump.
 
-The CI job runs this procedure on every milestone branch and `main`. A hosting plan must add encrypted scheduled retention and an operator-owned restore cadence; this repository check proves the logical dump is restorable, not that a provider backup policy exists.
+The CI job runs this procedure on every milestone branch and `main`. It executes the client tools from the same PostgreSQL 17 service image, preventing an older Ubuntu client from producing a false backup failure against a newer server. A hosting plan must add encrypted scheduled retention and an operator-owned restore cadence; this repository check proves the logical dump is restorable, not that a provider backup policy exists.
 
 ## SQLite disposition
 

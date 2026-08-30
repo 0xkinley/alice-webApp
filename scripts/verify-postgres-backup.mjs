@@ -15,12 +15,15 @@ if (!sourceDatabase || !/^[a-zA-Z0-9_-]+$/.test(sourceDatabase)) {
   throw new Error("The PostgreSQL database name is invalid.");
 }
 const restoreDatabase = `alice_restore_${process.pid}_${Date.now()}`;
-const directory = mkdtempSync(join(tmpdir(), "alice-backup-"));
-const backupPath = join(directory, "alice.dump");
+const toolsContainer = process.env.ALICE_POSTGRES_TOOLS_CONTAINER;
+const directory = toolsContainer ? undefined : mkdtempSync(join(tmpdir(), "alice-backup-"));
+const backupPath = toolsContainer
+  ? `/tmp/alice-backup-${process.pid}-${Date.now()}.dump`
+  : join(directory, "alice.dump");
 const pgEnvironment = {
   ...process.env,
-  PGHOST: source.hostname,
-  PGPORT: source.port || "5432",
+  PGHOST: toolsContainer ? "127.0.0.1" : source.hostname,
+  PGPORT: toolsContainer ? process.env.ALICE_POSTGRES_TOOLS_PORT || "5432" : source.port || "5432",
   PGUSER: decodeURIComponent(source.username),
   PGPASSWORD: decodeURIComponent(source.password),
   PGSSLMODE: source.searchParams.get("sslmode") || "prefer",
@@ -28,10 +31,19 @@ const pgEnvironment = {
 
 function run(command, arguments_) {
   try {
-    execFileSync(command, arguments_, {
-      env: pgEnvironment,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const containerEnvironment = Object.entries(pgEnvironment).flatMap(([key, value]) =>
+      key.startsWith("PG") && value !== undefined ? ["--env", `${key}=${value}`] : [],
+    );
+    execFileSync(
+      toolsContainer ? "docker" : command,
+      toolsContainer
+        ? ["exec", ...containerEnvironment, toolsContainer, command, ...arguments_]
+        : arguments_,
+      {
+        env: pgEnvironment,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
   } catch (error) {
     const password = decodeURIComponent(source.password);
     const rawDetail = String(error.stderr || error.message);
@@ -102,6 +114,7 @@ try {
   try {
     run("dropdb", ["--if-exists", "--maintenance-db=postgres", restoreDatabase]);
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    if (toolsContainer) run("rm", ["-f", backupPath]);
+    else rmSync(directory, { recursive: true, force: true });
   }
 }

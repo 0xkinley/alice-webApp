@@ -52,8 +52,8 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Install PostgreSQL client tools
-        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+      - name: Select PostgreSQL 17 client tools
+        run: echo "ALICE_POSTGRES_TOOLS_CONTAINER=$(docker ps --filter ancestor=postgres:17-alpine --latest --format '{{.ID}}')" >> "$GITHUB_ENV"
 
       - name: Create constrained PostgreSQL application role
         run: >-
