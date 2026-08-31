@@ -1,6 +1,6 @@
 # Private Alpha AWS Deployment Runbook
 
-Status: product-owner approved for the bounded staged proof; no AWS workload resource has been created
+Status: product-owner approved; Stages 1-3 complete, temporary migration resources removed, and Stages 4-7 pending
 
 Date: 2026-08-31
 
@@ -116,7 +116,13 @@ The root cause is a missing Amazon RDS trust chain in the slim Node image. Curre
 
 Local remediation verification passed before the rerun: `cfn-lint` 1.55.1 reported no findings; the complete gate passed 111 fast tests, 17 constrained-role PostgreSQL tests, both evaluations, formatting, linting, typechecking, secret scanning, and both builds; migration applied all 15 versions; and backup/restore matched 42 protected tables. A `linux/arm64` image build succeeded, ran as UID 1000, retained the non-root `node` user, matched the pinned bundle checksum, and reported three RDS certificates as Node extra trust anchors alongside 121 default anchors.
 
-Before the one permitted remediation rerun, require a clean committed build, passing checks, a new immutable ECR digest, and a change set containing only the same nine migration additions. Replace the stack template with the remediated committed template; do not reuse the old stack template or old digest.
+The one permitted remediation rerun completed successfully on 2026-08-31:
+
+- Commit `bf5c837` passed GitHub Actions workflow run 39. Its checksum-verified `linux/arm64` archive was loaded in CloudShell, confirmed as Linux ARM64 with runtime user `node`, and pushed to the stack repository as tag `bf5c837` and immutable digest `sha256:25609912a6fdcbeb85eadf516504083b73f1bede2036fbaeebf6af4c9478753d`.
+- Change set `migration-stage-2-retry-tls` replaced the live stack template with the committed remediated template and added exactly the same nine temporary migration resources, with no modification, replacement, or removal of a foundation resource. `DeployServices` and `OriginsConfigured` remained false.
+- Exactly one private Fargate task ran from task definition revision 2 with no public IP and the immutable remediated digest. It stopped with `EssentialContainerExited`, container exit code 0, and no placement failure. Its content-free CloudWatch log reported `PostgreSQL migrations current: 15 applied.`, proving the strict RDS TLS path and exact migration ledger succeeded.
+- Change set `migration-stage-2-disable-complete` then changed only `RunMigration` to false. Its reviewed resource diff contained exactly nine removals with delete policy: the four interface endpoints, endpoint security group, ECS cluster, execution role, migration log group, and task definition. It completed with stack status `UPDATE_COMPLETE`.
+- Post-cleanup CloudFormation evidence shows exactly 22 resources and six outputs, with no `Migration*` resource or output. All four hourly-priced interface endpoints are gone, no Lambda runtime or public invoke permission has been deployed, and Stages 4-7 remain pending.
 
 ## Primary references
 
