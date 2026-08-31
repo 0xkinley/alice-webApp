@@ -19,11 +19,23 @@
       "AllowedValues": ["false", "true"],
       "Description": "Temporarily creates the private Fargate migration task and paid interface endpoints. Disable immediately after one successful run."
     },
+    "RunInvitationOperator": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "Temporarily creates a private direct-invoke Lambda for issuing one alpha invitation. Disable immediately after use."
+    },
     "ImageUri": {
       "Type": "String",
       "Default": "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "AllowedPattern": "^[0-9]{12}\\.dkr\\.ecr\\.eu-central-1\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$",
       "Description": "Immutable ARM64 alice. image digest in the repository output by this stack."
+    },
+    "OperatorImageUri": {
+      "Type": "String",
+      "Default": "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "AllowedPattern": "^[0-9]{12}\\.dkr\\.ecr\\.eu-central-1\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$",
+      "Description": "Immutable ARM64 image digest used only by the temporary invitation operator."
     },
     "OriginsConfigured": {
       "Type": "String",
@@ -86,6 +98,34 @@
         }
       ]
     },
+    "InvitationOperatorRequiresHostedServices": {
+      "RuleCondition": {
+        "Fn::Equals": [{ "Ref": "RunInvitationOperator" }, "true"]
+      },
+      "Assertions": [
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "DeployServices" }, "true"] },
+          "AssertDescription": "The invitation operator is only available alongside the hosted services."
+        },
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "OriginsConfigured" }, "true"] },
+          "AssertDescription": "The invitation operator requires the exact hosted web origin."
+        },
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Equals": [
+                  { "Ref": "OperatorImageUri" },
+                  "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                ]
+              }
+            ]
+          },
+          "AssertDescription": "A real immutable ECR image digest is required for the invitation operator."
+        }
+      ]
+    },
     "ImageRequiredForWorkloads": {
       "RuleCondition": {
         "Fn::Or": [
@@ -112,6 +152,9 @@
   },
   "Conditions": {
     "MigrationEnabled": { "Fn::Equals": [{ "Ref": "RunMigration" }, "true"] },
+    "InvitationOperatorEnabled": {
+      "Fn::Equals": [{ "Ref": "RunInvitationOperator" }, "true"]
+    },
     "ServicesEnabled": { "Fn::Equals": [{ "Ref": "DeployServices" }, "true"] },
     "PublicOriginsReady": {
       "Fn::And": [
@@ -850,6 +893,83 @@
         ]
       }
     },
+    "InvitationOperatorExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "InvitationOperatorEnabled",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "${ResourcePrefix}-invitation-operator" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "lambda.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+          }
+        ]
+      }
+    },
+    "InvitationOperatorLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Condition": "InvitationOperatorEnabled",
+      "DeletionPolicy": "Delete",
+      "UpdateReplacePolicy": "Delete",
+      "Properties": {
+        "LogGroupName": { "Fn::Sub": "/aws/lambda/${ResourcePrefix}-invitation-operator" },
+        "RetentionInDays": 1
+      }
+    },
+    "InvitationOperatorFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Condition": "InvitationOperatorEnabled",
+      "DependsOn": ["DatabaseWriter", "InvitationOperatorLogGroup"],
+      "Properties": {
+        "Architectures": ["arm64"],
+        "Code": { "ImageUri": { "Ref": "OperatorImageUri" } },
+        "Description": "Temporary private direct-invoke operator for one alpha invitation",
+        "Environment": {
+          "Variables": {
+            "NODE_ENV": "production",
+            "HOST": "0.0.0.0",
+            "PORT": "8789",
+            "AWS_LWA_PORT": "8789",
+            "AWS_LWA_READINESS_CHECK_PROTOCOL": "tcp",
+            "AWS_LWA_ASYNC_INIT": "true",
+            "AWS_LWA_INVOKE_MODE": "buffered",
+            "ALICE_WEB_URL": { "Ref": "WebPublicUrl" },
+            "ALICE_DATABASE_URL": {
+              "Fn::Sub": [
+                "postgresql://alice_app:{{resolve:secretsmanager:${ApplicationSecret}:SecretString:password}}@${DatabaseHost}:5432/alice?sslmode=verify-full",
+                {
+                  "ApplicationSecret": { "Ref": "ApplicationDatabaseSecret" },
+                  "DatabaseHost": { "Fn::GetAtt": ["DatabaseCluster", "Endpoint.Address"] }
+                }
+              ]
+            }
+          }
+        },
+        "EphemeralStorage": { "Size": 512 },
+        "FunctionName": { "Fn::Sub": "${ResourcePrefix}-invitation-operator" },
+        "ImageConfig": { "Command": ["node", "scripts/alpha-invitation-operator.mjs"] },
+        "MemorySize": 256,
+        "PackageType": "Image",
+        "ReservedConcurrentExecutions": 1,
+        "Role": { "Fn::GetAtt": ["InvitationOperatorExecutionRole", "Arn"] },
+        "Timeout": 30,
+        "VpcConfig": {
+          "Ipv6AllowedForDualStack": false,
+          "SecurityGroupIds": [{ "Fn::GetAtt": ["LambdaSecurityGroup", "GroupId"] }],
+          "SubnetIds": [{ "Ref": "PrivateSubnetA" }, { "Ref": "PrivateSubnetB" }]
+        },
+        "Tags": [{ "Key": "alice:managed-by", "Value": "cloudformation" }]
+      }
+    },
     "WebLogGroup": {
       "Type": "AWS::Logs::LogGroup",
       "Condition": "ServicesEnabled",
@@ -1047,6 +1167,11 @@
       "Value": { "Fn::GetAtt": ["DatabaseCluster", "MasterUserSecret.SecretArn"] }
     },
     "GuardDutyPlanArn": { "Value": { "Fn::GetAtt": ["MalwareProtectionPlan", "Arn"] } },
+    "InvitationOperatorFunctionName": {
+      "Condition": "InvitationOperatorEnabled",
+      "Value": { "Ref": "InvitationOperatorFunction" },
+      "Description": "Temporary direct-invoke operator; remove immediately after issuing the invitation."
+    },
     "MigrationClusterName": {
       "Condition": "MigrationEnabled",
       "Value": { "Ref": "MigrationCluster" }

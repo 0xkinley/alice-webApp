@@ -1,6 +1,6 @@
 # Private Alpha AWS Deployment Runbook
 
-Status: product-owner approved; Stages 1-5 complete, hosted health and authorization boundaries verified, authenticated protocol/file proof still open
+Status: product-owner approved; Stages 1-5 complete, hosted health and authorization boundaries verified, private invitation-operator preflight complete, authenticated protocol/file proof still open
 
 Date: 2026-08-31
 
@@ -28,7 +28,7 @@ The bucket name is the only intentionally unresolved resource name because S3 na
 
 ## Exact resource change set
 
-The template has 41 possible CloudFormation resources. Conditions make them appear only in controlled stages:
+The template has 44 possible CloudFormation resources. Conditions make them appear only in controlled stages:
 
 | Stage | Resource count | Resources |
 | --- | ---: | --- |
@@ -36,6 +36,7 @@ The template has 41 possible CloudFormation resources. Conditions make them appe
 | Temporary migration | 9 | Four interface endpoints (`ecr.api`, `ecr.dkr`, CloudWatch Logs, Secrets Manager), their endpoint security group, ECS cluster, three-day migration log group, ECS execution role, and ARM64 Fargate task definition |
 | Runtime | 6 | Two 14-day log groups, two image Lambdas, and two Function URL resources |
 | Final public-origin update | 4 | The two permissions required for each Function URL: `lambda:InvokeFunctionUrl` and `lambda:InvokeFunction` restricted to invocation through the URL |
+| Temporary invitation operator | 3 | One direct-invoke image Lambda, its dedicated least-privilege execution role, and a one-day log group; no Function URL or `AWS::Lambda::Permission` resource |
 
 The foundation creates billable resources immediately, even while runtime services are disabled. CloudFormation itself, VPCs, subnets, route tables, security groups, and the S3 gateway endpoint have no hourly charge. The database, secrets, stored image/objects/logs, malware scanning, requests, and data transfer are usage-priced.
 
@@ -72,6 +73,7 @@ Expected gross cost is USD 1-5 for the bounded deployment proof and USD 5-15/mon
 - Staging current versions expire after two days, noncurrent staging versions after one day, and incomplete multipart uploads after one day. Permanent object erasure remains a separate privileged, unimplemented workflow.
 - Function URLs are deliberately public network endpoints, but alice. web sessions and MCP OAuth remain the application authorization boundary. The URLs receive no invoke permission until the final exact-origin update.
 - Application logs are content-free and expire after 14 days; migration logs expire after three days. The template contains no secret value.
+- The alpha invitation operator is disabled by default and uses a separately pinned immutable image. When enabled, it has one reserved execution, the constrained application database credential, no S3 permission, no Function URL, no resource-based invoke permission, and a one-day content-free log group. Invoke it once through the signed-in administrator's identity policy and remove all three resources immediately afterward. Its one-time invitation token is returned only in the direct invocation response and is never logged.
 - The proof uses ordinary unreserved Lambda concurrency. The account-wide Frankfurt quota of 10 remains the aggregate cap; do not request a quota increase or enable paid provisioned concurrency during the proof. Restore an explicit two-execution reservation per function only after the regional quota is at least 14 and the product owner approves the change.
 
 ## Credential-free staged procedure
@@ -83,8 +85,9 @@ Do not combine these stages. Review the CloudFormation change set before every c
 3. **Migration:** update with the digest and `RunMigration=true`, keeping `DeployServices=false`. Confirm exactly nine temporary resources, run one Fargate task in the two private subnets with the workload security group, require exit code 0 and migration 015, then immediately update `RunMigration=false` and verify all four paid interface endpoints are gone.
 4. **Private runtime:** update with `DeployServices=true` and `OriginsConfigured=false`. The two Function URLs are created but lack public invoke permissions. Record both generated URL outputs.
 5. **Exact origins:** update both URL parameters with those exact outputs and set `OriginsConfigured=true`. Confirm only four invoke permissions and the exact web-origin S3 CORS rule are added.
-6. **Bounded proof:** run the infrastructure smoke test and the full OAuth/MCP/direct-file negative test. Perform one remediation rerun only if needed. Keep automated 15-minute probes disabled.
-7. **Decision:** retain the stack for the approved friend-alpha window only after reviewing Cost Explorer and budget status. Otherwise disable origins/services and start the separately reviewed teardown path.
+6. **Private invitation operator:** build and push the committed image, pin its digest only in `OperatorImageUri`, and create a reviewed `invitation-operator` change set. Confirm it adds exactly the dedicated role, one-day log group, and direct-invoke Lambda without changing the web or MCP image and without adding a Function URL or permission. Invoke it once for the approved alpha account, keep the response out of logs, then immediately run a reviewed hosted-proof update with `RunInvitationOperator=false` and verify all three temporary resources are gone.
+7. **Bounded proof:** complete the authenticated OAuth/MCP round trip and direct-file/GuardDuty/exact-version test. Perform one remediation rerun only if needed. Keep automated 15-minute probes disabled.
+8. **Decision:** retain the stack for the approved friend-alpha window only after reviewing Cost Explorer and budget status. Otherwise disable origins/services and start the separately reviewed teardown path.
 
 CloudShell is pre-authenticated and AWS documents native Docker/ECR support. AWS CLI `aws login` is also acceptable because it derives renewable temporary credentials from the MFA-protected console session; it requires the AWS-managed `SignInLocalDevelopmentAccess` policy and CLI 2.32 or later. Neither path creates a long-term access key.
 
@@ -178,11 +181,18 @@ Another hosted proof must first name a client that can actually issue the one al
 - The live bucket CORS rule allows only `PUT` from the exact web origin, only the four required content/checksum/metadata/encryption headers, and exposes only `ETag` and `x-amz-version-id`. The bucket public-access block, scan-gated reads, versioning, and no-delete runtime-role boundaries remain unchanged.
 - The `alice-aws-testing` budget still reported USD 0 actual, USD 0 forecast, and a USD 5 limit after verification. Automated keepalive probes remain disabled.
 
-This completes hosted health, OAuth discovery, and unauthenticated negative-boundary verification. It does not yet complete an authenticated OAuth/MCP protocol round trip, direct private-file upload/GuardDuty/exact-version proof, clean-checkout hosted verification, backup/restore evidence against the hosted database, or the Stage 7 retain/disable cost decision.
+This completes hosted health, OAuth discovery, and unauthenticated negative-boundary verification. It does not yet complete an authenticated OAuth/MCP protocol round trip, direct private-file upload/GuardDuty/exact-version proof, clean-checkout hosted verification, backup/restore evidence against the hosted database, or the Stage 8 retain/disable cost decision.
+
+### Private invitation-operator preflight (2026-08-31)
+
+- The private Aurora writer is intentionally unreachable from the laptop and CloudShell, and the deployed runtime image did not contain an invitation issuance entrypoint. Therefore authenticated proof could not safely create the first hosted alpha user. Opening the database, logging an invitation token, or adding a public administration route was rejected.
+- The replacement is a temporary direct-invoke operator in the same isolated subnets. It uses the constrained `alice_app` connection only, accepts exactly one JSON `email` field, returns one no-store registration URL, emits no token or request-body log, and has no S3 access, Function URL, or public permission. CloudFormation keeps it disabled by default, pins its image independently from the stable web/MCP digest, limits it to one concurrent execution, retains logs for one day, and makes its three resources removable immediately after use.
+- The change-set helper now has an `invitation-operator` review mode that requires a real immutable Frankfurt ECR digest. Every ordinary runtime, hosted-proof, and safe-stop plan explicitly disables the operator, preventing accidental retention.
+- Local verification passed formatting, linting, typechecking, secret scanning, both deterministic evaluations, all 117 fast tests, all 17 constrained-role PostgreSQL tests against a disposable PostgreSQL 17 database, and both production builds. Structural tests prove the operator cannot acquire a Function URL, resource-based public permission, or S3 policy. The temporary AWS resources and alpha account have not yet been created; both remain explicit approval actions after exact change-set review.
 
 ## CLI change-set helper
 
-`npm run aws:change-set -- <private-runtime|hosted-proof|safe-stop>` prints the exact, review-only AWS CLI command for the approved stack and region. Add `--create` only after reviewing that printed command; it creates and waits for the change set but never executes it. The hosted-proof mode additionally requires both exact generated Function URL origins. Review the resulting resource diff before separately executing it, and use safe-stop after every bounded proof unless the product owner explicitly authorizes retention.
+`npm run aws:change-set -- <private-runtime|hosted-proof|invitation-operator|safe-stop>` prints the exact, review-only AWS CLI command for the approved stack and region. Add `--create` only after reviewing that printed command; it creates and waits for the change set but never executes it. The hosted-proof mode additionally requires both exact generated Function URL origins. The invitation-operator mode requires `--operator-image` with the separately built immutable Frankfurt ECR digest and must resolve to exactly three temporary private resources. Review the resulting resource diff before separately executing it, and remove the operator immediately after one use; use safe-stop after every bounded proof unless the product owner explicitly authorizes retention.
 
 ## Primary references
 

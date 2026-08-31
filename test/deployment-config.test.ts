@@ -40,7 +40,7 @@ test("production image pins the Lambda adapter and retains non-root portable sta
   assert.match(dockerfile, /CMD \["npm", "run", "start:mcp"\]/);
   assert.match(
     dockerfile,
-    /COPY scripts\/migrate-postgres\.mjs scripts\/migrate-postgres-container\.mjs \.\/scripts\//,
+    /COPY scripts\/migrate-postgres\.mjs scripts\/migrate-postgres-container\.mjs scripts\/alpha-invitation-operator\.mjs \.\/scripts\//,
   );
   assert.match(dockerfile, /COPY --from=build --chown=node:node \/app\/scripts \.\/scripts/);
   assert.doesNotMatch(dockerfile, /AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/);
@@ -137,7 +137,7 @@ test("AWS-native services are private, bounded, buffered, and staged before publ
   const template = JSON.parse(await readFile(templatePath, "utf8"));
   const resources = template.Resources;
   const serializedTemplate = JSON.stringify(template);
-  assert.equal(serializedTemplate.match(/sslmode=verify-full/g)?.length, 2);
+  assert.equal(serializedTemplate.match(/sslmode=verify-full/g)?.length, 3);
   assert.doesNotMatch(serializedTemplate, /sslmode=require/);
   assert.equal(template.Rules.FrankfurtOnly.Assertions[0].Assert["Fn::Equals"][1], "eu-central-1");
   assert.equal(
@@ -218,4 +218,36 @@ test("private migration access is temporary, secret-backed, and cannot coexist w
     false,
   );
   assert.doesNotMatch(JSON.stringify(template), /AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/);
+});
+
+test("the invitation operator is temporary, private, and narrowly permissioned", async () => {
+  const template = JSON.parse(await readFile(templatePath, "utf8"));
+  const resources = template.Resources;
+  assert.equal(template.Parameters.RunInvitationOperator.Default, "false");
+  assert.equal(resources.InvitationOperatorExecutionRole.Condition, "InvitationOperatorEnabled");
+  assert.deepEqual(resources.InvitationOperatorExecutionRole.Properties.Policies, undefined);
+  assert.equal(resources.InvitationOperatorLogGroup.Properties.RetentionInDays, 1);
+
+  const operator = resources.InvitationOperatorFunction;
+  assert.equal(operator.Condition, "InvitationOperatorEnabled");
+  assert.equal(operator.Properties.Code.ImageUri.Ref, "OperatorImageUri");
+  assert.deepEqual(operator.Properties.ImageConfig.Command, [
+    "node",
+    "scripts/alpha-invitation-operator.mjs",
+  ]);
+  assert.equal(operator.Properties.ReservedConcurrentExecutions, 1);
+  assert.equal(operator.Properties.Timeout, 30);
+  assert.equal(operator.Properties.Environment.Variables.ALICE_WEB_URL.Ref, "WebPublicUrl");
+  assert.equal("ALICE_S3_BUCKET" in operator.Properties.Environment.Variables, false);
+
+  const targetsOperator = Object.values(resources).filter(({ Properties }: any) => {
+    const serialized = JSON.stringify(Properties || {});
+    return serialized.includes("InvitationOperatorFunction");
+  }) as any[];
+  assert.equal(
+    targetsOperator.some(({ Type }) =>
+      ["AWS::Lambda::Permission", "AWS::Lambda::Url"].includes(Type),
+    ),
+    false,
+  );
 });

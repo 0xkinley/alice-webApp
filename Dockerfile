@@ -11,7 +11,7 @@ ADD --checksum=sha256:56a0cae044b6cc433971d964347401692a92ea0294e392753a3ebdaee5
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
 COPY apps ./apps
 COPY packages ./packages
-COPY scripts/migrate-postgres.mjs scripts/migrate-postgres-container.mjs ./scripts/
+COPY scripts/migrate-postgres.mjs scripts/migrate-postgres-container.mjs scripts/alpha-invitation-operator.mjs ./scripts/
 
 RUN npm ci --ignore-scripts && npm run build && npm prune --omit=dev --ignore-scripts
 

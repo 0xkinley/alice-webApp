@@ -5,7 +5,9 @@ export const PRIVATE_ALPHA_REGION = "eu-central-1";
 export const PRIVATE_ALPHA_STACK = "alice-private-alpha";
 export const PRIVATE_ALPHA_TEMPLATE = "infra/aws/private-files.template.json";
 
-const MODES = new Set(["private-runtime", "hosted-proof", "safe-stop"]);
+const MODES = new Set(["private-runtime", "hosted-proof", "invitation-operator", "safe-stop"]);
+const PLACEHOLDER_IMAGE =
+  "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
 function requireOrigin(name, value) {
   let url;
@@ -28,7 +30,25 @@ function requireOrigin(name, value) {
   return url.origin;
 }
 
-export function createPrivateAlphaChangeSetPlan({ mode, name, webOrigin, mcpOrigin }) {
+function requireImage(name, value) {
+  if (
+    !/^[0-9]{12}\.dkr\.ecr\.eu-central-1\.amazonaws\.com\/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$/.test(
+      value || "",
+    ) ||
+    value === PLACEHOLDER_IMAGE
+  ) {
+    throw new Error(`${name} must be an immutable Frankfurt ECR image digest.`);
+  }
+  return value;
+}
+
+export function createPrivateAlphaChangeSetPlan({
+  mode,
+  name,
+  webOrigin,
+  mcpOrigin,
+  operatorImage,
+}) {
   if (!MODES.has(mode)) {
     throw new Error(`mode must be one of: ${[...MODES].join(", ")}.`);
   }
@@ -39,8 +59,10 @@ export function createPrivateAlphaChangeSetPlan({ mode, name, webOrigin, mcpOrig
   const parameters = [
     "ParameterKey=BucketName,UsePreviousValue=true",
     "ParameterKey=ImageUri,UsePreviousValue=true",
+    "ParameterKey=OperatorImageUri,UsePreviousValue=true",
     "ParameterKey=ResourcePrefix,UsePreviousValue=true",
     "ParameterKey=RunMigration,ParameterValue=false",
+    "ParameterKey=RunInvitationOperator,ParameterValue=false",
   ];
   let description;
 
@@ -64,6 +86,18 @@ export function createPrivateAlphaChangeSetPlan({ mode, name, webOrigin, mcpOrig
     );
     description =
       "Review-only temporary hosted proof: exact-origin CORS and public Function URL permissions; do not execute without explicit approval.";
+  } else if (mode === "invitation-operator") {
+    const exactOperatorImage = requireImage("operatorImage", operatorImage);
+    parameters[2] = `ParameterKey=OperatorImageUri,ParameterValue=${exactOperatorImage}`;
+    parameters[5] = "ParameterKey=RunInvitationOperator,ParameterValue=true";
+    parameters.push(
+      "ParameterKey=DeployServices,ParameterValue=true",
+      "ParameterKey=OriginsConfigured,ParameterValue=true",
+      "ParameterKey=WebPublicUrl,UsePreviousValue=true",
+      "ParameterKey=McpPublicUrl,UsePreviousValue=true",
+    );
+    description =
+      "Review-only private direct-invoke invitation operator: three temporary resources, no Function URL or public permission; remove immediately after one use.";
   } else {
     parameters.push(
       "ParameterKey=DeployServices,ParameterValue=false",
@@ -120,13 +154,14 @@ function parseArguments(argumentsList) {
     mcpOrigin: valueAfter("--mcp-origin"),
     mode,
     name: valueAfter("--name") || `runtime-${mode}-${Date.now()}`,
+    operatorImage: valueAfter("--operator-image"),
     webOrigin: valueAfter("--web-origin"),
   };
 }
 
 function usage() {
   console.error(
-    "Usage: node scripts/private-alpha-change-set.mjs <private-runtime|hosted-proof|safe-stop> [--name NAME] [--web-origin URL --mcp-origin URL] [--create]",
+    "Usage: node scripts/private-alpha-change-set.mjs <private-runtime|hosted-proof|invitation-operator|safe-stop> [--name NAME] [--web-origin URL --mcp-origin URL] [--operator-image DIGEST_URI] [--create]",
   );
 }
 
