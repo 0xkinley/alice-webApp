@@ -1,6 +1,6 @@
 # Private Alpha AWS Deployment Runbook
 
-Status: product-owner approved; Stages 1-5 complete, infrastructure smoke blocked on Lambda-readable RDS CA remediation
+Status: product-owner approved; Stages 1-5 complete, corrected runtime safely disabled after one inconclusive infrastructure smoke probe
 
 Date: 2026-08-31
 
@@ -139,6 +139,14 @@ The quota-adjusted runtime and exact-origin stages then completed, but the first
 - The bounded public probe first timed out during cold initialization and then both `/health` requests returned HTTP 502. Probing stopped immediately. Content-free Lambda logs showed both processes failed before listening because Node could not read `/app/certs/eu-central-1-bundle.pem`: `load failed: error:8000000D:system library::Permission denied`, followed by the expected fail-closed `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` PostgreSQL error.
 - The checksum-pinned CA bundle is public trust material, not a credential. The migration task ran as the image's declared `node` user and could read the owner-only copied path, but Lambda replaces the image user with its own least-privileged runtime identity. The remediation preserves the checksum, path, ownership, and strict `verify-full` behavior while making only the public certificate directory traversable with mode `0755` and its PEM readable with mode `0644`. No secret, application file, other directory, or database permission is widened.
 - This is the one bounded infrastructure remediation rerun. Do not disable TLS verification, enable provisioned concurrency, raise a quota, or run repeated probes. If the corrected immutable image is not ready for immediate verification, set `OriginsConfigured=false` and `DeployServices=false` as the safe stopping state.
+
+The Lambda-readable certificate remediation was then deployed, but its single bounded hosted probe was inconclusive and the runtime was returned to the safe stopping state:
+
+- The remediated commit `eb3c83f` was rebuilt for Linux ARM64, verified, and pushed to the stack repository as immutable digest `sha256:d18fbf412e8bc16a1526707ff25a7f7a94f886d71bd87355c015fde1810505de`. A reviewed CloudFormation update changed the image on exactly the existing web and MCP functions, with no function replacement and no other resource change.
+- Exactly one hosted smoke request was allowed. It produced no response before the client stopped at its ten-second timeout. This is not a successful health result, and no retry or polling loop was started.
+- Change set `runtime-stage-7-safe-stop` set `DeployServices=false`, `OriginsConfigured=false`, and `RunMigration=false`. Its reviewed resource diff removed exactly the two functions, two 14-day log groups, two Function URLs, and four Function URL invoke permissions, and modified only `PrivateFilesBucket` without replacement to remove the web-origin CORS rule.
+- CloudFormation screenshots captured after cleanup show stack `alice-private-alpha` in `eu-central-1` at `UPDATE_COMPLETE` with exactly 22 resources and six outputs. The database, private S3 data boundary, ECR repository, Secrets Manager values, roles, and private network foundation remain. The runtime functions, generated public URLs, and public invoke permissions are absent.
+- Stage 6 has not passed. The ten-second timeout establishes neither application health nor a new root cause. Any further live attempt requires a separately reviewed, single bounded diagnostic/deployment step; services and origins must remain disabled until that exact step is explained and approved.
 
 ## Primary references
 
