@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { URL, pathToFileURL } from "node:url";
 
 export const PRIVATE_ALPHA_REGION = "eu-central-1";
 export const PRIVATE_ALPHA_STACK = "alice-private-alpha";
