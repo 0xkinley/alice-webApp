@@ -1,6 +1,6 @@
 # Private Alpha AWS Deployment Runbook
 
-Status: product-owner approved; Stages 1-5 complete, corrected runtime safely disabled after one inconclusive infrastructure smoke probe
+Status: product-owner approved; Stages 1-5 complete, hosted health and authorization boundaries verified, authenticated protocol/file proof still open
 
 Date: 2026-08-31
 
@@ -165,6 +165,20 @@ This establishes only the bounded direct runtime and database-health proof. It d
 - Immediate change set `runtime-stage-8-hosted-proof-stop` removed exactly the two Functions, two Function URLs, two log groups, and four Function URL permissions; it modified only `PrivateFilesBucket` without replacement to remove the temporary CORS rule. CloudFormation operation `16901987-11cc-47c0-8b40-179e3d118d6d` completed `UPDATE_COMPLETE`. Final read-only evidence shows 22 resources and six outputs; database, private S3 data boundary, ECR, secrets, roles, GuardDuty, and the private network foundation remain, while all runtime and public resources are absent.
 
 Another hosted proof must first name a client that can actually issue the one allowed request, review the exact bounded change set, and remain within the product-owner-approved live-proof limit.
+
+### Hosted health and authorization-boundary proof (2026-08-31)
+
+- After the product owner separately approved continuing Bundle 1, change set `bundle1-runtime-private-20260831` restored exactly the two Lambdas, two 14-day log groups, and two Function URL resources with `DeployServices=true`, `OriginsConfigured=false`, and `RunMigration=false`.
+- The generated origins are `https://5u3x6bi4jvhkvphtl4sha6yn7i0bberj.lambda-url.eu-central-1.on.aws` for web and `https://aprie3x5vmnrv2hnexwow3m3ny0nlbax.lambda-url.eu-central-1.on.aws` for MCP. Before public permissions were added, both returned Lambda's expected HTTP 403 response.
+- Change set `bundle1-hosted-origins-20260831` was reviewed with resolved property values before execution. Its actual diff contained exactly seven changes: non-replacement environment updates to the two Lambdas, a non-replacement exact-origin CORS update to `PrivateFilesBucket`, and the four Function URL permissions required by current Lambda authorization. CloudFormation reached `UPDATE_COMPLETE` with `DeployServices=true`, `OriginsConfigured=true`, and `RunMigration=false`.
+- A bounded CloudShell verification reached both public endpoints. Web `GET /health` returned HTTP 200 with `{"database":"reachable","service":"alice-web","status":"ok"}`; MCP `GET /health` returned HTTP 200 with `{"database":"reachable","service":"alice-mcp","status":"ok"}`. This proves the public HTTPS, Lambda Web Adapter, strict RDS TLS, constrained runtime database role, and hosted database path are operational.
+- The application authorization boundaries remained closed after AWS network access was enabled. An unauthenticated web `GET /` returned HTTP 303 to `/auth/login?next=%2F`. An unauthenticated MCP `POST /mcp` returned HTTP 401 with a Bearer challenge for `mcp:read mcp:write` and the exact protected-resource metadata URL.
+- OAuth discovery advertises the exact hosted issuer, authorization, token, dynamic-registration, and revocation endpoints, S256 PKCE, and the `mcp:read`, `mcp:write`, and `offline_access` scopes. Protected-resource discovery advertises only the exact hosted `/mcp` resource and its matching authorization server.
+- Read-only policy checks show that both functions have the required `lambda:InvokeFunctionUrl` statement conditioned on `lambda:FunctionUrlAuthType=NONE` and the required `lambda:InvokeFunction` statement conditioned on `lambda:InvokedViaFunctionUrl=true`. Both use `Principal: "*"` so ordinary browsers and remote MCP hosts can reach alice.; the web session and MCP OAuth token remain the application authorization boundary.
+- The live bucket CORS rule allows only `PUT` from the exact web origin, only the four required content/checksum/metadata/encryption headers, and exposes only `ETag` and `x-amz-version-id`. The bucket public-access block, scan-gated reads, versioning, and no-delete runtime-role boundaries remain unchanged.
+- The `alice-aws-testing` budget still reported USD 0 actual, USD 0 forecast, and a USD 5 limit after verification. Automated keepalive probes remain disabled.
+
+This completes hosted health, OAuth discovery, and unauthenticated negative-boundary verification. It does not yet complete an authenticated OAuth/MCP protocol round trip, direct private-file upload/GuardDuty/exact-version proof, clean-checkout hosted verification, backup/restore evidence against the hosted database, or the Stage 7 retain/disable cost decision.
 
 ## CLI change-set helper
 
