@@ -157,6 +157,15 @@ The separately reviewed private direct-health diagnostic then proved the correct
 
 This establishes only the bounded direct runtime and database-health proof. It does not complete Stage 6's hosted, OAuth, MCP protocol, or private-file proof, and any future runtime or public-origin step remains a separately reviewed and explicitly approved operation.
 
+### Hosted-proof browser-blocked stop (2026-08-31)
+
+- `runtime-stage-4-hosted-proof-base` restored only the two Lambdas, their 14-day log groups, and their generated Function URL resources with `DeployServices=true`, `OriginsConfigured=false`, and `RunMigration=false`. It added no public permission or CORS rule.
+- `runtime-stage-5-hosted-proof-origins` was reviewed and then executed with exactly seven changes: two non-replacement Lambda configuration updates, a non-replacement private-files-bucket CORS update, and four Function URL permissions. It temporarily made the generated Function URLs publicly invocable for the single approved proof.
+- Exactly one hosted `GET /health` attempt was made against the web Function URL. The Codex in-app browser returned `ERR_BLOCKED_BY_CLIENT` before the request reached Lambda. There was no HTTP response, no application or database result, no retry, and no MCP request. This is inconclusive browser-client evidence, not an application health result.
+- Immediate change set `runtime-stage-8-hosted-proof-stop` removed exactly the two Functions, two Function URLs, two log groups, and four Function URL permissions; it modified only `PrivateFilesBucket` without replacement to remove the temporary CORS rule. CloudFormation operation `16901987-11cc-47c0-8b40-179e3d118d6d` completed `UPDATE_COMPLETE`. Final read-only evidence shows 22 resources and six outputs; database, private S3 data boundary, ECR, secrets, roles, GuardDuty, and the private network foundation remain, while all runtime and public resources are absent.
+
+Another hosted proof must first name a client that can actually issue the one allowed request, review the exact bounded change set, and remain within the product-owner-approved live-proof limit.
+
 ## CLI change-set helper
 
 `npm run aws:change-set -- <private-runtime|hosted-proof|safe-stop>` prints the exact, review-only AWS CLI command for the approved stack and region. Add `--create` only after reviewing that printed command; it creates and waits for the change set but never executes it. The hosted-proof mode additionally requires both exact generated Function URL origins. Review the resulting resource diff before separately executing it, and use safe-stop after every bounded proof unless the product owner explicitly authorizes retention.
