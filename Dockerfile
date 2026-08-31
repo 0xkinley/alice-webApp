@@ -1,6 +1,12 @@
+# syntax=docker/dockerfile:1
+
 FROM node:24-bookworm-slim AS build
 
 WORKDIR /app
+
+ADD --checksum=sha256:56a0cae044b6cc433971d964347401692a92ea0294e392753a3ebdaee54d8b84 \
+  https://truststore.pki.rds.amazonaws.com/eu-central-1/eu-central-1-bundle.pem \
+  ./certs/eu-central-1-bundle.pem
 
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
 COPY apps ./apps
@@ -17,10 +23,12 @@ COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.0.1@sha256:1e5ab4d924216
 
 ENV HOST=0.0.0.0
 ENV NODE_ENV=production
+ENV NODE_EXTRA_CA_CERTS=/app/certs/eu-central-1-bundle.pem
 
 WORKDIR /app
 
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
+COPY --from=build --chown=node:node /app/certs ./certs
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/apps ./apps
 COPY --from=build --chown=node:node /app/packages ./packages

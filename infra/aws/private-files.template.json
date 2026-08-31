@@ -895,7 +895,7 @@
             },
             "ALICE_DATABASE_URL": {
               "Fn::Sub": [
-                "postgresql://alice_app:{{resolve:secretsmanager:${ApplicationSecret}:SecretString:password}}@${DatabaseHost}:5432/alice?sslmode=require",
+                "postgresql://alice_app:{{resolve:secretsmanager:${ApplicationSecret}:SecretString:password}}@${DatabaseHost}:5432/alice?sslmode=verify-full",
                 {
                   "ApplicationSecret": { "Ref": "ApplicationDatabaseSecret" },
                   "DatabaseHost": { "Fn::GetAtt": ["DatabaseCluster", "Endpoint.Address"] }
@@ -948,7 +948,7 @@
             },
             "ALICE_DATABASE_URL": {
               "Fn::Sub": [
-                "postgresql://alice_app:{{resolve:secretsmanager:${ApplicationSecret}:SecretString:password}}@${DatabaseHost}:5432/alice?sslmode=require",
+                "postgresql://alice_app:{{resolve:secretsmanager:${ApplicationSecret}:SecretString:password}}@${DatabaseHost}:5432/alice?sslmode=verify-full",
                 {
                   "ApplicationSecret": { "Ref": "ApplicationDatabaseSecret" },
                   "DatabaseHost": { "Fn::GetAtt": ["DatabaseCluster", "Endpoint.Address"] }

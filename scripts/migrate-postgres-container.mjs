@@ -13,7 +13,7 @@ connection.hostname = host;
 connection.port = process.env.ALICE_DATABASE_PORT || "5432";
 connection.pathname = `/${process.env.ALICE_DATABASE_NAME || "alice"}`;
 connection.password = migrationPassword;
-connection.searchParams.set("sslmode", process.env.ALICE_DATABASE_SSLMODE || "require");
+connection.searchParams.set("sslmode", process.env.ALICE_DATABASE_SSLMODE || "verify-full");
 process.env.ALICE_MIGRATION_DATABASE_URL = connection.href;
 
 await import("./migrate-postgres.mjs");

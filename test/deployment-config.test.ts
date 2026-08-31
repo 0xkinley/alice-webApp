@@ -5,9 +5,26 @@ import { parseHostedOrigin } from "../scripts/probe-hosted-services.mjs";
 
 const templatePath = new URL("../infra/aws/private-files.template.json", import.meta.url);
 const dockerfilePath = new URL("../Dockerfile", import.meta.url);
+const migrationContainerScriptPath = new URL(
+  "../scripts/migrate-postgres-container.mjs",
+  import.meta.url,
+);
 
 test("production image pins the Lambda adapter and retains non-root portable startup", async () => {
   const dockerfile = await readFile(dockerfilePath, "utf8");
+  const migrationContainerScript = await readFile(migrationContainerScriptPath, "utf8");
+  assert.match(dockerfile, /^# syntax=docker\/dockerfile:1$/m);
+  assert.match(
+    dockerfile,
+    /ADD --checksum=sha256:56a0cae044b6cc433971d964347401692a92ea0294e392753a3ebdaee54d8b84/,
+  );
+  assert.match(
+    dockerfile,
+    /https:\/\/truststore\.pki\.rds\.amazonaws\.com\/eu-central-1\/eu-central-1-bundle\.pem/,
+  );
+  assert.match(dockerfile, /\.\/certs\/eu-central-1-bundle\.pem/);
+  assert.match(dockerfile, /ENV NODE_EXTRA_CA_CERTS=\/app\/certs\/eu-central-1-bundle\.pem/);
+  assert.match(dockerfile, /COPY --from=build --chown=node:node \/app\/certs \.\/certs/);
   assert.match(
     dockerfile,
     /aws-lambda-adapter:1\.0\.1@sha256:[0-9a-f]{64} \/lambda-adapter \/opt\/extensions\/lambda-adapter/,
@@ -20,6 +37,9 @@ test("production image pins the Lambda adapter and retains non-root portable sta
   );
   assert.match(dockerfile, /COPY --from=build --chown=node:node \/app\/scripts \.\/scripts/);
   assert.doesNotMatch(dockerfile, /AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/);
+  assert.doesNotMatch(dockerfile, /rejectUnauthorized\s*:\s*false/);
+  assert.match(migrationContainerScript, /ALICE_DATABASE_SSLMODE \|\| "verify-full"/);
+  assert.doesNotMatch(migrationContainerScript, /rejectUnauthorized\s*:\s*false/);
 });
 
 test("hosted probes accept only credential-free HTTPS origins", () => {
@@ -109,6 +129,9 @@ test("Lambda storage roles are credential-free and MCP remains exact-version rea
 test("AWS-native services are private, bounded, buffered, and staged before public access", async () => {
   const template = JSON.parse(await readFile(templatePath, "utf8"));
   const resources = template.Resources;
+  const serializedTemplate = JSON.stringify(template);
+  assert.equal(serializedTemplate.match(/sslmode=verify-full/g)?.length, 2);
+  assert.doesNotMatch(serializedTemplate, /sslmode=require/);
   assert.equal(template.Rules.FrankfurtOnly.Assertions[0].Assert["Fn::Equals"][1], "eu-central-1");
   assert.equal(
     Object.values(resources).some(({ Type }: any) =>

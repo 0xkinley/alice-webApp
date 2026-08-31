@@ -103,10 +103,28 @@ CloudShell is pre-authenticated and AWS documents native Docker/ECR support. AWS
 - The migration entrypoint applied all 15 migrations to disposable PostgreSQL 17, created the constrained application role without raw credential interpolation, and passed the 17-test PostgreSQL suite.
 - The complete repository gate passes 111 fast tests, 17 constrained-role PostgreSQL tests, both evaluations, formatting, linting, typechecking, secret scanning, and both builds. The final ARM64 image rebuild succeeds, runs as the non-root `node` user, contains both migration scripts, and executes migration 015 against disposable PostgreSQL 17. GitHub Actions CI run `33340204691` passed approval commit `e8bb958` in 1 minute 20 seconds.
 
+## Live proof evidence and TLS remediation
+
+The first live proof on 2026-08-31 stopped at the migration boundary exactly as required:
+
+- The foundation stack reached `CREATE_COMPLETE` with 22 resources and six outputs. The ARM64 image tagged from commit `e8bb958` was pushed by digest, and ECR reported scan-on-push, immutable tags, and AES-256 repository encryption.
+- The reviewed migration change set added exactly the nine temporary resources listed above. One private Fargate task started with no public IP, the exact image digest, and Secrets Manager-backed credentials.
+- The task reached PostgreSQL TLS negotiation but exited 1 before applying a migration. Its content-free CloudWatch error was `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` (`unable to get local issuer certificate`). No Lambda service was deployed and the task was not rerun.
+- The failure cleanup change set removed exactly those nine resources. The stack returned to `UPDATE_COMPLETE`, 22 resources, and six outputs; all four hourly-priced interface endpoints were deleted.
+
+The root cause is a missing Amazon RDS trust chain in the slim Node image. Current `pg-connection-string` behavior treats `sslmode=require` as certificate-verifying TLS unless libpq compatibility is explicitly requested, so the connection correctly failed closed instead of accepting an untrusted chain. The remediation keeps verification strict: the image downloads the official Frankfurt RDS PEM bundle during the build with SHA-256 `56a0cae044b6cc433971d964347401692a92ea0294e392753a3ebdaee54d8b84`, copies it into the non-root runtime, exposes it through `NODE_EXTRA_CA_CERTS`, and uses explicit `sslmode=verify-full` for migration and runtime URLs. `rejectUnauthorized: false` is prohibited.
+
+Local remediation verification passed before the rerun: `cfn-lint` 1.55.1 reported no findings; the complete gate passed 111 fast tests, 17 constrained-role PostgreSQL tests, both evaluations, formatting, linting, typechecking, secret scanning, and both builds; migration applied all 15 versions; and backup/restore matched 42 protected tables. A `linux/arm64` image build succeeded, ran as UID 1000, retained the non-root `node` user, matched the pinned bundle checksum, and reported three RDS certificates as Node extra trust anchors alongside 121 default anchors.
+
+Before the one permitted remediation rerun, require a clean committed build, passing checks, a new immutable ECR digest, and a change set containing only the same nine migration additions. Replace the stack template with the remediated committed template; do not reuse the old stack template or old digest.
+
 ## Primary references
 
 - [AWS CloudShell Docker and ECR tutorial](https://docs.aws.amazon.com/cloudshell/latest/userguide/tutorial-docker-cli.html)
 - [AWS CLI login with console credentials](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-in.html)
+- [Amazon RDS TLS certificate bundles](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html)
+- [node-postgres SSL configuration](https://node-postgres.com/features/ssl)
+- [Dockerfile checksum-verified remote `ADD`](https://docs.docker.com/reference/dockerfile/#add---checksum)
 - [Lambda Function URL authorization](https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html)
 - [Aurora Serverless v2 automatic pause](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2-auto-pause.html)
 - [ECR VPC endpoint requirements](https://docs.aws.amazon.com/AmazonECR/latest/userguide/vpc-endpoints.html)
