@@ -157,6 +157,10 @@ The separately reviewed private direct-health diagnostic then proved the correct
 
 This establishes only the bounded direct runtime and database-health proof. It does not complete Stage 6's hosted, OAuth, MCP protocol, or private-file proof, and any future runtime or public-origin step remains a separately reviewed and explicitly approved operation.
 
+## CLI change-set helper
+
+`npm run aws:change-set -- <private-runtime|hosted-proof|safe-stop>` prints the exact, review-only AWS CLI command for the approved stack and region. Add `--create` only after reviewing that printed command; it creates and waits for the change set but never executes it. The hosted-proof mode additionally requires both exact generated Function URL origins. Review the resulting resource diff before separately executing it, and use safe-stop after every bounded proof unless the product owner explicitly authorizes retention.
+
 ## Primary references
 
 - [AWS CloudShell Docker and ECR tutorial](https://docs.aws.amazon.com/cloudshell/latest/userguide/tutorial-docker-cli.html)
