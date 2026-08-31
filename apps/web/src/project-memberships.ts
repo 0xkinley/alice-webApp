@@ -20,6 +20,7 @@ import {
   renderStatusPage,
   requireAuthenticatedUser,
 } from "./auth.ts";
+import { accessLabel, hostLabel, roleLabel, timestampLabel } from "./product-copy.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -111,7 +112,7 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
             member.role === "owner"
               ? ""
               : `<form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/collaborators/${encodeURIComponent(member.id)}/role"><label>Project role<select name="role"><option value="editor"${member.role === "editor" ? " selected" : ""}>Editor</option><option value="viewer"${member.role === "viewer" ? " selected" : ""}>Viewer</option></select></label><button type="submit">Update role</button></form><form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/collaborators/${encodeURIComponent(member.id)}/transfer-ownership"><button type="submit">Transfer ownership to this member</button></form><form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/collaborators/${encodeURIComponent(member.id)}/remove"><button type="submit">Remove access</button></form>`;
-          return `<article><h3>${escapeHtml(member.email)}${isCurrentUser ? " (you)" : ""}</h3><p>${escapeHtml(member.role)}</p>${controls}</article>`;
+          return `<article><h3>${escapeHtml(member.email)}${isCurrentUser ? " (you)" : ""}</h3><p>${escapeHtml(roleLabel(member.role))}</p>${controls}</article>`;
         })
         .join("");
       const invitations = view.invitations
@@ -121,7 +122,7 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
             status === "Pending" || status === "Expired"
               ? `<div class="actions">${status === "Pending" ? `<form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/invitations/${encodeURIComponent(invitation.id)}/revoke"><button type="submit">Revoke</button></form>` : ""}<form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/invitations/${encodeURIComponent(invitation.id)}/resend"><button type="submit">Create replacement link</button></form></div>`
               : "";
-          return `<article><h3>${escapeHtml(invitation.email)}</h3><p>${escapeHtml(invitation.role)} · ${status}</p><p class="muted">Expires ${escapeHtml(new Date(Number(invitation.expires_at) * 1_000).toISOString())}</p>${controls}</article>`;
+          return `<article><h3>${escapeHtml(invitation.email)}</h3><p>${escapeHtml(roleLabel(invitation.role))} · ${status}</p><p class="muted">Expires ${escapeHtml(timestampLabel(new Date(Number(invitation.expires_at) * 1_000)))}</p>${controls}</article>`;
         })
         .join("");
       response
@@ -156,7 +157,7 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
       const members = view.members
         .map(
           (member) =>
-            `<li>${escapeHtml(member.email)}${member.user_id === request.aliceUser!.id ? " (you)" : ""} · ${escapeHtml(member.role)}</li>`,
+            `<li>${escapeHtml(member.email)}${member.user_id === request.aliceUser!.id ? " (you)" : ""} · ${escapeHtml(roleLabel(member.role))}</li>`,
         )
         .join("");
       const contexts = view.contexts
@@ -164,14 +165,14 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
           const accessList = context.members
             .map(
               (member) =>
-                `<li>${escapeHtml(member.email)}${member.user_id === request.aliceUser!.id ? " (you)" : ""} · ${escapeHtml(member.context_role)}</li>`,
+                `<li>${escapeHtml(member.email)}${member.user_id === request.aliceUser!.id ? " (you)" : ""} · ${escapeHtml(roleLabel(member.context_role))}</li>`,
             )
             .join("");
           const manageLink =
             context.visibility === "selected_members" && context.can_manage
               ? `<p><a href="/projects/${encodeURIComponent(membership.id)}/contexts/${encodeURIComponent(context.id)}/access">Manage this context's access</a></p>`
               : "";
-          return `<article><h3>${escapeHtml(context.name)}</h3><p>${context.context_kind === "project_wide" ? "Project-wide" : "Work context"} · ${escapeHtml(context.visibility)} · your role: ${escapeHtml(context.current_user_role)}</p><ul>${accessList}</ul>${manageLink}</article>`;
+          return `<article><h3>${escapeHtml(context.name)}</h3><p>${context.context_kind === "project_wide" ? "Project-wide" : "Work context"} · ${escapeHtml(accessLabel(context.visibility))} · your role: ${escapeHtml(roleLabel(context.current_user_role))}</p><ul>${accessList}</ul>${manageLink}</article>`;
         })
         .join("");
       const connections = view.connections
@@ -179,13 +180,13 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
           const target = connection.context_name
             ? `${escapeHtml(connection.project_name)} / ${escapeHtml(connection.context_name)}`
             : "No active target";
-          return `<article><h3>${escapeHtml(connection.client_name)}</h3><p>Connected · ${escapeHtml(connection.client_classification)}</p><p><strong>Active target:</strong> ${target}${connection.targets_this_project ? " · this project" : ""}</p><p class="muted">Last used ${escapeHtml(connection.last_used_at)}</p></article>`;
+          return `<article><h3>${escapeHtml(connection.client_name)}</h3><p>Connected · ${escapeHtml(hostLabel(connection.client_classification))}</p><p><strong>Active target:</strong> ${target}${connection.targets_this_project ? " · this project" : ""}</p><p class="muted">Last used ${escapeHtml(timestampLabel(connection.last_used_at))}</p></article>`;
         })
         .join("");
       const events = view.security_events
         .map(
           (event) =>
-            `<li><strong>${escapeHtml(event.label)}</strong>${event.context_name ? ` · ${escapeHtml(event.context_name)}` : ""} · ${escapeHtml(event.actor_label)} · <span class="muted">${escapeHtml(event.created_at)}</span></li>`,
+            `<li><strong>${escapeHtml(event.label)}</strong>${event.context_name ? ` · ${escapeHtml(event.context_name)}` : ""} · ${escapeHtml(event.actor_label)} · <span class="muted">${escapeHtml(timestampLabel(event.created_at))}</span></li>`,
         )
         .join("");
       response
@@ -193,7 +194,7 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
         .send(
           renderPage(
             `Project access · ${membership.name}`,
-            `<nav><a href="/">Projects</a><a href="/projects/${encodeURIComponent(membership.id)}">Open project</a><a href="/connections">AI connections</a></nav><h1>${escapeHtml(membership.name)} access and security</h1><p>${escapeHtml(membership.brief)}</p><p>Your project role: <strong>${escapeHtml(membership.current_user_role)}</strong>${ownerLinks}</p><section><h2>People with project access</h2><ul>${members}</ul><p>Project membership alone never reveals a restricted or personal context.</p>${leaveControl}</section><section><h2>Visible context access</h2><p>Only contexts you may know exist appear here. Each card lists the people who can currently read that context.</p>${contexts || "<p>No context is visible to you.</p>"}</section><section><h2>Your active AI connections</h2><p>${escapeHtml(view.privacy.connection_scope)} Collaborators never inherit these credentials or permissions.</p>${connections || "<p>No active AI connection is attached to your account.</p>"}<p><a href="/connections">Review or revoke AI connections</a></p></section><section><h2>Recent security activity</h2><p>${escapeHtml(view.privacy.history_scope)}</p><ul>${events || "<li>No relevant security action has been recorded.</li>"}</ul></section>`,
+            `<nav><a href="/">Projects</a><a href="/projects/${encodeURIComponent(membership.id)}">Open project</a><a href="/connections">AI connections</a></nav><h1>${escapeHtml(membership.name)} access and security</h1><p>${escapeHtml(membership.brief)}</p><p>Your project role: <strong>${escapeHtml(roleLabel(membership.current_user_role))}</strong>${ownerLinks}</p><section><h2>People with project access</h2><ul>${members}</ul><p>Project membership alone never reveals a restricted or personal context.</p>${leaveControl}</section><section><h2>Visible context access</h2><p>Only contexts you may know exist appear here. Each card lists the people who can currently read that context.</p>${contexts || "<p>No context is visible to you.</p>"}</section><section><h2>Your active AI connections</h2><p>${escapeHtml(view.privacy.connection_scope)} Collaborators never inherit these credentials or permissions.</p>${connections || "<p>No active AI connection is attached to your account.</p>"}<p><a href="/connections">Review or revoke AI connections</a></p></section><section><h2>Recent security activity</h2><p>${escapeHtml(view.privacy.history_scope)}</p><ul>${events || "<li>No relevant security action has been recorded.</li>"}</ul></section>`,
           ),
         );
     },
@@ -217,7 +218,7 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
           .send(
             renderPage(
               "Project invitation created",
-              `<nav><a href="/projects/${encodeURIComponent(invitation.project_id)}/collaborators">Back to collaborators</a></nav><h1>Private invitation link created</h1><p>Share this link only with <strong>${escapeHtml(invitation.email)}</strong>. It grants ${escapeHtml(invitation.role)} access after that exact alice. account accepts.</p><pre>${escapeHtml(link)}</pre><p>This is the only time alice. displays this token. Only its hash is stored.</p>`,
+              `<nav><a href="/projects/${encodeURIComponent(invitation.project_id)}/collaborators">Back to collaborators</a></nav><h1>Private invitation link created</h1><p>Share this link only with <strong>${escapeHtml(invitation.email)}</strong>. It grants ${escapeHtml(roleLabel(invitation.role))} access after that exact alice. account accepts.</p><pre>${escapeHtml(link)}</pre><p>This is the only time alice. displays this token. Only its hash is stored.</p>`,
             ),
           );
       } catch (error) {
@@ -358,7 +359,7 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
         .send(
           renderPage(
             `Project invitation · ${invitation.project_name}`,
-            `<nav><a href="/">Projects</a></nav><h1>Project invitation</h1><article><h2>${escapeHtml(invitation.project_name)}</h2><p>${escapeHtml(invitation.project_brief)}</p><p>Role: <strong>${escapeHtml(invitation.role)}</strong></p></article><p>Accepting grants project membership to this signed-in email. It does not share your AI connections, and restricted contexts still require separate context access.</p><div class="actions"><form method="post" action="/project-invitations/${encodeURIComponent(request.params.token)}/accept"><button type="submit">Accept invitation</button></form><form method="post" action="/project-invitations/${encodeURIComponent(request.params.token)}/decline"><button type="submit">Decline</button></form></div>`,
+            `<nav><a href="/">Projects</a></nav><h1>Project invitation</h1><article><h2>${escapeHtml(invitation.project_name)}</h2><p>${escapeHtml(invitation.project_brief)}</p><p>Role: <strong>${escapeHtml(roleLabel(invitation.role))}</strong></p></article><p>Accepting grants project membership to this signed-in email. It does not share your AI connections, and restricted contexts still require separate context access.</p><div class="actions"><form method="post" action="/project-invitations/${encodeURIComponent(request.params.token)}/accept"><button type="submit">Accept invitation</button></form><form method="post" action="/project-invitations/${encodeURIComponent(request.params.token)}/decline"><button type="submit">Decline</button></form></div>`,
           ),
         );
     },

@@ -28,6 +28,7 @@ import { createProjectLifecycleRouter } from "./project-lifecycle.ts";
 import { createProjectMembershipRouter } from "./project-memberships.ts";
 import { createReviewRouter } from "./review.ts";
 import { createSavedContextRouter } from "./saved-context.ts";
+import { accessLabel, hostLabel, roleLabel, timestampLabel } from "./product-copy.ts";
 import type { PrivateFileStore } from "@alice/domain";
 
 function escapeHtml(value) {
@@ -45,7 +46,7 @@ function contextReadEventCard(event) {
     event.status === "succeeded"
       ? `Succeeded · package ${escapeHtml(event.package_version)} · ${escapeHtml(event.package_utf8_bytes)} UTF-8 bytes`
       : `Failed · ${escapeHtml(String(event.failure_code).replaceAll("_", " "))}`;
-  return `<article><p><strong>${result}</strong></p><p>${escapeHtml(event.client_name)} · ${escapeHtml(event.client_classification)} · ${route}${event.context_name ? ` · ${escapeHtml(event.context_name)}` : ""}</p><p class="muted">${escapeHtml(event.created_at)}</p></article>`;
+  return `<article><p><strong>${result}</strong></p><p>${escapeHtml(event.client_name)} · ${escapeHtml(hostLabel(event.client_classification))} · ${route}${event.context_name ? ` · ${escapeHtml(event.context_name)}` : ""}</p><p class="muted">${escapeHtml(timestampLabel(event.created_at))}</p></article>`;
 }
 
 export async function createApp({
@@ -88,13 +89,13 @@ export async function createApp({
     const sharedProjectList = sharedProjects
       .map(
         (project) =>
-          `<article><p class="eyebrow">Shared project</p><h2><a href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p class="muted">Your access · ${escapeHtml(project.role)}</p></article>`,
+          `<article><p class="eyebrow">Shared project</p><h2><a href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p class="muted">Your access · ${escapeHtml(roleLabel(project.role))}</p></article>`,
       )
       .join("");
     const archivedProjectList = archivedProjects
       .map(
         (project) =>
-          `<article><p class="eyebrow">Archived</p><h3><a href="/projects/${encodeURIComponent(project.id)}/lifecycle">${escapeHtml(project.name)}</a></h3><p>${escapeHtml(project.brief)}</p><p class="muted">Archived ${escapeHtml(project.archived_at)}</p></article>`,
+          `<article><p class="eyebrow">Archived</p><h3><a href="/projects/${encodeURIComponent(project.id)}/lifecycle">${escapeHtml(project.name)}</a></h3><p>${escapeHtml(project.brief)}</p><p class="muted">Archived ${escapeHtml(timestampLabel(project.archived_at))}</p></article>`,
       )
       .join("");
     response
@@ -186,7 +187,7 @@ export async function createApp({
     const contextCards = contexts
       .map(
         (context) =>
-          `<article class="context-card" id="${escapeHtml(context.id)}"><p class="eyebrow">${context.context_kind === "project_wide" ? "Project-wide" : "Work context"}</p><h2>${escapeHtml(context.name)}</h2><p>${escapeHtml(context.description)}</p><div class="context-meta"><span class="badge">${escapeHtml(context.visibility)}</span><span>Your role · ${escapeHtml(context.context_role)}</span></div><div class="actions"><a href="/projects/${encodeURIComponent(project.id)}/saved-context?context_id=${encodeURIComponent(context.id)}">Saved context</a><a href="/projects/${encodeURIComponent(project.id)}/context-preview${context.context_kind === "project_wide" ? "" : `?context_id=${encodeURIComponent(context.id)}`}">Preview host package</a>${fileStore ? `<a href="/projects/${encodeURIComponent(project.id)}/files?context_id=${encodeURIComponent(context.id)}">Files</a>` : ""}${context.visibility === "selected_members" && context.can_manage ? `<a href="/projects/${encodeURIComponent(project.id)}/contexts/${encodeURIComponent(context.id)}/access">Manage access</a>` : ""}</div></article>`,
+          `<article class="context-card" id="${escapeHtml(context.id)}"><p class="eyebrow">${context.context_kind === "project_wide" ? "Project-wide" : "Work context"}</p><h2>${escapeHtml(context.name)}</h2><p>${escapeHtml(context.description)}</p><div class="context-meta"><span class="badge">${escapeHtml(accessLabel(context.visibility))}</span><span>Your role · ${escapeHtml(roleLabel(context.context_role))}</span></div><div class="actions"><a href="/projects/${encodeURIComponent(project.id)}/saved-context?context_id=${encodeURIComponent(context.id)}">Saved context</a><a href="/projects/${encodeURIComponent(project.id)}/context-preview${context.context_kind === "project_wide" ? "" : `?context_id=${encodeURIComponent(context.id)}`}">Preview host package</a>${fileStore ? `<a href="/projects/${encodeURIComponent(project.id)}/files?context_id=${encodeURIComponent(context.id)}">Files</a>` : ""}${context.visibility === "selected_members" && context.can_manage ? `<a href="/projects/${encodeURIComponent(project.id)}/contexts/${encodeURIComponent(context.id)}/access">Manage access</a>` : ""}</div></article>`,
       )
       .join("");
     const reviewLink = canWrite
@@ -209,7 +210,7 @@ export async function createApp({
       .send(
         renderPage(
           project.name,
-          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a><a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>${collaboratorsLink}${lifecycleLink}</nav><header class="hero"><p class="eyebrow">Project · ${escapeHtml(project.project_role)}</p><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><div class="actions">${reviewLink}<a href="/connections">Choose the active AI target</a></div></header><section><div class="section-heading"><h2>Project and work contexts</h2><p class="muted">Only listed contexts are visible to you.</p></div><p>Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}</section><section><div class="section-heading"><h2>Recent host reads</h2><p class="muted">Your own AI connections only</p></div><p>These receipts show retrieval. A successful retrieval does not prove that a host used the context in its answer.</p>${readActivity}</section>${createContext}`,
+          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a><a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>${collaboratorsLink}${lifecycleLink}</nav><header class="hero"><p class="eyebrow">Project · ${escapeHtml(roleLabel(project.project_role))}</p><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><div class="actions">${reviewLink}<a href="/connections">Choose the active AI target</a></div></header><section><div class="section-heading"><h2>Project and work contexts</h2><p class="muted">Only listed contexts are visible to you.</p></div><p>Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}</section><section><div class="section-heading"><h2>Recent host reads</h2><p class="muted">Your own AI connections only</p></div><p>These receipts show retrieval. A successful retrieval does not prove that a host used the context in its answer.</p>${readActivity}</section>${createContext}`,
         ),
       );
   });
@@ -327,7 +328,7 @@ export async function createApp({
           .send(
             renderPage(
               "Confirm work context",
-              `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}">Back to project</a></nav><h1>Confirm new work context</h1>${similar}<article><h2>${escapeHtml(request.body.name)}</h2><p>${escapeHtml(request.body.description)}</p><p>Visibility: ${escapeHtml(request.body.visibility)}</p></article><form method="post" action="/projects/${encodeURIComponent(request.params.projectId)}/contexts"><input type="hidden" name="name" value="${escapeHtml(request.body.name)}"><input type="hidden" name="description" value="${escapeHtml(request.body.description)}"><input type="hidden" name="visibility" value="${escapeHtml(request.body.visibility)}"><button type="submit">Create this work context</button></form>`,
+              `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}">Back to project</a></nav><h1>Confirm new work context</h1>${similar}<article><h2>${escapeHtml(request.body.name)}</h2><p>${escapeHtml(request.body.description)}</p><p>Visibility: ${escapeHtml(accessLabel(request.body.visibility))}</p></article><form method="post" action="/projects/${encodeURIComponent(request.params.projectId)}/contexts"><input type="hidden" name="name" value="${escapeHtml(request.body.name)}"><input type="hidden" name="description" value="${escapeHtml(request.body.description)}"><input type="hidden" name="visibility" value="${escapeHtml(request.body.visibility)}"><button type="submit">Create this work context</button></form>`,
             ),
           );
       } catch (error) {

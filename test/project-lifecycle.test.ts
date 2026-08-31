@@ -174,7 +174,7 @@ test("Owner lifecycle controls archive without erasure and export only permitted
   const ownerView = await fetch(lifecycleUrl, { headers: { cookie: ownerCookie } });
   assert.equal(ownerView.status, 200);
   const ownerHtml = await ownerView.text();
-  assert.match(ownerHtml, /Status: active/);
+  assert.match(ownerHtml, /Status: Active/);
   assert.match(ownerHtml, /does not erase project data/i);
 
   const editorView = await fetch(lifecycleUrl, { headers: { cookie: editorCookie } });

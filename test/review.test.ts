@@ -110,7 +110,7 @@ test("an explicit authenticated review accepts a candidate into versioned truste
   assert.match(reviewHtml, /The user explicitly chose the launch price/);
   assert.match(reviewHtml, /Launch plan excerpt: charge USD 24 per month/);
   assert.match(reviewHtml, /Payload hash/);
-  assert.match(reviewHtml, /unknown_mcp_client/);
+  assert.match(reviewHtml, /Other MCP client/);
 
   const userId = created.database
     .prepare("SELECT id FROM users WHERE email = ?")

@@ -7,6 +7,7 @@ import {
   updateContextAccessRole,
 } from "@alice/domain";
 import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
+import { roleLabel } from "./product-copy.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -79,7 +80,7 @@ export function createContextAccessRouter({ database }) {
         } else {
           controls = `<form method="post" action="/projects/${encodeURIComponent(view.project.id)}/contexts/${encodeURIComponent(view.context.id)}/access"><input type="hidden" name="membership_id" value="${escapeHtml(member.membership_id)}"><label>Context role<select name="role">${roleOptions(member)}</select></label><button type="submit">Grant context access</button></form>`;
         }
-        return `<article><h2>${escapeHtml(member.email)}</h2><p>Project role: ${escapeHtml(member.project_role)}</p>${controls}</article>`;
+        return `<article><h2>${escapeHtml(member.email)}</h2><p>Project role: ${escapeHtml(roleLabel(member.project_role))}</p>${controls}</article>`;
       })
       .join("");
     response

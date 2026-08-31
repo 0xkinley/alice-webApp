@@ -1,6 +1,7 @@
 import { getRemovalPreview, getSavedContextView, removeSavedContextEntry } from "@alice/domain";
 import express from "express";
 import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
+import { hostLabel, timestampLabel } from "./product-copy.ts";
 
 const VIEWS = new Set(["saved", "attention", "removed", "history"]);
 const REPAIR_TYPES = new Map([
@@ -47,7 +48,7 @@ function viewLinks(view, selected) {
 }
 
 function provenance(entry) {
-  return `<details><summary>Source and history</summary><dl><dt>Source host</dt><dd>${escapeHtml(entry.client_classification)}</dd><dt>Saved</dt><dd>${escapeHtml(entry.accepted_at)}</dd><dt>Version</dt><dd>${entry.version}</dd><dt>Evidence receipt</dt><dd><code>${escapeHtml(entry.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(entry.payload_hash)}</code></dd></dl></details>`;
+  return `<details><summary>Source and history</summary><dl><dt>Source host</dt><dd>${escapeHtml(hostLabel(entry.client_classification))}</dd><dt>Saved</dt><dd>${escapeHtml(timestampLabel(entry.accepted_at))}</dd><dt>Version</dt><dd>${entry.version}</dd><dt>Evidence receipt</dt><dd><code>${escapeHtml(entry.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(entry.payload_hash)}</code></dd></dl></details>`;
 }
 
 function savedCards(view) {
@@ -67,7 +68,7 @@ function removedCards(view) {
   return view.removed
     .map(
       (entry) =>
-        `<article class="rejected"><h2>${escapeHtml(entry.state_key)}</h2><p><span class="badge">Removed</span> · ${escapeHtml(entry.removed_at)}</p><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${entry.reason ? `<p><strong>Reason:</strong> ${escapeHtml(entry.reason)}</p>` : ""}${provenance(entry)}</article>`,
+        `<article class="rejected"><h2>${escapeHtml(entry.state_key)}</h2><p><span class="badge">Removed</span> · ${escapeHtml(timestampLabel(entry.removed_at))}</p><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${entry.reason ? `<p><strong>Reason:</strong> ${escapeHtml(entry.reason)}</p>` : ""}${provenance(entry)}</article>`,
     )
     .join("");
 }
@@ -78,7 +79,7 @@ function attentionCards(view) {
   return view.needs_attention
     .map(
       (entry) =>
-        `<article class="pending"><h2>${escapeHtml(entry.state_key)}</h2><p><span class="badge">Proposed only</span></p><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p><p class="muted">${escapeHtml(entry.capture_summary || "Proposed save")} · ${escapeHtml(entry.client_classification)}</p><p><a href="/review/captures/${encodeURIComponent(entry.evidence_id)}">Check the exact save preview</a></p></article>`,
+        `<article class="pending"><h2>${escapeHtml(entry.state_key)}</h2><p><span class="badge">Proposed only</span></p><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p><p class="muted">${escapeHtml(entry.capture_summary || "Proposed save")} · ${escapeHtml(hostLabel(entry.client_classification))}</p><p><a href="/review/captures/${encodeURIComponent(entry.evidence_id)}">Check the exact save preview</a></p></article>`,
     )
     .join("");
 }
@@ -94,7 +95,7 @@ function historyCards(view) {
         : entry.superseded_by_version
           ? "Superseded"
           : labels[entry.status] || escapeHtml(entry.status);
-      return `<article><h2>${escapeHtml(entry.state_key)}</h2><p><span class="badge">${state}</span> · ${escapeHtml(entry.removed_at || entry.accepted_at || entry.created_at)}</p>${entry.superseded_by_version ? `<p>Replaced by saved version ${escapeHtml(entry.superseded_by_version)}. This older version remains in history and is not active.</p>` : ""}<pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${entry.removal_reason ? `<p><strong>Removal reason:</strong> ${escapeHtml(entry.removal_reason)}</p>` : ""}<details><summary>Provenance</summary><dl><dt>Evidence receipt</dt><dd><code>${escapeHtml(entry.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(entry.payload_hash)}</code></dd>${entry.version ? `<dt>Saved version</dt><dd>${entry.version}</dd>` : ""}</dl></details></article>`;
+      return `<article><h2>${escapeHtml(entry.state_key)}</h2><p><span class="badge">${state}</span> · ${escapeHtml(timestampLabel(entry.removed_at || entry.accepted_at || entry.created_at))}</p>${entry.superseded_by_version ? `<p>Replaced by saved version ${escapeHtml(entry.superseded_by_version)}. This older version remains in history and is not active.</p>` : ""}<pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${entry.removal_reason ? `<p><strong>Removal reason:</strong> ${escapeHtml(entry.removal_reason)}</p>` : ""}<details><summary>Provenance</summary><dl><dt>Evidence receipt</dt><dd><code>${escapeHtml(entry.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(entry.payload_hash)}</code></dd>${entry.version ? `<dt>Saved version</dt><dd>${entry.version}</dd>` : ""}</dl></details></article>`;
     })
     .join("");
 }

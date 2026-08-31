@@ -10,6 +10,7 @@ import {
 } from "@alice/domain";
 import express from "express";
 import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
+import { accessLabel, hostLabel, reviewStatusLabel, timestampLabel } from "./product-copy.ts";
 
 // Trusted-state acceptance stays behind the human web control plane.
 
@@ -39,7 +40,7 @@ function reviewProjectIndex(projects) {
   const cards = projects
     .map(
       (project) =>
-        `<article><h2><a href="/review?project_id=${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p><strong>${project.pending_count} need attention</strong> · ${project.accepted_count} saved · ${project.rejected_count} not saved</p>${project.latest_candidate_at ? `<p class="muted">Latest proposal: ${escapeHtml(project.latest_candidate_at)}</p>` : '<p class="muted">No proposals captured yet.</p>'}</article>`,
+        `<article><h2><a href="/review?project_id=${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p><strong>${project.pending_count} need attention</strong> · ${project.accepted_count} saved · ${project.rejected_count} not saved</p>${project.latest_candidate_at ? `<p class="muted">Latest proposal: ${escapeHtml(timestampLabel(project.latest_candidate_at))}</p>` : '<p class="muted">No proposals captured yet.</p>'}</article>`,
     )
     .join("");
   return `<nav><a href="/">Private workspace</a></nav><header class="hero"><p class="eyebrow">Needs attention</p><h1>Review proposed context before it is saved.</h1><p>Only your explicit decision can save project context. A connected AI tool can propose an update, but cannot save it for you.</p></header><section><div class="section-heading"><h2>Projects with review history</h2><p class="muted">Choose a project to inspect exact proposals.</p></div>${cards || '<div class="empty-state"><h2>No projects need review</h2><p>Create a project and use a connected host to capture a proposal. Nothing is saved automatically.</p></div>'}</section>`;
@@ -62,7 +63,7 @@ function evidenceDetails(candidate) {
   const sourceContext = candidate.source_context
     ? `<details><summary>Explicitly saved source context</summary><pre>${escapeHtml(candidate.source_context)}</pre></details>`
     : "";
-  return `<details><summary>Capture evidence and provenance</summary><p><strong>Capture summary:</strong> ${escapeHtml(candidate.capture_summary || "Not supplied")}</p>${sourceNote}${fileSourceDetails(candidate.file_source)}${sourceContext}<dl><dt>Evidence</dt><dd><code>${escapeHtml(candidate.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(candidate.payload_hash)}</code></dd><dt>Source client</dt><dd>${escapeHtml(candidate.client_classification)}</dd><dt>Tool</dt><dd>${escapeHtml(candidate.tool_name)}</dd><dt>Captured</dt><dd>${escapeHtml(candidate.evidence_created_at)}</dd></dl></details>`;
+  return `<details><summary>Capture evidence and provenance</summary><p><strong>Capture summary:</strong> ${escapeHtml(candidate.capture_summary || "Not supplied")}</p>${sourceNote}${fileSourceDetails(candidate.file_source)}${sourceContext}<dl><dt>Evidence</dt><dd><code>${escapeHtml(candidate.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(candidate.payload_hash)}</code></dd><dt>Source client</dt><dd>${escapeHtml(hostLabel(candidate.client_classification))}</dd><dt>Tool</dt><dd>${escapeHtml(candidate.tool_name)}</dd><dt>Captured</dt><dd>${escapeHtml(timestampLabel(candidate.evidence_created_at))}</dd></dl></details>`;
 }
 
 function candidateCard(candidate) {
@@ -70,7 +71,7 @@ function candidateCard(candidate) {
     ? `<p class="muted">Saved context: <code>${escapeHtml(candidate.accepted_state_id)}</code> · Version ${candidate.accepted_version}</p>`
     : "";
   const reviewAudit = candidate.review_audit_id
-    ? `<p class="muted">Human decision audit: <code>${escapeHtml(candidate.review_audit_id)}</code> · ${escapeHtml(candidate.reviewed_at)}</p>`
+    ? `<p class="muted">Human decision audit: <code>${escapeHtml(candidate.review_audit_id)}</code> · ${escapeHtml(timestampLabel(candidate.reviewed_at))}</p>`
     : "";
   const currentTrusted =
     candidate.status === "pending" && candidate.current_accepted_state_id
@@ -83,8 +84,7 @@ function candidateCard(candidate) {
     candidate.status === "pending"
       ? `<div class="actions">${acceptAction}<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/reject"><button type="submit">Not now</button></form></div>`
       : "";
-  const statusLabels = { pending: "Needs attention", accepted: "Saved", rejected: "Not saved" };
-  return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p><p><a href="/review/captures/${encodeURIComponent(candidate.evidence_id)}">Review the exact save preview</a></p><p class="muted">Status: ${statusLabels[candidate.status] || escapeHtml(candidate.status)} · Proposal receipt: <code>${escapeHtml(candidate.id)}</code></p>${accepted}${reviewAudit}${currentTrusted}${evidenceDetails(candidate)}${actions}</article>`;
+  return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p><p><a href="/review/captures/${encodeURIComponent(candidate.evidence_id)}">Review the exact save preview</a></p><p class="muted">Status: ${escapeHtml(reviewStatusLabel(candidate.status))} · Proposal receipt: <code>${escapeHtml(candidate.id)}</code></p>${accepted}${reviewAudit}${currentTrusted}${evidenceDetails(candidate)}${actions}</article>`;
 }
 
 function capturePreviewPage(preview) {
@@ -95,7 +95,7 @@ function capturePreviewPage(preview) {
           ? `<aside><h3>Will restore removed key as a new saved version</h3><pre>${renderJson(candidate.current.value_json)}</pre><p class="muted">Removed version ${candidate.current.version} and its provenance remain in History.</p></aside>`
           : `<aside><h3>Will replace saved version ${candidate.current.version}</h3><pre>${renderJson(candidate.current.value_json)}</pre><p class="muted">The earlier version and provenance remain in History.</p></aside>`
         : "";
-      return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p>${current}<p class="muted">Status: ${escapeHtml(candidate.status)}</p></article>`;
+      return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p>${current}<p class="muted">Status: ${escapeHtml(reviewStatusLabel(candidate.status))}</p></article>`;
     })
     .join("");
   const sourceNote = preview.source_note
@@ -108,7 +108,7 @@ function capturePreviewPage(preview) {
   const actions = pending
     ? `<div class="actions"><form method="post" action="/review/captures/${encodeURIComponent(preview.evidence_id)}/confirm"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><button type="submit" aria-label="Save every entry shown in this preview">✓ Save these entries</button></form><form method="post" action="/review/captures/${encodeURIComponent(preview.evidence_id)}/cancel"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><button type="submit" aria-label="Cancel this save preview">× Not now</button></form></div>`
     : `<p><strong>This preview has already been decided.</strong></p>`;
-  return `<nav><a href="/review?project_id=${encodeURIComponent(preview.project.id)}">Needs attention</a><a href="/projects/${encodeURIComponent(preview.project.id)}">Project</a></nav><header class="hero"><p class="eyebrow">Exact save preview</p><h1>Save to ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}?</h1><p>Check the exact entries below. Only the ✓ action saves them as active context. × performs no activation.</p></header><dl><dt>Destination project</dt><dd>${escapeHtml(preview.project.name)}</dd><dt>Work context</dt><dd>${escapeHtml(preview.context.name)}</dd><dt>Access</dt><dd>${escapeHtml(preview.context.visibility)}</dd><dt>Proposed by</dt><dd>${escapeHtml(preview.client_classification)}</dd><dt>Captured</dt><dd>${escapeHtml(preview.captured_at)}</dd></dl><p class="notice"><strong>Save summary:</strong> ${escapeHtml(preview.capture_summary || "Not supplied")}</p>${sourceNote}${fileSourceDetails(preview.file_source)}${sourceContext}<section><div class="section-heading"><h2>Exact proposed entries</h2><p class="muted">${preview.candidates.length} item${preview.candidates.length === 1 ? "" : "s"}</p></div>${candidateCards}</section>${actions}<details><summary>Evidence receipt</summary><dl><dt>Evidence</dt><dd><code>${escapeHtml(preview.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(preview.payload_hash)}</code></dd></dl></details>`;
+  return `<nav><a href="/review?project_id=${encodeURIComponent(preview.project.id)}">Needs attention</a><a href="/projects/${encodeURIComponent(preview.project.id)}">Project</a></nav><header class="hero"><p class="eyebrow">Exact save preview</p><h1>Save to ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}?</h1><p>Check the exact entries below. Only the ✓ action saves them as active context. × performs no activation.</p></header><dl><dt>Destination project</dt><dd>${escapeHtml(preview.project.name)}</dd><dt>Work context</dt><dd>${escapeHtml(preview.context.name)}</dd><dt>Access</dt><dd>${escapeHtml(accessLabel(preview.context.visibility))}</dd><dt>Proposed by</dt><dd>${escapeHtml(hostLabel(preview.client_classification))}</dd><dt>Captured</dt><dd>${escapeHtml(timestampLabel(preview.captured_at))}</dd></dl><p class="notice"><strong>Save summary:</strong> ${escapeHtml(preview.capture_summary || "Not supplied")}</p>${sourceNote}${fileSourceDetails(preview.file_source)}${sourceContext}<section><div class="section-heading"><h2>Exact proposed entries</h2><p class="muted">${preview.candidates.length} item${preview.candidates.length === 1 ? "" : "s"}</p></div>${candidateCards}</section>${actions}<details><summary>Evidence receipt</summary><dl><dt>Evidence</dt><dd><code>${escapeHtml(preview.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(preview.payload_hash)}</code></dd></dl></details>`;
 }
 
 function paginationLinks(queue) {
@@ -180,7 +180,7 @@ export function createReviewRouter({ database }) {
       .send(
         renderPage(
           `${queue.project.name} review`,
-          `<nav><a href="/review">All review queues</a><a href="/projects/${encodeURIComponent(queue.project.id)}">Project</a></nav><header class="hero"><p class="eyebrow">Needs attention</p><h1>${escapeHtml(queue.project.name)} review</h1><p>Only your explicit action can save a proposed entry. Your decision remains traceable in project history.</p></header><nav aria-label="Review filters">${filters}</nav><p class="muted">Showing ${queue.pagination.selected_total} proposal(s) in ${escapeHtml(queue.filter)}.</p>${cards || `<div class="empty-state"><h2>No proposals in this view</h2><p>There is nothing to decide here.</p></div>`}${paginationLinks(queue)}`,
+          `<nav><a href="/review">All review queues</a><a href="/projects/${encodeURIComponent(queue.project.id)}">Project</a></nav><header class="hero"><p class="eyebrow">Needs attention</p><h1>${escapeHtml(queue.project.name)} review</h1><p>Only your explicit action can save a proposed entry. Your decision remains traceable in project history.</p></header><nav aria-label="Review filters">${filters}</nav><p class="muted">Showing ${queue.pagination.selected_total} ${queue.pagination.selected_total === 1 ? "proposal" : "proposals"} · ${escapeHtml(reviewStatusLabel(queue.filter))}.</p>${cards || `<div class="empty-state"><h2>No proposals in this view</h2><p>There is nothing to decide here.</p></div>`}${paginationLinks(queue)}`,
         ),
       );
   });

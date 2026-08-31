@@ -7,6 +7,7 @@ import {
 } from "@alice/domain";
 import express from "express";
 import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
+import { hostLabel, permissionLabel, timestampLabel } from "./product-copy.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -39,7 +40,7 @@ function connectionCard(connection, projects, expectedVersions) {
   const current = connection.context_id
     ? `<p><strong>Active target:</strong> ${escapeHtml(connection.project_name)} / ${escapeHtml(connection.context_name)}</p>`
     : "<p><strong>Active target:</strong> Not selected</p>";
-  return `<article class="connection-card${connection.revoked_at ? " revoked" : ""}"><p class="eyebrow">${escapeHtml(connection.client_classification)}</p><h2>${escapeHtml(connection.client_name)}</h2><p><span class="badge">${status}</span></p>${current}<dl><dt>Permissions</dt><dd>${escapeHtml(connection.granted_scopes)}</dd><dt>Connected</dt><dd>${escapeHtml(connection.first_connected_at)}</dd><dt>Last used</dt><dd>${escapeHtml(connection.last_used_at)}</dd></dl>${action}</article>`;
+  return `<article class="connection-card${connection.revoked_at ? " revoked" : ""}"><p class="eyebrow">${escapeHtml(hostLabel(connection.client_classification))}</p><h2>${escapeHtml(connection.client_name)}</h2><p><span class="badge">${status}</span></p>${current}<dl><dt>Permissions</dt><dd>${escapeHtml(permissionLabel(connection.granted_scopes))}</dd><dt>Connected</dt><dd>${escapeHtml(timestampLabel(connection.first_connected_at))}</dd><dt>Last used</dt><dd>${escapeHtml(timestampLabel(connection.last_used_at))}</dd></dl>${action}</article>`;
 }
 
 function readEventCard(event) {
@@ -51,7 +52,7 @@ function readEventCard(event) {
     event.status === "succeeded"
       ? `Succeeded · package ${escapeHtml(event.package_version)} · ${escapeHtml(event.package_utf8_bytes)} UTF-8 bytes`
       : `Failed · ${escapeHtml(String(event.failure_code).replaceAll("_", " "))}`;
-  return `<article><p><strong>${result}</strong></p><p>${escapeHtml(event.client_name)} · ${escapeHtml(event.client_classification)} · ${route}${destination}</p><p class="muted">${escapeHtml(event.created_at)}</p></article>`;
+  return `<article><p><strong>${result}</strong></p><p>${escapeHtml(event.client_name)} · ${escapeHtml(hostLabel(event.client_classification))} · ${route}${destination}</p><p class="muted">${escapeHtml(timestampLabel(event.created_at))}</p></article>`;
 }
 
 export function createConnectionsRouter({ database, mcpPublicUrl }) {
