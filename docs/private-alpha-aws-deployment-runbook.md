@@ -14,7 +14,7 @@ Product-owner approval was received on 2026-08-31 for AWS Bundle 1 in `eu-centra
 | --- | --- |
 | Region | Europe (Frankfurt), `eu-central-1`, only |
 | Stack | `alice-private-alpha` from `infra/aws/private-files.template.json` |
-| Compute | Two ARM64 image Lambdas: `alice-private-alpha-web` at 512 MiB and `alice-private-alpha-mcp` at 1,024 MiB; 60-second timeout, 512 MiB ephemeral disk, reserved concurrency 2 each |
+| Compute | Two ARM64 image Lambdas: `alice-private-alpha-web` at 512 MiB and `alice-private-alpha-mcp` at 1,024 MiB; 60-second timeout, 512 MiB ephemeral disk; no per-function reservation during the proof because the new account's Frankfurt quota is 10 concurrent executions, which remains the account-wide cap |
 | Public origins | Two AWS-generated buffered Lambda Function URLs; no custom domain, load balancer, API Gateway, or CDN |
 | Database | One private Aurora PostgreSQL 17.4 Serverless v2 writer, Aurora Standard, 0-1 ACU, auto-pause after 600 seconds, seven-day backups |
 | Files | One operator-supplied globally unique S3 bucket, versioning, SSE-S3, public access block, GuardDuty Malware Protection, exact web-origin PUT CORS |
@@ -72,6 +72,7 @@ Expected gross cost is USD 1-5 for the bounded deployment proof and USD 5-15/mon
 - Staging current versions expire after two days, noncurrent staging versions after one day, and incomplete multipart uploads after one day. Permanent object erasure remains a separate privileged, unimplemented workflow.
 - Function URLs are deliberately public network endpoints, but alice. web sessions and MCP OAuth remain the application authorization boundary. The URLs receive no invoke permission until the final exact-origin update.
 - Application logs are content-free and expire after 14 days; migration logs expire after three days. The template contains no secret value.
+- The proof uses ordinary unreserved Lambda concurrency. The account-wide Frankfurt quota of 10 remains the aggregate cap; do not request a quota increase or enable paid provisioned concurrency during the proof. Restore an explicit two-execution reservation per function only after the regional quota is at least 14 and the product owner approves the change.
 
 ## Credential-free staged procedure
 
@@ -123,6 +124,13 @@ The one permitted remediation rerun completed successfully on 2026-08-31:
 - Exactly one private Fargate task ran from task definition revision 2 with no public IP and the immutable remediated digest. It stopped with `EssentialContainerExited`, container exit code 0, and no placement failure. Its content-free CloudWatch log reported `PostgreSQL migrations current: 15 applied.`, proving the strict RDS TLS path and exact migration ledger succeeded.
 - Change set `migration-stage-2-disable-complete` then changed only `RunMigration` to false. Its reviewed resource diff contained exactly nine removals with delete policy: the four interface endpoints, endpoint security group, ECS cluster, execution role, migration log group, and task definition. It completed with stack status `UPDATE_COMPLETE`.
 - Post-cleanup CloudFormation evidence shows exactly 22 resources and six outputs, with no `Migration*` resource or output. All four hourly-priced interface endpoints are gone, no Lambda runtime or public invoke permission has been deployed, and Stages 4-7 remain pending.
+
+The first Stage 4 private-runtime attempt then stopped at the Lambda account-quota boundary:
+
+- Change set `runtime-stage-4-private` contained exactly the expected six additions: the two functions, two 14-day log groups, and two Function URLs. Migration remained disabled, the URL resources had no public invoke permissions, and no foundation resource was modified, replaced, or removed.
+- Both function creations failed with AWS Lambda `InvalidRequest`: `Specified ReservedConcurrentExecutions for function decreases account's UnreservedConcurrentExecution below its minimum value of [10].` CloudFormation rolled the stack back to `UPDATE_ROLLBACK_COMPLETE`; the partial runtime resources were removed and the 22-resource foundation remained intact.
+- The account's Frankfurt concurrency quota is 10, so reserving two executions for either function is impossible while AWS requires all 10 to remain unreserved. This was an account-quota failure, not an image, application, database, migration, networking, or TLS failure.
+- On 2026-08-31 the product owner approved removing both per-function reservations for the bounded proof. This configuration has no concurrency reservation charge, leaves the regional account-wide limit of 10 as the aggregate cap, and does not make either Function URL publicly invocable during Stage 4. No quota increase or provisioned concurrency is authorized. A two-execution reservation per function may be restored only after the regional quota is at least 14 and a later review approves it.
 
 ## Primary references
 

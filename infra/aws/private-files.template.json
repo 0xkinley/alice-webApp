@@ -912,7 +912,6 @@
         "ImageConfig": { "Command": ["npm", "run", "start:web"] },
         "MemorySize": 512,
         "PackageType": "Image",
-        "ReservedConcurrentExecutions": 2,
         "Role": { "Fn::GetAtt": ["WebExecutionRole", "Arn"] },
         "Timeout": 60,
         "VpcConfig": {
@@ -965,7 +964,6 @@
         "ImageConfig": { "Command": ["npm", "run", "start:mcp"] },
         "MemorySize": 1024,
         "PackageType": "Image",
-        "ReservedConcurrentExecutions": 2,
         "Role": { "Fn::GetAtt": ["McpExecutionRole", "Arn"] },
         "Timeout": 60,
         "VpcConfig": {

@@ -153,7 +153,7 @@ test("AWS-native services are private, bounded, buffered, and staged before publ
     assert.equal(resource.Condition, "ServicesEnabled");
     assert.deepEqual(resource.Properties.Architectures, ["arm64"]);
     assert.equal(resource.Properties.PackageType, "Image");
-    assert.equal(resource.Properties.ReservedConcurrentExecutions, 2);
+    assert.equal("ReservedConcurrentExecutions" in resource.Properties, false);
     assert.equal(resource.Properties.Environment.Variables.AWS_LWA_INVOKE_MODE, "buffered");
     assert.equal(resource.Properties.Environment.Variables.AWS_LWA_READINESS_CHECK_PROTOCOL, "tcp");
     assert.equal(resource.Properties.VpcConfig.SubnetIds.length, 2);

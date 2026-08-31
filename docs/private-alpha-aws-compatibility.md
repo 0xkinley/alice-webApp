@@ -40,7 +40,7 @@ This proves the image and database contract, not Lambda protocol compatibility. 
 The exact candidate to implement locally is:
 
 - one private ECR repository containing the same immutable ARM64 image for both functions;
-- two separate Lambda functions, `alice-web` and `alice-mcp`, using AWS Lambda Web Adapter, separate execution roles, 512 MiB web memory, 1,024 MiB MCP memory, 512 MiB ephemeral storage, bounded timeouts, and reserved concurrency of two each;
+- two separate Lambda functions, `alice-web` and `alice-mcp`, using AWS Lambda Web Adapter, separate execution roles, 512 MiB web memory, 1,024 MiB MCP memory, 512 MiB ephemeral storage, bounded timeouts, and the account-wide Frankfurt concurrency quota as the temporary proof cap;
 - two separate public Lambda Function URLs with AWS-generated stable HTTPS origins and buffered responses; alice. web sessions and MCP OAuth remain the application authorization boundary;
 - one VPC in `eu-central-1` with two isolated subnets in separate Availability Zones, no public database address, no Internet Gateway, and no NAT Gateway;
 - one Aurora PostgreSQL-compatible Serverless v2 writer on PostgreSQL 17, Aurora Standard, minimum 0 ACUs, maximum 1 ACU, and a ten-minute auto-pause interval;
