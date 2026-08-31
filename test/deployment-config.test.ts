@@ -235,7 +235,7 @@ test("the invitation operator is temporary, private, and narrowly permissioned",
     "node",
     "scripts/alpha-invitation-operator.mjs",
   ]);
-  assert.equal(operator.Properties.ReservedConcurrentExecutions, 1);
+  assert.equal("ReservedConcurrentExecutions" in operator.Properties, false);
   assert.equal(operator.Properties.Timeout, 30);
   assert.equal(operator.Properties.Environment.Variables.ALICE_WEB_URL.Ref, "WebPublicUrl");
   assert.equal("ALICE_S3_BUCKET" in operator.Properties.Environment.Variables, false);

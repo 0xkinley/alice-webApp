@@ -959,7 +959,6 @@
         "ImageConfig": { "Command": ["node", "scripts/alpha-invitation-operator.mjs"] },
         "MemorySize": 256,
         "PackageType": "Image",
-        "ReservedConcurrentExecutions": 1,
         "Role": { "Fn::GetAtt": ["InvitationOperatorExecutionRole", "Arn"] },
         "Timeout": 30,
         "VpcConfig": {
