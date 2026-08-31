@@ -51,37 +51,41 @@ function provenance(entry) {
 }
 
 function savedCards(view) {
-  if (view.saved.length === 0) return "<p>Nothing is saved in this context yet.</p>";
+  if (view.saved.length === 0)
+    return '<div class="empty-state"><h2>Nothing is saved in this context yet.</h2><p>Review an exact proposal before it becomes active context.</p></div>';
   return view.saved
     .map(
       (entry) =>
-        `<article><h2>${escapeHtml(entry.state_key)}</h2><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${provenance(entry)}${view.access.can_write ? `<p><a href="/projects/${encodeURIComponent(view.project.id)}/saved-context/${encodeURIComponent(entry.id)}/repair?context_id=${encodeURIComponent(view.context.id)}">Repair stale, contradicted, or wrong context</a> · <a href="/projects/${encodeURIComponent(view.project.id)}/saved-context/${encodeURIComponent(entry.id)}/remove?context_id=${encodeURIComponent(view.context.id)}">Remove from active context</a></p>` : ""}</article>`,
+        `<article class="context-card"><h2>${escapeHtml(entry.state_key)}</h2><p><span class="badge">Saved · version ${entry.version}</span></p><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${provenance(entry)}${view.access.can_write ? `<p><a href="/projects/${encodeURIComponent(view.project.id)}/saved-context/${encodeURIComponent(entry.id)}/repair?context_id=${encodeURIComponent(view.context.id)}">Repair stale, contradicted, or wrong context</a> · <a href="/projects/${encodeURIComponent(view.project.id)}/saved-context/${encodeURIComponent(entry.id)}/remove?context_id=${encodeURIComponent(view.context.id)}">Remove from active context</a></p>` : ""}</article>`,
     )
     .join("");
 }
 
 function removedCards(view) {
-  if (view.removed.length === 0) return "<p>Nothing has been removed from this context.</p>";
+  if (view.removed.length === 0)
+    return '<div class="empty-state"><h2>Nothing has been removed from this context.</h2><p>Removal stops active use while preserving provenance here.</p></div>';
   return view.removed
     .map(
       (entry) =>
-        `<article><h2>${escapeHtml(entry.state_key)}</h2><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p><p><strong>Removed</strong> · ${escapeHtml(entry.removed_at)}</p>${entry.reason ? `<p><strong>Reason:</strong> ${escapeHtml(entry.reason)}</p>` : ""}${provenance(entry)}</article>`,
+        `<article class="rejected"><h2>${escapeHtml(entry.state_key)}</h2><p><span class="badge">Removed</span> · ${escapeHtml(entry.removed_at)}</p><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${entry.reason ? `<p><strong>Reason:</strong> ${escapeHtml(entry.reason)}</p>` : ""}${provenance(entry)}</article>`,
     )
     .join("");
 }
 
 function attentionCards(view) {
-  if (view.needs_attention.length === 0) return "<p>Nothing needs your attention.</p>";
+  if (view.needs_attention.length === 0)
+    return '<div class="empty-state"><h2>Nothing needs your attention.</h2><p>Hosts cannot save context by themselves.</p></div>';
   return view.needs_attention
     .map(
       (entry) =>
-        `<article><h2>${escapeHtml(entry.state_key)}</h2><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p><p class="muted">${escapeHtml(entry.capture_summary || "Proposed save")} · ${escapeHtml(entry.client_classification)}</p><p><a href="/review/captures/${encodeURIComponent(entry.evidence_id)}">Check the exact save preview</a></p></article>`,
+        `<article class="pending"><h2>${escapeHtml(entry.state_key)}</h2><p><span class="badge">Proposed only</span></p><pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p><p class="muted">${escapeHtml(entry.capture_summary || "Proposed save")} · ${escapeHtml(entry.client_classification)}</p><p><a href="/review/captures/${encodeURIComponent(entry.evidence_id)}">Check the exact save preview</a></p></article>`,
     )
     .join("");
 }
 
 function historyCards(view) {
-  if (view.history.length === 0) return "<p>No context history yet.</p>";
+  if (view.history.length === 0)
+    return '<div class="empty-state"><h2>No context history yet.</h2><p>Accepted, declined, superseded, and removed entries will remain traceable here.</p></div>';
   const labels = { accepted: "Saved", pending: "Needs attention", rejected: "Not saved" };
   return view.history
     .map((entry) => {
@@ -90,17 +94,17 @@ function historyCards(view) {
         : entry.superseded_by_version
           ? "Superseded"
           : labels[entry.status] || escapeHtml(entry.status);
-      return `<article><h2>${escapeHtml(entry.state_key)}</h2><p><strong>${state}</strong> · ${escapeHtml(entry.removed_at || entry.accepted_at || entry.created_at)}</p>${entry.superseded_by_version ? `<p>Replaced by saved version ${escapeHtml(entry.superseded_by_version)}. This older version remains in history and is not active.</p>` : ""}<pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${entry.removal_reason ? `<p><strong>Removal reason:</strong> ${escapeHtml(entry.removal_reason)}</p>` : ""}<details><summary>Provenance</summary><dl><dt>Evidence receipt</dt><dd><code>${escapeHtml(entry.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(entry.payload_hash)}</code></dd>${entry.version ? `<dt>Saved version</dt><dd>${entry.version}</dd>` : ""}</dl></details></article>`;
+      return `<article><h2>${escapeHtml(entry.state_key)}</h2><p><span class="badge">${state}</span> · ${escapeHtml(entry.removed_at || entry.accepted_at || entry.created_at)}</p>${entry.superseded_by_version ? `<p>Replaced by saved version ${escapeHtml(entry.superseded_by_version)}. This older version remains in history and is not active.</p>` : ""}<pre>${renderJson(entry.value)}</pre><p>${escapeHtml(entry.summary)}</p>${entry.removal_reason ? `<p><strong>Removal reason:</strong> ${escapeHtml(entry.removal_reason)}</p>` : ""}<details><summary>Provenance</summary><dl><dt>Evidence receipt</dt><dd><code>${escapeHtml(entry.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(entry.payload_hash)}</code></dd>${entry.version ? `<dt>Saved version</dt><dd>${entry.version}</dd>` : ""}</dl></details></article>`;
     })
     .join("");
 }
 
 function removalPreviewPage(preview) {
-  return `<nav><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Back to Saved context</a></nav><h1>Remove from ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}?</h1><p>This stops the item from being sent as active context. It does not erase the saved version, its evidence, provenance, or audit history.</p><article><h2>${escapeHtml(preview.entry.state_key)}</h2><pre>${renderJson(preview.entry.value)}</pre><p>${escapeHtml(preview.entry.summary)}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/remove"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>Reason (optional)<textarea name="reason" maxlength="500"></textarea></label><button type="submit">Remove from active context</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Keep this saved context</a></p>`;
+  return `<nav><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Back to Saved context</a></nav><header class="hero"><p class="eyebrow">Remove from active context</p><h1>Remove from ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}?</h1><p>This stops the item from being sent as active context. It does not erase the saved version, its evidence, provenance, or audit history.</p></header><article><h2>${escapeHtml(preview.entry.state_key)}</h2><pre>${renderJson(preview.entry.value)}</pre><p>${escapeHtml(preview.entry.summary)}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/remove"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>Reason (optional)<textarea name="reason" maxlength="500"></textarea></label><button class="destructive" type="submit">Remove from active context</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Keep this saved context</a></p>`;
 }
 
 function repairPreviewPage(preview) {
-  return `<nav><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Back to Saved context</a></nav><h1>Repair ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}</h1><p>Classify what is wrong, then remove this exact version from active context. Its value, evidence, provenance, and history remain immutable. A corrected value must arrive as a new candidate and receive its own exact human confirmation.</p><article><h2>${escapeHtml(preview.entry.state_key)}</h2><pre>${renderJson(preview.entry.value)}</pre><p>${escapeHtml(preview.entry.summary)}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/repair"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>What is wrong?<select name="repair_type" required><option value="stale">Stale — it is no longer current</option><option value="contradicted">Contradicted — reliable information now conflicts with it</option><option value="wrong">Wrong — it should not have been saved as stated</option></select></label><label>Explanation (optional)<textarea name="note" maxlength="450"></textarea></label><button type="submit">Confirm repair and remove from active context</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Keep the current saved context</a></p>`;
+  return `<nav><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Back to Saved context</a></nav><header class="hero"><p class="eyebrow">Repair saved context</p><h1>Repair ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}</h1><p>Classify what is wrong, then remove this exact version from active context. Its value, evidence, provenance, and history remain immutable. A corrected value must arrive as a new candidate and receive its own exact human confirmation.</p></header><article><h2>${escapeHtml(preview.entry.state_key)}</h2><pre>${renderJson(preview.entry.value)}</pre><p>${escapeHtml(preview.entry.summary)}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/repair"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>What is wrong?<select name="repair_type" required><option value="stale">Stale — it is no longer current</option><option value="contradicted">Contradicted — reliable information now conflicts with it</option><option value="wrong">Wrong — it should not have been saved as stated</option></select></label><label>Explanation (optional)<textarea name="note" maxlength="450"></textarea></label><button class="destructive" type="submit">Confirm repair and remove from active context</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Keep the current saved context</a></p>`;
 }
 
 export function createSavedContextRouter({ database }) {
@@ -268,7 +272,7 @@ export function createSavedContextRouter({ database }) {
       .send(
         renderPage(
           `${view.project.name} saved context`,
-          `<nav><a href="/projects/${encodeURIComponent(view.project.id)}">Project</a><a href="/connections">AI connections</a></nav><h1>${escapeHtml(view.project.name)} / ${escapeHtml(view.context.name)}</h1><p>${escapeHtml(view.context.description)}</p><nav aria-label="Project contexts">${contextLinks(view)}</nav><nav aria-label="Context views">${viewLinks(view, selected)}</nav><section><h2>${selected === "saved" ? "Saved context" : selected === "attention" ? "Needs attention" : selected === "removed" ? "Removed" : "History"}</h2>${content}</section>`,
+          `<nav><a href="/projects/${encodeURIComponent(view.project.id)}">Project</a><a href="/connections">AI connections</a></nav><header class="hero"><p class="eyebrow">Project intelligence</p><h1>${escapeHtml(view.project.name)} / ${escapeHtml(view.context.name)}</h1><p>${escapeHtml(view.context.description)}</p></header><nav aria-label="Project contexts">${contextLinks(view)}</nav><nav aria-label="Context views">${viewLinks(view, selected)}</nav><section><div class="section-heading"><h2>${selected === "saved" ? "Saved context" : selected === "attention" ? "Needs attention" : selected === "removed" ? "Removed" : "History"}</h2><p class="muted">${selected === "saved" ? "Active, human-confirmed context" : selected === "attention" ? "Awaiting exact human review" : selected === "removed" ? "Inactive, with provenance preserved" : "Immutable decision history"}</p></div>${content}</section>`,
         ),
       );
   });
