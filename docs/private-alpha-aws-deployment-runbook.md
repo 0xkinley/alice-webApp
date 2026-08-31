@@ -148,6 +148,15 @@ The Lambda-readable certificate remediation was then deployed, but its single bo
 - CloudFormation screenshots captured after cleanup show stack `alice-private-alpha` in `eu-central-1` at `UPDATE_COMPLETE` with exactly 22 resources and six outputs. The database, private S3 data boundary, ECR repository, Secrets Manager values, roles, and private network foundation remain. The runtime functions, generated public URLs, and public invoke permissions are absent.
 - Stage 6 has not passed. The ten-second timeout establishes neither application health nor a new root cause. Any further live attempt requires a separately reviewed, single bounded diagnostic/deployment step; services and origins must remain disabled until that exact step is explained and approved.
 
+The separately reviewed private direct-health diagnostic then proved the corrected image and database path without making either Function URL publicly invocable:
+
+- Change set `runtime-stage-4-private-direct-health` added exactly six non-public runtime resources: the web and MCP Lambdas, their 14-day log groups, and their generated Function URL resources. `DeployServices=true`, `OriginsConfigured=false`, and `RunMigration=false`; no invoke permission, origin/CORS rule, foundation change, replacement, or migration resource was included.
+- Exactly one synchronous Lambda-console request was made to each function using a synthetic API Gateway v2 `GET /health` event. Both returned HTTP 200 with `{"database":"reachable","service":"alice-web","status":"ok"}` and `{"database":"reachable","service":"alice-mcp","status":"ok"}` on immutable digest `sha256:d18fbf412e8bc16a1526707ff25a7f7a94f886d71bd87355c015fde1810505de`. No request was retried.
+- The web invocation took 7,193.42 ms after a 9,824.24 ms cold initialization; the MCP invocation took 7.05 ms after a 1,319.14 ms cold initialization. The web readiness output did not report the listener ready until approximately eight seconds, which explains the earlier ten-second hosted timeout but does not convert that hosted probe into a pass. The only warning was Lambda Web Adapter's deprecation notice for `HOST` in favor of `AWS_LWA_HOST`; it did not affect either 200 result and remains a deferred hygiene change.
+- Change set `runtime-stage-7-direct-health-stop` then removed exactly those six runtime resources, with no additions, modifications, replacements, public permissions, or foundation changes. CloudFormation update `61005b4d-25a4-4b64-97e9-8f7dad3417d2` finished `UPDATE_COMPLETE`. Final read-only checks showed exactly 22 retained resources and six outputs; neither Lambda, Function URL, nor log group remains, and no endpoint output was retained.
+
+This establishes only the bounded direct runtime and database-health proof. It does not complete Stage 6's hosted, OAuth, MCP protocol, or private-file proof, and any future runtime or public-origin step remains a separately reviewed and explicitly approved operation.
+
 ## Primary references
 
 - [AWS CloudShell Docker and ECR tutorial](https://docs.aws.amazon.com/cloudshell/latest/userguide/tutorial-docker-cli.html)
