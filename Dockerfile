@@ -28,7 +28,8 @@ ENV NODE_EXTRA_CA_CERTS=/app/certs/eu-central-1-bundle.pem
 WORKDIR /app
 
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
-COPY --from=build --chown=node:node /app/certs ./certs
+COPY --from=build --chown=node:node --chmod=0644 /app/certs/eu-central-1-bundle.pem ./certs/eu-central-1-bundle.pem
+RUN chmod 0755 ./certs && chmod 0644 ./certs/eu-central-1-bundle.pem
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/apps ./apps
 COPY --from=build --chown=node:node /app/packages ./packages

@@ -1,6 +1,6 @@
 # Private Alpha AWS Deployment Runbook
 
-Status: product-owner approved; Stages 1-3 complete, temporary migration resources removed, and Stages 4-7 pending
+Status: product-owner approved; Stages 1-5 complete, infrastructure smoke blocked on Lambda-readable RDS CA remediation
 
 Date: 2026-08-31
 
@@ -131,6 +131,14 @@ The first Stage 4 private-runtime attempt then stopped at the Lambda account-quo
 - Both function creations failed with AWS Lambda `InvalidRequest`: `Specified ReservedConcurrentExecutions for function decreases account's UnreservedConcurrentExecution below its minimum value of [10].` CloudFormation rolled the stack back to `UPDATE_ROLLBACK_COMPLETE`; the partial runtime resources were removed and the 22-resource foundation remained intact.
 - The account's Frankfurt concurrency quota is 10, so reserving two executions for either function is impossible while AWS requires all 10 to remain unreserved. This was an account-quota failure, not an image, application, database, migration, networking, or TLS failure.
 - On 2026-08-31 the product owner approved removing both per-function reservations for the bounded proof. This configuration has no concurrency reservation charge, leaves the regional account-wide limit of 10 as the aggregate cap, and does not make either Function URL publicly invocable during Stage 4. No quota increase or provisioned concurrency is authorized. A two-execution reservation per function may be restored only after the regional quota is at least 14 and a later review approves it.
+
+The quota-adjusted runtime and exact-origin stages then completed, but the first infrastructure smoke request exposed an image permission mismatch:
+
+- Change set `runtime-stage-4-quota-fix` added exactly the expected two functions, two 14-day log groups, and two Function URLs. It completed with 28 resources and eight outputs while public invoke permissions remained absent.
+- Change set `runtime-stage-5-exact-origins` modified only the two functions and retained S3 bucket without replacement and added exactly four Function URL permissions. It completed with 32 resources and eight outputs.
+- The bounded public probe first timed out during cold initialization and then both `/health` requests returned HTTP 502. Probing stopped immediately. Content-free Lambda logs showed both processes failed before listening because Node could not read `/app/certs/eu-central-1-bundle.pem`: `load failed: error:8000000D:system library::Permission denied`, followed by the expected fail-closed `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` PostgreSQL error.
+- The checksum-pinned CA bundle is public trust material, not a credential. The migration task ran as the image's declared `node` user and could read the owner-only copied path, but Lambda replaces the image user with its own least-privileged runtime identity. The remediation preserves the checksum, path, ownership, and strict `verify-full` behavior while making only the public certificate directory traversable with mode `0755` and its PEM readable with mode `0644`. No secret, application file, other directory, or database permission is widened.
+- This is the one bounded infrastructure remediation rerun. Do not disable TLS verification, enable provisioned concurrency, raise a quota, or run repeated probes. If the corrected immutable image is not ready for immediate verification, set `OriginsConfigured=false` and `DeployServices=false` as the safe stopping state.
 
 ## Primary references
 

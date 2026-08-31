@@ -24,7 +24,14 @@ test("production image pins the Lambda adapter and retains non-root portable sta
   );
   assert.match(dockerfile, /\.\/certs\/eu-central-1-bundle\.pem/);
   assert.match(dockerfile, /ENV NODE_EXTRA_CA_CERTS=\/app\/certs\/eu-central-1-bundle\.pem/);
-  assert.match(dockerfile, /COPY --from=build --chown=node:node \/app\/certs \.\/certs/);
+  assert.match(
+    dockerfile,
+    /COPY --from=build --chown=node:node --chmod=0644 \/app\/certs\/eu-central-1-bundle\.pem \.\/certs\/eu-central-1-bundle\.pem/,
+  );
+  assert.match(
+    dockerfile,
+    /RUN chmod 0755 \.\/certs && chmod 0644 \.\/certs\/eu-central-1-bundle\.pem/,
+  );
   assert.match(
     dockerfile,
     /aws-lambda-adapter:1\.0\.1@sha256:[0-9a-f]{64} \/lambda-adapter \/opt\/extensions\/lambda-adapter/,
