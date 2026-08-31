@@ -14,7 +14,12 @@ import {
   transferProjectOwnership,
   updateProjectMemberRole,
 } from "@alice/domain";
-import { authenticatedUser, renderPage, requireAuthenticatedUser } from "./auth.ts";
+import {
+  authenticatedUser,
+  renderPage,
+  renderStatusPage,
+  requireAuthenticatedUser,
+} from "./auth.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -29,7 +34,13 @@ function notFound(response) {
   return response
     .status(404)
     .type("html")
-    .send(renderPage("Not found", "<h1>Project or invitation not found</h1>"));
+    .send(
+      renderStatusPage(
+        "Not found",
+        '<h1>Project or invitation not found</h1><p>It may be unavailable, expired, or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
+        "neutral",
+      ),
+    );
 }
 
 function actionError(response, error) {
@@ -41,9 +52,10 @@ function actionError(response, error) {
     .status(400)
     .type("html")
     .send(
-      renderPage(
+      renderStatusPage(
         "Action not completed",
-        `<h1>Action not completed</h1><p>${escapeHtml(message)}</p>`,
+        `<h1>Action not completed</h1><p>${escapeHtml(message)}</p><p>Project access was not changed.</p><p><a href="/">Return to your private workspace</a></p>`,
+        "danger",
       ),
     );
 }

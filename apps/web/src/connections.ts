@@ -6,7 +6,7 @@ import {
   setActiveConnectionTarget,
 } from "@alice/domain";
 import express from "express";
-import { renderPage, requireAuthenticatedUser } from "./auth.ts";
+import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -34,7 +34,7 @@ function selectionOptions(projects, connection) {
 function connectionCard(connection, projects, expectedVersions) {
   const status = connection.revoked_at ? "Revoked" : "Connected";
   const action = connection.revoked_at
-    ? "<p>Reconnect from this host using the same stable alice. MCP address.</p>"
+    ? "<p>Reconnect from this host using the alice. MCP address configured for this environment.</p>"
     : `${projects.some(({ contexts }) => contexts.length > 0) ? `<form method="post" action="/connections/${encodeURIComponent(connection.id)}/target"><label>Active project and work context<select name="target" required>${selectionOptions(projects, connection)}</select></label><input type="hidden" name="expected_versions" value="${escapeHtml(JSON.stringify(expectedVersions))}"><label><input name="apply_all" type="checkbox" value="yes"> Apply this target to all active AI connections</label><button type="submit">Confirm active target</button></form>` : '<p class="notice">Create a project work context before selecting a target.</p>'}<form method="post" action="/connections/${encodeURIComponent(connection.id)}/revoke"><button class="destructive" type="submit">Revoke this connection</button></form>`;
   const current = connection.context_id
     ? `<p><strong>Active target:</strong> ${escapeHtml(connection.project_name)} / ${escapeHtml(connection.context_name)}</p>`
@@ -81,7 +81,7 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
       .send(
         renderPage(
           "AI connections",
-          `<nav><a href="/">Projects</a></nav><header class="hero"><p class="eyebrow">Your connections</p><h1>Choose what each AI tool can access.</h1><p>Every connection belongs only to your alice. account. Collaborators never inherit these permissions, and a connected host cannot save context without your exact human confirmation.</p></header><div class="dashboard-grid"><section><h2>Connect ChatGPT</h2><p>Add a custom remote MCP connection in ChatGPT using the address configured for this environment.</p><pre>${escapeHtml(endpoint)}</pre><p class="muted">Complete alice. sign-in and review the requested read and candidate-save permissions.</p></section><section><h2>Connect Claude</h2><p>Add a custom remote connector in Claude using the same configured address, then authorize your own alice. account.</p><pre>${escapeHtml(endpoint)}</pre></section></div><section><div class="section-heading"><h2>Connection status</h2><p class="muted">${connections.filter(({ revoked_at: revokedAt }) => !revokedAt).length} active</p></div>${cards || '<div class="empty-state"><h2>No AI host is connected</h2><p>Use the setup address above when this environment is ready for a supported host connection.</p></div>'}</section><section><div class="section-heading"><h2>Your recent host reads</h2><p class="muted">Immutable, content-free receipts</p></div><p>These receipts distinguish successful retrieval from failure. Success does not prove that a host used the returned context in its answer.</p>${readActivity}</section>`,
+          `<nav><a href="/">Projects</a></nav><header class="hero"><p class="eyebrow">Your connections</p><h1>Choose what each AI tool can access.</h1><p>Every connection belongs only to your alice. account. Collaborators never inherit these permissions, and a connected host cannot save context without your exact human confirmation.</p></header><div class="dashboard-grid"><section><h2>Connect ChatGPT</h2><p>Add a custom remote MCP connection in ChatGPT using the address configured for this environment.</p><pre>${escapeHtml(endpoint)}</pre><p class="muted">Complete alice. sign-in and review permission to read context and propose updates for your review.</p></section><section><h2>Connect Claude</h2><p>Add a custom remote connector in Claude using the same configured address, then authorize your own alice. account.</p><pre>${escapeHtml(endpoint)}</pre></section></div><section><div class="section-heading"><h2>Connection status</h2><p class="muted">${connections.filter(({ revoked_at: revokedAt }) => !revokedAt).length} active</p></div>${cards || '<div class="empty-state"><h2>No AI host is connected</h2><p>Use the setup address above when this environment is ready for a supported host connection.</p></div>'}</section><section><div class="section-heading"><h2>Your recent host reads</h2><p class="muted">Immutable, content-free receipts</p></div><p>These receipts distinguish successful retrieval from failure. Success does not prove that a host used the returned context in its answer.</p>${readActivity}</section>`,
         ),
       );
   });
@@ -92,7 +92,12 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
       return response
         .status(400)
         .type("html")
-        .send(renderPage("Invalid target", "<h1>Select a valid project and work context.</h1>"));
+        .send(
+          renderStatusPage(
+            "Invalid target",
+            '<h1>Select a valid project and work context.</h1><p><a href="/connections">Return to AI connections</a></p>',
+          ),
+        );
     }
     let expectedVersions;
     try {
@@ -101,7 +106,12 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
       return response
         .status(409)
         .type("html")
-        .send(renderPage("Selection changed", "<h1>Reload before changing this target.</h1>"));
+        .send(
+          renderStatusPage(
+            "Selection changed",
+            '<h1>Reload before changing this target.</h1><p>Nothing was changed.</p><p><a href="/connections">Review current targets</a></p>',
+          ),
+        );
     }
     const result = await setActiveConnectionTarget(database, {
       userId: request.aliceUser!.id,
@@ -115,16 +125,22 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Connection or target not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Connection or target not found</h1><p>The connection may be unavailable or outside your account.</p><p><a href="/connections">Return to AI connections</a></p>',
+            "neutral",
+          ),
+        );
     }
     if (result.conflict) {
       return response
         .status(409)
         .type("html")
         .send(
-          renderPage(
+          renderStatusPage(
             "Selection changed",
-            '<h1>An active target changed in another session.</h1><p><a href="/connections">Review current targets and try again.</a></p>',
+            '<h1>An active target changed in another session.</h1><p>Nothing was overwritten.</p><p><a href="/connections">Review current targets and try again.</a></p>',
           ),
         );
     }
@@ -140,7 +156,13 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Connection not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Connection not found</h1><p>The connection may already be revoked or outside your account.</p><p><a href="/connections">Return to AI connections</a></p>',
+            "neutral",
+          ),
+        );
     }
     response.redirect(303, "/connections");
   });

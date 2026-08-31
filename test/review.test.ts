@@ -95,9 +95,9 @@ test("an explicit authenticated review accepts a candidate into versioned truste
   });
   assert.equal(queueIndexResponse.status, 200);
   const queueIndexHtml = await queueIndexResponse.text();
-  assert.match(queueIndexHtml, /Candidate review queue/);
+  assert.match(queueIndexHtml, /Context review/);
   assert.match(queueIndexHtml, /Switchboard Launch/);
-  assert.match(queueIndexHtml, /1 pending/);
+  assert.match(queueIndexHtml, /1 need attention/);
 
   const reviewResponse = await fetch(`${webUrl}/review?project_id=project_switchboard_launch`, {
     headers: { cookie: reviewCookie },
@@ -105,7 +105,7 @@ test("an explicit authenticated review accepts a candidate into versioned truste
   assert.equal(reviewResponse.status, 200);
   const reviewHtml = await reviewResponse.text();
   assert.match(reviewHtml, new RegExp(candidateId));
-  assert.match(reviewHtml, /Pending \(1\)/);
+  assert.match(reviewHtml, /Needs attention \(1\)/);
   assert.match(reviewHtml, /Candidate for review/);
   assert.match(reviewHtml, /The user explicitly chose the launch price/);
   assert.match(reviewHtml, /Launch plan excerpt: charge USD 24 per month/);
@@ -152,7 +152,7 @@ test("an explicit authenticated review accepts a candidate into versioned truste
     headers: { cookie: reviewCookie },
   });
   const pendingHtml = await pendingResponse.text();
-  assert.match(pendingHtml, /No pending candidates/);
+  assert.match(pendingHtml, /No proposals in this view/);
   assert.doesNotMatch(pendingHtml, new RegExp(candidateId));
   const acceptedResponse = await fetch(
     `${webUrl}/review?project_id=project_switchboard_launch&status=accepted`,
@@ -550,8 +550,8 @@ test("explicit human supersession creates a traceable version without rewriting 
   });
   const pendingReviewHtml = await pendingReview.text();
   assert.match(pendingReviewHtml, new RegExp(firstAccepted.id));
-  assert.match(pendingReviewHtml, /Current trusted state/);
-  assert.match(pendingReviewHtml, /Supersede trusted version 1/);
+  assert.match(pendingReviewHtml, /Current saved context/);
+  assert.match(pendingReviewHtml, /Replace saved version 1/);
   assert.doesNotMatch(
     pendingReviewHtml,
     new RegExp(`/review/candidates/${secondCandidateId}/accept`),

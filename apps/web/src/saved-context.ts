@@ -1,6 +1,6 @@
 import { getRemovalPreview, getSavedContextView, removeSavedContextEntry } from "@alice/domain";
 import express from "express";
-import { renderPage, requireAuthenticatedUser } from "./auth.ts";
+import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 
 const VIEWS = new Set(["saved", "attention", "removed", "history"]);
 const REPAIR_TYPES = new Map([
@@ -104,7 +104,7 @@ function removalPreviewPage(preview) {
 }
 
 function repairPreviewPage(preview) {
-  return `<nav><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Back to Saved context</a></nav><header class="hero"><p class="eyebrow">Repair saved context</p><h1>Repair ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}</h1><p>Classify what is wrong, then remove this exact version from active context. Its value, evidence, provenance, and history remain immutable. A corrected value must arrive as a new candidate and receive its own exact human confirmation.</p></header><article><h2>${escapeHtml(preview.entry.state_key)}</h2><pre>${renderJson(preview.entry.value)}</pre><p>${escapeHtml(preview.entry.summary)}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/repair"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>What is wrong?<select name="repair_type" required><option value="stale">Stale — it is no longer current</option><option value="contradicted">Contradicted — reliable information now conflicts with it</option><option value="wrong">Wrong — it should not have been saved as stated</option></select></label><label>Explanation (optional)<textarea name="note" maxlength="450"></textarea></label><button class="destructive" type="submit">Confirm repair and remove from active context</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Keep the current saved context</a></p>`;
+  return `<nav><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Back to Saved context</a></nav><header class="hero"><p class="eyebrow">Repair saved context</p><h1>Repair ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}</h1><p>Classify what is wrong, then remove this exact version from active context. Its value, evidence, provenance, and history remain unchanged. A corrected value must arrive as a new proposal and receive its own exact human confirmation.</p></header><article><h2>${escapeHtml(preview.entry.state_key)}</h2><pre>${renderJson(preview.entry.value)}</pre><p>${escapeHtml(preview.entry.summary)}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/repair"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>What is wrong?<select name="repair_type" required><option value="stale">Stale — it is no longer current</option><option value="contradicted">Contradicted — reliable information now conflicts with it</option><option value="wrong">Wrong — it should not have been saved as stated</option></select></label><label>Explanation (optional)<textarea name="note" maxlength="450"></textarea></label><button class="destructive" type="submit">Confirm repair and remove from active context</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Keep the current saved context</a></p>`;
 }
 
 export function createSavedContextRouter({ database }) {
@@ -122,7 +122,13 @@ export function createSavedContextRouter({ database }) {
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Saved context not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Saved context not found</h1><p>The entry may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
+            "neutral",
+          ),
+        );
     }
     response.type("html").send(renderPage("Remove saved context", removalPreviewPage(preview)));
   });
@@ -138,7 +144,13 @@ export function createSavedContextRouter({ database }) {
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Saved context not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Saved context not found</h1><p>The entry may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
+            "neutral",
+          ),
+        );
     }
     response.type("html").send(renderPage("Repair saved context", repairPreviewPage(preview)));
   });
@@ -150,14 +162,24 @@ export function createSavedContextRouter({ database }) {
       return response
         .status(400)
         .type("html")
-        .send(renderPage("Invalid repair", "<h1>Select a valid repair reason.</h1>"));
+        .send(
+          renderStatusPage(
+            "Invalid repair",
+            '<h1>Select a valid repair reason.</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>',
+          ),
+        );
     }
     const note = String(request.body.note || "").trim();
     if (note.length > 450) {
       return response
         .status(400)
         .type("html")
-        .send(renderPage("Invalid repair", "<h1>Repair explanation exceeds 450 characters.</h1>"));
+        .send(
+          renderStatusPage(
+            "Invalid repair",
+            '<h1>Repair explanation exceeds 450 characters.</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>',
+          ),
+        );
     }
     let result;
     try {
@@ -174,22 +196,34 @@ export function createSavedContextRouter({ database }) {
       return response
         .status(400)
         .type("html")
-        .send(renderPage("Not repaired", `<h1>${escapeHtml(String(error))}</h1>`));
+        .send(
+          renderStatusPage(
+            "Not repaired",
+            `<h1>${escapeHtml(String(error))}</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>`,
+            "danger",
+          ),
+        );
     }
     if (!result) {
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Saved context not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Saved context not found</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>',
+            "neutral",
+          ),
+        );
     }
     if (result.conflict) {
       return response
         .status(409)
         .type("html")
         .send(
-          renderPage(
+          renderStatusPage(
             "Repair changed",
-            `<h1>This saved context changed.</h1><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/saved-context?context_id=${encodeURIComponent(String(request.body.context_id || ""))}">Review the current context before repairing it.</a></p>`,
+            `<h1>This saved context changed.</h1><p>Nothing was removed or overwritten.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/saved-context?context_id=${encodeURIComponent(String(request.body.context_id || ""))}">Review the current context before repairing it.</a></p>`,
           ),
         );
     }
@@ -214,22 +248,34 @@ export function createSavedContextRouter({ database }) {
       return response
         .status(400)
         .type("html")
-        .send(renderPage("Not removed", `<h1>${escapeHtml(String(error))}</h1>`));
+        .send(
+          renderStatusPage(
+            "Not removed",
+            `<h1>${escapeHtml(String(error))}</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>`,
+            "danger",
+          ),
+        );
     }
     if (!result) {
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Saved context not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Saved context not found</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>',
+            "neutral",
+          ),
+        );
     }
     if (result.conflict) {
       return response
         .status(409)
         .type("html")
         .send(
-          renderPage(
+          renderStatusPage(
             "Removal changed",
-            `<h1>This saved context changed.</h1><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/saved-context?context_id=${encodeURIComponent(String(request.body.context_id || ""))}">Review the current context before deciding.</a></p>`,
+            `<h1>This saved context changed.</h1><p>Nothing was removed or overwritten.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/saved-context?context_id=${encodeURIComponent(String(request.body.context_id || ""))}">Review the current context before deciding.</a></p>`,
           ),
         );
     }
@@ -245,7 +291,12 @@ export function createSavedContextRouter({ database }) {
       return response
         .status(400)
         .type("html")
-        .send(renderPage("Invalid view", "<h1>Invalid saved-context view</h1>"));
+        .send(
+          renderStatusPage(
+            "Invalid view",
+            '<h1>Invalid saved-context view</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>',
+          ),
+        );
     }
     const view = await getSavedContextView(database, {
       userId: request.aliceUser!.id,
@@ -256,7 +307,13 @@ export function createSavedContextRouter({ database }) {
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Project or context not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Project or context not found</h1><p>The destination may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
+            "neutral",
+          ),
+        );
     }
 
     const content =

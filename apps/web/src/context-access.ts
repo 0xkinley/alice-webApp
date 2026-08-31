@@ -6,7 +6,7 @@ import {
   grantContextAccess,
   updateContextAccessRole,
 } from "@alice/domain";
-import { renderPage, requireAuthenticatedUser } from "./auth.ts";
+import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -21,7 +21,13 @@ function notFound(response) {
   return response
     .status(404)
     .type("html")
-    .send(renderPage("Not found", "<h1>Restricted context not found</h1>"));
+    .send(
+      renderStatusPage(
+        "Not found",
+        '<h1>Restricted context not found</h1><p>It may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
+        "neutral",
+      ),
+    );
 }
 
 function actionError(response, error) {
@@ -33,7 +39,11 @@ function actionError(response, error) {
     .status(400)
     .type("html")
     .send(
-      renderPage("Access not changed", `<h1>Access not changed</h1><p>${escapeHtml(message)}</p>`),
+      renderStatusPage(
+        "Access not changed",
+        `<h1>Access not changed</h1><p>${escapeHtml(message)}</p><p>No context permission was changed.</p><p><a href="/">Return to your private workspace</a></p>`,
+        "danger",
+      ),
     );
 }
 

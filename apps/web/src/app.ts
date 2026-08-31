@@ -15,7 +15,12 @@ import {
   suggestSimilarWorkContexts,
 } from "@alice/domain";
 import { getProjectContextSchema } from "@alice/schemas";
-import { createAuthRouter, renderPage, requireAuthenticatedUser } from "./auth.ts";
+import {
+  createAuthRouter,
+  renderPage,
+  renderStatusPage,
+  requireAuthenticatedUser,
+} from "./auth.ts";
 import { createConnectionsRouter } from "./connections.ts";
 import { createContextAccessRouter } from "./context-access.ts";
 import { createFilesRouter } from "./files.ts";
@@ -107,7 +112,13 @@ export async function createApp({
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Signals not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Signals not found</h1><p><a href="/">Return to your private workspace</a></p>',
+            "neutral",
+          ),
+        );
     }
     const percentage = (value) => (value === null ? "Not enough data" : `${value}%`);
     const duration = (value) => (value === null ? "Not enough data" : `${value} seconds`);
@@ -123,16 +134,28 @@ export async function createApp({
   app.post("/projects", requireAuthenticatedUser(database), async (request, response) => {
     try {
       const project = await createProject(database, request.aliceUser!.id, request.body);
-      if (!project) return response.status(403).send("Authorization denied.");
+      if (!project) {
+        return response
+          .status(403)
+          .type("html")
+          .send(
+            renderStatusPage(
+              "Authorization denied",
+              '<h1>Authorization denied.</h1><p>No project was created.</p><p><a href="/">Return to your private workspace</a></p>',
+              "danger",
+            ),
+          );
+      }
       response.redirect(303, `/projects/${encodeURIComponent(project.id)}`);
     } catch (error) {
       response
         .status(400)
         .type("html")
         .send(
-          renderPage(
+          renderStatusPage(
             "Project not created",
-            `<h1>Project not created</h1><p>${escapeHtml(String(error))}</p>`,
+            `<h1>Project not created</h1><p>${escapeHtml(String(error))}</p><p>No project data was saved.</p><p><a href="/">Return to your private workspace</a></p>`,
+            "danger",
           ),
         );
     }
@@ -143,7 +166,13 @@ export async function createApp({
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Project not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Project not found</h1><p>The project may be unavailable or outside your workspace.</p><p><a href="/">Return to your private workspace</a></p>',
+            "neutral",
+          ),
+        );
     }
     const contexts =
       (await listWorkContexts(database, request.aliceUser!.id, request.params.projectId)) || [];
@@ -161,7 +190,7 @@ export async function createApp({
       )
       .join("");
     const reviewLink = canWrite
-      ? `<a href="/review?project_id=${encodeURIComponent(project.id)}">Review candidate claims</a>`
+      ? `<a href="/review?project_id=${encodeURIComponent(project.id)}">Review proposed context</a>`
       : "";
     const createContext = canWrite
       ? `<h2>Create a work context</h2><form method="post" action="/projects/${encodeURIComponent(project.id)}/contexts/preview"><label>Name<input name="name" maxlength="120" required></label><label>Description<textarea name="description" maxlength="2000" required></textarea></label><label>Visibility<select name="visibility"><option value="all_members">All project members</option><option value="selected_members">Selected members</option><option value="personal">Personal draft</option></select></label><p class="muted">Project Owners do not automatically receive access to selected-member or personal contexts.</p><button type="submit">Check for similar contexts</button></form>`
@@ -201,9 +230,9 @@ export async function createApp({
         .status(400)
         .type("html")
         .send(
-          renderPage(
+          renderStatusPage(
             "Invalid preview",
-            `<h1>Invalid package preview request</h1><p>${escapeHtml(parsed.error.issues[0]?.message || "Invalid input")}</p>`,
+            `<h1>Invalid package preview request</h1><p>${escapeHtml(parsed.error.issues[0]?.message || "Invalid input")}</p><p>No host-read receipt or project-state change was created.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}">Return to the project</a></p>`,
           ),
         );
     }
@@ -223,9 +252,9 @@ export async function createApp({
           .status(422)
           .type("html")
           .send(
-            renderPage(
+            renderStatusPage(
               "Package does not fit",
-              `<h1>Package does not fit this byte budget</h1><p>${escapeHtml(error.message)}</p>`,
+              `<h1>Package does not fit this byte budget</h1><p>${escapeHtml(error.message)}</p><p>No partial package was returned and no project state changed.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/context-preview">Try a larger permitted budget</a></p>`,
             ),
           );
       }
@@ -235,7 +264,13 @@ export async function createApp({
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Project or context not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            `<h1>Project or context not found</h1><p>The destination may be unavailable or outside your access.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}">Return to the project</a></p>`,
+            "neutral",
+          ),
+        );
     }
     response
       .type("html")
@@ -271,7 +306,13 @@ export async function createApp({
           return response
             .status(404)
             .type("html")
-            .send(renderPage("Not found", "<h1>Project not found</h1>"));
+            .send(
+              renderStatusPage(
+                "Not found",
+                '<h1>Project not found</h1><p>No work context was created.</p><p><a href="/">Return to your private workspace</a></p>',
+                "neutral",
+              ),
+            );
         }
         const similar = suggestions.length
           ? `<h2>Similar contexts</h2><p>Nothing is grouped or moved automatically. You can return to one of these contexts instead.</p>${suggestions
@@ -293,7 +334,13 @@ export async function createApp({
         response
           .status(400)
           .type("html")
-          .send(renderPage("Invalid work context", `<h1>${escapeHtml(String(error))}</h1>`));
+          .send(
+            renderStatusPage(
+              "Invalid work context",
+              `<h1>${escapeHtml(String(error))}</h1><p>No work context was created.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}">Return to the project</a></p>`,
+              "danger",
+            ),
+          );
       }
     },
   );
@@ -311,7 +358,13 @@ export async function createApp({
           return response
             .status(404)
             .type("html")
-            .send(renderPage("Not found", "<h1>Project not found</h1>"));
+            .send(
+              renderStatusPage(
+                "Not found",
+                '<h1>Project not found</h1><p>No work context was created.</p><p><a href="/">Return to your private workspace</a></p>',
+                "neutral",
+              ),
+            );
         }
         response.redirect(
           303,
@@ -321,7 +374,13 @@ export async function createApp({
         response
           .status(400)
           .type("html")
-          .send(renderPage("Work context not created", `<h1>${escapeHtml(String(error))}</h1>`));
+          .send(
+            renderStatusPage(
+              "Work context not created",
+              `<h1>${escapeHtml(String(error))}</h1><p>No work context was created.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}">Return to the project</a></p>`,
+              "danger",
+            ),
+          );
       }
     },
   );

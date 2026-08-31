@@ -15,7 +15,7 @@ import {
   uploadProjectFile,
 } from "@alice/domain";
 import type { PrivateFileStore } from "@alice/domain";
-import { renderPage, requireAuthenticatedUser } from "./auth.ts";
+import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -30,7 +30,13 @@ function notFound(response) {
   return response
     .status(404)
     .type("html")
-    .send(renderPage("Not found", "<h1>Project files not found</h1>"));
+    .send(
+      renderStatusPage(
+        "Not found",
+        '<h1>Project files not found</h1><p>The file or context may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
+        "neutral",
+      ),
+    );
 }
 
 function statusCopy(status: string): string {
@@ -70,7 +76,7 @@ const announce=(message,tone="")=>{status.textContent=message;status.className=t
 const fail=message=>{announce(message||"Upload failed.","danger");progress.hidden=true};
 const sha256=async file=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",await file.arrayBuffer()))).map(byte=>byte.toString(16).padStart(2,"0")).join("");
 const finalize=async(intentId,versionId)=>{const response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files/direct/intents/"+encodeURIComponent(intentId)+"/finalize",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({storage_version_id:versionId})});if(response.status===202){announce("Security scan in progress…","warning");setTimeout(()=>finalize(intentId,versionId).catch(error=>fail(error.message)),3000);return}if(!response.ok)throw new Error(await response.text());const receipt=await response.json();if(config.successLocation==="receipt")location.href="/projects/"+encodeURIComponent(config.projectId)+"/files/"+encodeURIComponent(receipt.file_reference_id);else location.reload()};
-form.addEventListener("submit",async event=>{event.preventDefault();const file=input.files[0];if(!file)return;progress.hidden=false;progress.value=0;announce("Preparing secure upload…");try{const digest=await sha256(file);const response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files/direct/intents",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({context_id:config.contextId,file_name:file.name,claimed_media_type:file.type||"application/octet-stream",byte_size:file.size,sha256:digest,replace_reference_id:config.replacesReferenceId})});if(!response.ok)throw new Error(await response.text());const intent=await response.json();const xhr=new XMLHttpRequest();xhr.open("PUT",intent.upload_url);for(const [name,value] of Object.entries(intent.upload_headers))xhr.setRequestHeader(name,value);xhr.upload.onprogress=e=>{if(e.lengthComputable)progress.value=e.loaded/e.total*100};xhr.onerror=()=>fail("The private storage upload failed.");xhr.onload=()=>{if(xhr.status<200||xhr.status>=300)return fail("The private storage upload failed.");const versionId=xhr.getResponseHeader("x-amz-version-id");if(!versionId)return fail("Private storage did not expose the immutable object version.");announce("Upload received. Waiting for security scan…","warning");finalize(intent.intent_id,versionId).catch(error=>fail(error.message))};announce("Uploading directly to private storage…");xhr.send(file)}catch(error){fail(error.message)}});
+form.addEventListener("submit",async event=>{event.preventDefault();const file=input.files[0];if(!file)return;progress.hidden=false;progress.value=0;announce("Preparing private upload…");try{const digest=await sha256(file);const response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files/direct/intents",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({context_id:config.contextId,file_name:file.name,claimed_media_type:file.type||"application/octet-stream",byte_size:file.size,sha256:digest,replace_reference_id:config.replacesReferenceId})});if(!response.ok)throw new Error(await response.text());const intent=await response.json();const xhr=new XMLHttpRequest();xhr.open("PUT",intent.upload_url);for(const [name,value] of Object.entries(intent.upload_headers))xhr.setRequestHeader(name,value);xhr.upload.onprogress=e=>{if(e.lengthComputable)progress.value=e.loaded/e.total*100};xhr.onerror=()=>fail("The private storage upload failed.");xhr.onload=()=>{if(xhr.status<200||xhr.status>=300)return fail("The private storage upload failed.");const versionId=xhr.getResponseHeader("x-amz-version-id");if(!versionId)return fail("Private storage did not expose the immutable object version.");announce("Upload received. Waiting for security scan…","warning");finalize(intent.intent_id,versionId).catch(error=>fail(error.message))};announce("Uploading directly to private storage…");xhr.send(file)}catch(error){fail(error.message)}});
 </script>`;
 }
 
@@ -159,7 +165,7 @@ export function createFilesRouter({
           .send(
             error instanceof ProjectFileUserError
               ? error.message
-              : "The secure upload could not be started.",
+              : "The private upload could not be started.",
           );
       }
     },
@@ -188,7 +194,7 @@ export function createFilesRouter({
           .send(
             error instanceof ProjectFileUserError
               ? error.message
-              : "The secure upload could not be finalized.",
+              : "The private upload could not be finalized.",
           );
       }
     },
@@ -278,7 +284,17 @@ export function createFilesRouter({
     });
     if (!file) return notFound(response);
     if (!file.access.can_write) return notFound(response);
-    if (!file.can_replace) return response.status(409).send("This file cannot be replaced now.");
+    if (!file.can_replace) {
+      return response
+        .status(409)
+        .type("html")
+        .send(
+          renderStatusPage(
+            "Replacement unavailable",
+            `<h1>This file cannot be replaced now.</h1><p>The current file and version history were not changed.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}">Return to the file</a></p>`,
+          ),
+        );
+    }
     response
       .type("html")
       .send(
@@ -297,12 +313,29 @@ export function createFilesRouter({
         referenceId: request.params.referenceId,
       });
       if (!preview) return notFound(response);
-      if (!preview.available) return response.status(409).send("This file cannot be previewed.");
+      if (!preview.available) {
+        return response
+          .status(409)
+          .type("html")
+          .send(
+            renderStatusPage(
+              "Preview unavailable",
+              `<h1>This file cannot be previewed.</h1><p>The file remains unavailable unless its exact current version is scan-clean and accessible.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}">Return to the file</a></p>`,
+            ),
+          );
+      }
       response.set("Cache-Control", "no-store").set("X-Content-Type-Options", "nosniff");
       if (preview.kind === "metadata_only") {
         return response
           .status(409)
-          .send("PDF content is not rendered inline. Review metadata or download it explicitly.");
+          .type("html")
+          .send(
+            renderStatusPage(
+              "Inline preview unavailable",
+              `<h1>PDF content is not rendered inline.</h1><p>Review metadata or download it explicitly.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}">Return to the file</a></p>`,
+              "neutral",
+            ),
+          );
       }
       if (preview.kind === "text") {
         return response
@@ -317,7 +350,16 @@ export function createFilesRouter({
       response.set("Content-Security-Policy", "sandbox; default-src 'none'");
       return response.type(preview.media_type).send(preview.bytes);
     } catch {
-      return response.status(502).send("The verified file preview could not be loaded.");
+      return response
+        .status(502)
+        .type("html")
+        .send(
+          renderStatusPage(
+            "Preview unavailable",
+            `<h1>The verified file preview could not be loaded.</h1><p>No file or project state was changed.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}">Return to the file</a></p>`,
+            "danger",
+          ),
+        );
     }
   });
 
@@ -349,17 +391,32 @@ export function createFilesRouter({
         reason: request.body.reason,
       });
     } catch (error) {
+      const message =
+        error instanceof ProjectFileUserError
+          ? error.message
+          : "The file reference could not be removed.";
       return response
         .status(error instanceof ProjectFileUserError ? 400 : 500)
+        .type("html")
         .send(
-          error instanceof ProjectFileUserError
-            ? error.message
-            : "The file reference could not be removed.",
+          renderStatusPage(
+            "File not removed",
+            `<h1>File not removed</h1><p>${escapeHtml(message)}</p><p>The active reference and preserved metadata were not changed.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}">Return to the file</a></p>`,
+            "danger",
+          ),
         );
     }
     if (!result) return notFound(response);
     if (result.conflict) {
-      return response.status(409).send("This file reference changed. Review it before deciding.");
+      return response
+        .status(409)
+        .type("html")
+        .send(
+          renderStatusPage(
+            "File reference changed",
+            `<h1>This file reference changed.</h1><p>Nothing was removed or overwritten.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}">Review it before deciding</a></p>`,
+          ),
+        );
     }
     response.redirect(
       303,
@@ -380,7 +437,16 @@ export function createFilesRouter({
         `/projects/${encodeURIComponent(request.params.projectId)}/files?context_id=${encodeURIComponent(result.context_id)}`,
       );
     } catch {
-      response.status(502).send("Scan status could not be checked. The file remains unavailable.");
+      response
+        .status(502)
+        .type("html")
+        .send(
+          renderStatusPage(
+            "Scan check unavailable",
+            `<h1>Scan status could not be checked.</h1><p>The file remains unavailable.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}">Return to the file</a></p>`,
+            "danger",
+          ),
+        );
     }
   });
 
@@ -396,12 +462,29 @@ export function createFilesRouter({
         });
         if (!result) return notFound(response);
         if (!result.available) {
-          return response.status(409).send("This file is not available for download.");
+          return response
+            .status(409)
+            .type("html")
+            .send(
+              renderStatusPage(
+                "Download unavailable",
+                `<h1>This file is not available for download.</h1><p>Only an accessible, current, scan-clean version can be downloaded.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}">Return to the file</a></p>`,
+              ),
+            );
         }
         response.set("Cache-Control", "no-store");
         response.redirect(302, result.url);
       } catch {
-        response.status(502).send("A private download could not be created.");
+        response
+          .status(502)
+          .type("html")
+          .send(
+            renderStatusPage(
+              "Download unavailable",
+              `<h1>A private download could not be created.</h1><p>No file or project state was changed.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}">Return to the file</a></p>`,
+              "danger",
+            ),
+          );
       }
     },
   );

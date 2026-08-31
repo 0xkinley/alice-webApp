@@ -8,7 +8,7 @@ import {
   requestProjectDeletion,
   restoreProject,
 } from "@alice/domain";
-import { renderPage, requireAuthenticatedUser } from "./auth.ts";
+import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -23,7 +23,13 @@ function notFound(response) {
   return response
     .status(404)
     .type("html")
-    .send(renderPage("Not found", "<h1>Project not found</h1>"));
+    .send(
+      renderStatusPage(
+        "Not found",
+        '<h1>Project not found</h1><p>The project may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
+        "neutral",
+      ),
+    );
 }
 
 function actionError(response, error) {
@@ -35,9 +41,10 @@ function actionError(response, error) {
     .status(error instanceof ProjectLifecycleUserError ? 409 : 400)
     .type("html")
     .send(
-      renderPage(
+      renderStatusPage(
         "Action not completed",
-        `<h1>Action not completed</h1><p>${escapeHtml(message)}</p>`,
+        `<h1>Action not completed</h1><p>${escapeHtml(message)}</p><p>No lifecycle state was changed.</p><p><a href="/">Return to your private workspace</a></p>`,
+        "danger",
       ),
     );
 }

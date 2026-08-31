@@ -9,7 +9,7 @@ import {
   supersedeAcceptedState,
 } from "@alice/domain";
 import express from "express";
-import { renderPage, requireAuthenticatedUser } from "./auth.ts";
+import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 
 // Trusted-state acceptance stays behind the human web control plane.
 
@@ -39,14 +39,20 @@ function reviewProjectIndex(projects) {
   const cards = projects
     .map(
       (project) =>
-        `<article><h2><a href="/review?project_id=${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p><strong>${project.pending_count} pending</strong> · ${project.accepted_count} accepted · ${project.rejected_count} rejected</p>${project.latest_candidate_at ? `<p class="muted">Latest candidate: ${escapeHtml(project.latest_candidate_at)}</p>` : '<p class="muted">No candidates captured yet.</p>'}</article>`,
+        `<article><h2><a href="/review?project_id=${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p><strong>${project.pending_count} need attention</strong> · ${project.accepted_count} saved · ${project.rejected_count} not saved</p>${project.latest_candidate_at ? `<p class="muted">Latest proposal: ${escapeHtml(project.latest_candidate_at)}</p>` : '<p class="muted">No proposals captured yet.</p>'}</article>`,
     )
     .join("");
-  return `<nav><a href="/">Private workspace</a></nav><header class="hero"><p class="eyebrow">Needs attention</p><h1>Review proposed context before it is saved.</h1><p>Only an explicit authenticated decision can change trusted project state. A host tool call alone never activates a claim.</p></header><section><div class="section-heading"><h2>Projects with review history</h2><p class="muted">Choose a project to inspect exact proposals.</p></div>${cards || '<div class="empty-state"><h2>No projects need review</h2><p>Create a project and use a connected host to capture a proposal. Nothing is saved automatically.</p></div>'}</section>`;
+  return `<nav><a href="/">Private workspace</a></nav><header class="hero"><p class="eyebrow">Needs attention</p><h1>Review proposed context before it is saved.</h1><p>Only your explicit decision can save project context. A connected AI tool can propose an update, but cannot save it for you.</p></header><section><div class="section-heading"><h2>Projects with review history</h2><p class="muted">Choose a project to inspect exact proposals.</p></div>${cards || '<div class="empty-state"><h2>No projects need review</h2><p>Create a project and use a connected host to capture a proposal. Nothing is saved automatically.</p></div>'}</section>`;
 }
 
 function filterLink(projectId, filter, count, active) {
-  return `<a${active ? ' aria-current="page"' : ""} href="/review?project_id=${encodeURIComponent(projectId)}&status=${filter}">${filter[0].toUpperCase()}${filter.slice(1)} (${count})</a>`;
+  const labels = {
+    pending: "Needs attention",
+    accepted: "Saved",
+    rejected: "Not saved",
+    all: "All",
+  };
+  return `<a${active ? ' aria-current="page"' : ""} href="/review?project_id=${encodeURIComponent(projectId)}&status=${filter}">${labels[filter]} (${count})</a>`;
 }
 
 function evidenceDetails(candidate) {
@@ -61,23 +67,24 @@ function evidenceDetails(candidate) {
 
 function candidateCard(candidate) {
   const accepted = candidate.accepted_state_id
-    ? `<p class="muted">Accepted state: <code>${escapeHtml(candidate.accepted_state_id)}</code> · Version ${candidate.accepted_version}</p>`
+    ? `<p class="muted">Saved context: <code>${escapeHtml(candidate.accepted_state_id)}</code> · Version ${candidate.accepted_version}</p>`
     : "";
   const reviewAudit = candidate.review_audit_id
     ? `<p class="muted">Human decision audit: <code>${escapeHtml(candidate.review_audit_id)}</code> · ${escapeHtml(candidate.reviewed_at)}</p>`
     : "";
   const currentTrusted =
     candidate.status === "pending" && candidate.current_accepted_state_id
-      ? `<aside><h3>Current trusted state</h3><p>Version ${candidate.current_accepted_version} · <code>${escapeHtml(candidate.current_accepted_state_id)}</code></p><pre>${renderJson(candidate.current_accepted_value_json)}</pre><p>Accepting this candidate requires an explicit supersession action; the current version will remain immutable history.</p></aside>`
+      ? `<aside><h3>Current saved context</h3><p>Version ${candidate.current_accepted_version} · <code>${escapeHtml(candidate.current_accepted_state_id)}</code></p><pre>${renderJson(candidate.current_accepted_value_json)}</pre><p>Saving this proposal replaces the active version. The current version remains unchanged in History.</p></aside>`
       : "";
   const acceptAction = candidate.current_accepted_state_id
-    ? `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/supersede"><input type="hidden" name="superseded_accepted_state_id" value="${escapeHtml(candidate.current_accepted_state_id)}"><button type="submit">Supersede trusted version ${candidate.current_accepted_version}</button></form>`
-    : `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/accept"><button type="submit">Accept into trusted state</button></form>`;
+    ? `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/supersede"><input type="hidden" name="superseded_accepted_state_id" value="${escapeHtml(candidate.current_accepted_state_id)}"><button type="submit">Replace saved version ${candidate.current_accepted_version}</button></form>`
+    : `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/accept"><button type="submit">Save as active context</button></form>`;
   const actions =
     candidate.status === "pending"
-      ? `<div class="actions">${acceptAction}<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/reject"><button type="submit">Reject candidate</button></form></div>`
+      ? `<div class="actions">${acceptAction}<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/reject"><button type="submit">Not now</button></form></div>`
       : "";
-  return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p><p><a href="/review/captures/${encodeURIComponent(candidate.evidence_id)}">Review the exact save preview</a></p><p class="muted">Status: ${escapeHtml(candidate.status)} · Candidate: <code>${escapeHtml(candidate.id)}</code></p>${accepted}${reviewAudit}${currentTrusted}${evidenceDetails(candidate)}${actions}</article>`;
+  const statusLabels = { pending: "Needs attention", accepted: "Saved", rejected: "Not saved" };
+  return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p><p><a href="/review/captures/${encodeURIComponent(candidate.evidence_id)}">Review the exact save preview</a></p><p class="muted">Status: ${statusLabels[candidate.status] || escapeHtml(candidate.status)} · Proposal receipt: <code>${escapeHtml(candidate.id)}</code></p>${accepted}${reviewAudit}${currentTrusted}${evidenceDetails(candidate)}${actions}</article>`;
 }
 
 function capturePreviewPage(preview) {
@@ -126,16 +133,19 @@ export function createReviewRouter({ database }) {
     const requestedProjectId = String(request.query.project_id || "");
     if (!requestedProjectId) {
       const projects = await listReviewProjects(database, request.aliceUser!.id);
-      return response
-        .type("html")
-        .send(renderPage("Candidate review queue", reviewProjectIndex(projects)));
+      return response.type("html").send(renderPage("Context review", reviewProjectIndex(projects)));
     }
     const status = String(request.query.status || "pending");
     if (!new Set(["all", "pending", "accepted", "rejected"]).has(status)) {
       return response
         .status(400)
         .type("html")
-        .send(renderPage("Invalid review filter", "<h1>Invalid review filter</h1>"));
+        .send(
+          renderStatusPage(
+            "Invalid review filter",
+            '<h1>Invalid review filter</h1><p>No review decision was made.</p><p><a href="/review">Return to review</a></p>',
+          ),
+        );
     }
     const queue = await getReviewQueue(database, {
       userId: request.aliceUser!.id,
@@ -147,7 +157,13 @@ export function createReviewRouter({ database }) {
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Project not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Project not found</h1><p>The project may be unavailable or outside your access.</p><p><a href="/review">Return to review</a></p>',
+            "neutral",
+          ),
+        );
     const cards = queue.candidates.map(candidateCard).join("");
     const filters = ["pending", "accepted", "rejected", "all"]
       .map((filter) =>
@@ -164,7 +180,7 @@ export function createReviewRouter({ database }) {
       .send(
         renderPage(
           `${queue.project.name} review`,
-          `<nav><a href="/review">All review queues</a><a href="/projects/${encodeURIComponent(queue.project.id)}">Project</a></nav><header class="hero"><p class="eyebrow">Needs attention</p><h1>${escapeHtml(queue.project.name)} review</h1><p>Only an explicit action on a pending candidate can change trusted state. Your decision remains traceable in project history.</p></header><nav aria-label="Review filters">${filters}</nav><p class="muted">Showing ${queue.pagination.selected_total} ${escapeHtml(queue.filter)} candidate(s).</p>${cards || `<div class="empty-state"><h2>No ${escapeHtml(queue.filter)} candidates</h2><p>There is nothing to decide in this view.</p></div>`}${paginationLinks(queue)}`,
+          `<nav><a href="/review">All review queues</a><a href="/projects/${encodeURIComponent(queue.project.id)}">Project</a></nav><header class="hero"><p class="eyebrow">Needs attention</p><h1>${escapeHtml(queue.project.name)} review</h1><p>Only your explicit action can save a proposed entry. Your decision remains traceable in project history.</p></header><nav aria-label="Review filters">${filters}</nav><p class="muted">Showing ${queue.pagination.selected_total} proposal(s) in ${escapeHtml(queue.filter)}.</p>${cards || `<div class="empty-state"><h2>No proposals in this view</h2><p>There is nothing to decide here.</p></div>`}${paginationLinks(queue)}`,
         ),
       );
   });
@@ -178,7 +194,13 @@ export function createReviewRouter({ database }) {
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Save preview not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Save preview not found</h1><p>The preview may be unavailable or outside your access.</p><p><a href="/review">Return to review</a></p>',
+            "neutral",
+          ),
+        );
     }
     response
       .type("html")
@@ -195,16 +217,22 @@ export function createReviewRouter({ database }) {
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Save preview not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Save preview not found</h1><p>No context was saved.</p><p><a href="/review">Return to review</a></p>',
+            "neutral",
+          ),
+        );
     }
     if (result.conflict) {
       return response
         .status(409)
         .type("html")
         .send(
-          renderPage(
+          renderStatusPage(
             "Preview changed",
-            `<h1>This save preview changed.</h1><p><a href="/review/captures/${encodeURIComponent(request.params.evidenceId)}">Review the exact current preview before deciding.</a></p>`,
+            `<h1>This save preview changed.</h1><p>Nothing was saved or overwritten.</p><p><a href="/review/captures/${encodeURIComponent(request.params.evidenceId)}">Review the exact current preview before deciding.</a></p>`,
           ),
         );
     }
@@ -224,16 +252,22 @@ export function createReviewRouter({ database }) {
       return response
         .status(404)
         .type("html")
-        .send(renderPage("Not found", "<h1>Save preview not found</h1>"));
+        .send(
+          renderStatusPage(
+            "Not found",
+            '<h1>Save preview not found</h1><p>No proposal was cancelled.</p><p><a href="/review">Return to review</a></p>',
+            "neutral",
+          ),
+        );
     }
     if (result.conflict) {
       return response
         .status(409)
         .type("html")
         .send(
-          renderPage(
+          renderStatusPage(
             "Preview changed",
-            `<h1>This save preview changed.</h1><p><a href="/review/captures/${encodeURIComponent(request.params.evidenceId)}">Review the exact current preview before deciding.</a></p>`,
+            `<h1>This save preview changed.</h1><p>Nothing was cancelled or overwritten.</p><p><a href="/review/captures/${encodeURIComponent(request.params.evidenceId)}">Review the exact current preview before deciding.</a></p>`,
           ),
         );
     }
@@ -252,7 +286,12 @@ export function createReviewRouter({ database }) {
       return response
         .status(409)
         .type("html")
-        .send(renderPage("Not accepted", "<h1>Candidate is not pending or accessible.</h1>"));
+        .send(
+          renderStatusPage(
+            "Not accepted",
+            '<h1>Candidate is not pending or accessible.</h1><p>No trusted context changed.</p><p><a href="/review">Return to review</a></p>',
+          ),
+        );
     response.redirect(303, `/review?project_id=${encodeURIComponent(result.projectId)}`);
   });
 
@@ -265,7 +304,12 @@ export function createReviewRouter({ database }) {
       return response
         .status(409)
         .type("html")
-        .send(renderPage("Not rejected", "<h1>Candidate is not pending or accessible.</h1>"));
+        .send(
+          renderStatusPage(
+            "Not rejected",
+            '<h1>Candidate is not pending or accessible.</h1><p>No review state changed.</p><p><a href="/review">Return to review</a></p>',
+          ),
+        );
     response.redirect(303, `/review?project_id=${encodeURIComponent(result.projectId)}`);
   });
 
@@ -280,9 +324,9 @@ export function createReviewRouter({ database }) {
         .status(409)
         .type("html")
         .send(
-          renderPage(
+          renderStatusPage(
             "Not superseded",
-            "<h1>Candidate or current trusted version is not pending or accessible.</h1>",
+            '<h1>Candidate or current trusted version is not pending or accessible.</h1><p>No trusted context changed.</p><p><a href="/review">Return to review</a></p>',
           ),
         );
     response.redirect(303, `/review?project_id=${encodeURIComponent(result.projectId)}`);

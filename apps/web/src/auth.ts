@@ -36,12 +36,18 @@ nav{display:flex;align-items:center;gap:.65rem 1rem;flex-wrap:wrap;margin:0 0 1.
 .eyebrow{margin:0 0 .8rem;color:var(--brand);font-size:.78rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.hero{margin:0 0 2.25rem;padding:clamp(1.35rem,4vw,2.7rem);border:1px solid var(--line);border-radius:1.25rem;background:linear-gradient(120deg,rgba(165,243,193,.14),transparent 43%),linear-gradient(200deg,rgba(130,183,255,.09),transparent 55%),var(--surface)}.hero h1{max-width:18ch}.hero p:not(.eyebrow){font-size:1.08rem}.dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.dashboard-grid>section{margin:0}.dashboard-grid>section>h2{margin-top:0}.context-card{position:relative;overflow:hidden}.context-card::before{position:absolute;top:0;left:0;width:.24rem;height:100%;background:var(--brand);content:""}.context-card .context-meta{display:flex;gap:.45rem;flex-wrap:wrap;color:var(--ink-muted);font-size:.86rem}.badge{display:inline-flex;align-items:center;width:max-content;padding:.18rem .5rem;border:1px solid var(--line-strong);border-radius:999px;background:var(--surface-soft);color:var(--ink-soft);font-size:.78rem;font-weight:700}.empty-state{display:grid;gap:.45rem;min-height:11rem;align-content:center;padding:1.25rem;border:1px dashed var(--line-strong);border-radius:1rem;background:rgba(18,26,37,.55)}.empty-state h2{margin:0}.section-heading{display:flex;align-items:end;justify-content:space-between;gap:1rem;margin:2.25rem 0 .8rem}.section-heading h2{margin:0}.section-heading p{margin:0}
 .notice{margin:1rem 0;padding:1rem 1.1rem;border:1px solid var(--line-strong);border-radius:.85rem;background:var(--surface-soft)}.notice strong{color:var(--ink)}.notice.warning{border-color:#8d7041;background:#2b2315}.notice.danger{border-color:#8c4b5a;background:var(--danger-surface)}button.destructive{border-color:#9f5364;background:#562b38;color:#ffecef}button.destructive:hover{filter:brightness(1.16)}.connection-card{display:grid;gap:.35rem}.connection-card form{margin:.55rem 0 0}.connection-card.revoked{border-color:#6f6171;background:linear-gradient(135deg,rgba(180,160,190,.08),transparent 60%),var(--surface)}
 .file-card{position:relative;overflow:hidden}.file-card::before{position:absolute;top:0;left:0;width:.24rem;height:100%;background:var(--brand);content:""}.file-card.unavailable::before{background:#c4934e}.file-card.removed-file::before{background:#8c4b5a}.file-card .file-meta{display:flex;gap:.45rem;flex-wrap:wrap;color:var(--ink-muted);font-size:.9rem}.upload-panel{padding:clamp(1rem,3vw,1.5rem);border:1px solid var(--line-strong);border-radius:1rem;background:linear-gradient(135deg,rgba(130,183,255,.08),transparent 65%),var(--surface-soft)}
+.status-page{display:grid;min-height:min(30rem,70vh);place-content:center;padding:clamp(1.4rem,5vw,3.5rem);border:1px solid var(--line-strong);border-radius:1.25rem;background:linear-gradient(135deg,rgba(130,183,255,.08),transparent 55%),var(--surface);box-shadow:var(--shadow)}.status-page::before{width:2.6rem;height:.3rem;margin-bottom:1.2rem;border-radius:999px;background:var(--focus);content:""}.status-page.warning::before{background:#d9aa61}.status-page.danger::before{background:var(--danger)}.status-page h1{max-width:18ch}.status-page p{font-size:1.05rem}.status-page .actions{margin-top:1.25rem}
 article,aside,section>dl{margin:1rem 0;padding:1.1rem 1.2rem;border:1px solid var(--line);border-radius:1rem;background:linear-gradient(135deg,rgba(255,255,255,.035),transparent 60%),var(--surface);box-shadow:var(--shadow)}article h2,article h3{margin-top:0}article p:last-child{margin-bottom:0}section{margin:2rem 0}.accepted{border-color:#477e5c;background:linear-gradient(135deg,rgba(165,243,193,.1),transparent 60%),var(--success-surface)}.rejected{border-color:#8c4b5a;background:linear-gradient(135deg,rgba(255,157,157,.08),transparent 60%),var(--danger-surface)}
 form{max-width:44rem;margin:1.25rem 0;padding:1.2rem;border:1px solid var(--line);border-radius:1rem;background:var(--surface-soft)}label{display:block;margin:1rem 0;color:var(--ink);font-weight:650}input,textarea,select,button{font:inherit}input,textarea,select{display:block;width:100%;margin-top:.4rem;padding:.7rem .8rem;border:1px solid var(--line-strong);border-radius:.6rem;background:#0d141e;color:var(--ink)}textarea{min-height:7rem;resize:vertical}input[type="checkbox"],input[type="radio"]{display:inline-block;width:auto;margin-right:.45rem;accent-color:var(--brand)}input[type="file"]{padding:.55rem}button{cursor:pointer;padding:.68rem .95rem;border:1px solid var(--brand);border-radius:.6rem;background:var(--brand);color:var(--brand-ink);font-weight:750}button:hover{filter:brightness(1.06)}button:disabled{cursor:not-allowed;opacity:.55}.muted{color:var(--ink-muted);font-size:.93rem}.accepted strong{color:var(--success)}.rejected strong{color:var(--danger)}
 code{padding:.08rem .28rem;border-radius:.25rem;background:#0c141e;color:#d5e6ff;overflow-wrap:anywhere}pre{max-width:100%;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:1rem;border:1px solid var(--line);border-radius:.7rem;background:#090f17;color:#d5e6ff;font-size:.88rem}dl{display:grid;grid-template-columns:minmax(10rem,max-content) 1fr;gap:.5rem 1rem;margin:1rem 0}dt{color:var(--ink-muted);font-weight:700}dd{min-width:0;margin:0}details{margin:1rem 0;padding:.8rem;border:1px solid var(--line);border-radius:.7rem;background:var(--surface-soft)}summary{cursor:pointer;color:var(--ink);font-weight:700}progress{accent-color:var(--brand);width:100%;margin-top:.75rem}
 @media (max-width:42rem){body>main{width:min(100% - 1.25rem,72rem);padding-top:1.35rem}nav{align-items:flex-start;gap:.5rem .8rem}nav strong{width:100%;margin-right:0}nav form{width:100%}h1{font-size:2rem}.dashboard-grid{grid-template-columns:1fr}.hero{border-radius:1rem}article,aside,section>dl,form{padding:1rem;border-radius:.8rem}dl{grid-template-columns:1fr;gap:.15rem}dd{margin:0 0 .55rem}.actions>*{flex:1 1 auto}.actions a,.actions button{display:inline-block;width:100%;text-align:center}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important}}
 </style></head><body><a class="skip-link" href="#main-content">Skip to content</a><main id="main-content">${body}</main></body></html>`;
+}
+
+export function renderStatusPage(title, body, tone = "warning") {
+  const safeTone = new Set(["neutral", "warning", "danger"]).has(tone) ? tone : "warning";
+  return renderPage(title, `<section class="status-page ${safeTone}">${body}</section>`);
 }
 
 export function parseCookies(header) {
@@ -102,9 +108,10 @@ export function createAuthRouter({ database, publicUrl }) {
         .status(403)
         .type("html")
         .send(
-          renderPage(
+          renderStatusPage(
             "Invitation required",
-            '<h1>alice. is invite-only</h1><p>This invitation is missing, expired, used, or revoked.</p><p><a href="/auth/login">Sign in</a></p>',
+            '<h1>alice. is invite-only</h1><p>This invitation is missing, expired, used, or revoked. No account was created.</p><p><a href="/auth/login">Sign in</a></p>',
+            "neutral",
           ),
         );
     }
@@ -128,9 +135,10 @@ export function createAuthRouter({ database, publicUrl }) {
         .status(400)
         .type("html")
         .send(
-          renderPage(
+          renderStatusPage(
             "Account not created",
-            `<h1>Account not created</h1><p>${escapeHtml(String(error))}</p>`,
+            `<h1>Account not created</h1><p>${escapeHtml(String(error))}</p><p><a href="/auth/login">Return to sign in</a></p>`,
+            "danger",
           ),
         );
     }
@@ -154,7 +162,13 @@ export function createAuthRouter({ database, publicUrl }) {
       return response
         .status(403)
         .type("html")
-        .send(renderPage("Sign in denied", "<h1>Email or password is incorrect.</h1>"));
+        .send(
+          renderStatusPage(
+            "Sign in denied",
+            '<h1>Email or password is incorrect.</h1><p>No session was created.</p><p><a href="/auth/login">Try signing in again</a></p>',
+            "danger",
+          ),
+        );
     }
     setSessionCookie(response, publicUrl, await createUserSession(database, user.id));
     response.redirect(303, safeNext(request.body.next));

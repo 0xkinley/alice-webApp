@@ -447,7 +447,7 @@ test("an exact repair classifies stale context and removes it without rewriting 
   assert.match(previewHtml, /Repair Private project \/ General/);
   assert.match(previewHtml, /Outdated launch date/);
   assert.match(previewHtml, /Stale — it is no longer current/);
-  assert.match(previewHtml, /corrected value must arrive as a new candidate/i);
+  assert.match(previewHtml, /corrected value must arrive as a new proposal/i);
   const previewVersion = previewHtml.match(/name="preview_version" value="([^"]+)"/)[1];
 
   const invalid = await fetch(
