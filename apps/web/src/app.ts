@@ -77,19 +77,19 @@ export async function createApp({
       .filter(({ id }) => !sharedProjectIds.has(id))
       .map(
         (project) =>
-          `<article><h2><a href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p></article>`,
+          `<article><p class="eyebrow">Your project</p><h2><a href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p><a href="/projects/${encodeURIComponent(project.id)}">Open project</a></p></article>`,
       )
       .join("");
     const sharedProjectList = sharedProjects
       .map(
         (project) =>
-          `<article><h2><a href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p class="muted">Shared with you · ${escapeHtml(project.role)}</p></article>`,
+          `<article><p class="eyebrow">Shared project</p><h2><a href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p class="muted">Your access · ${escapeHtml(project.role)}</p></article>`,
       )
       .join("");
     const archivedProjectList = archivedProjects
       .map(
         (project) =>
-          `<article><h3><a href="/projects/${encodeURIComponent(project.id)}/lifecycle">${escapeHtml(project.name)}</a></h3><p>${escapeHtml(project.brief)}</p><p class="muted">Archived ${escapeHtml(project.archived_at)}</p></article>`,
+          `<article><p class="eyebrow">Archived</p><h3><a href="/projects/${encodeURIComponent(project.id)}/lifecycle">${escapeHtml(project.name)}</a></h3><p>${escapeHtml(project.brief)}</p><p class="muted">Archived ${escapeHtml(project.archived_at)}</p></article>`,
       )
       .join("");
     response
@@ -97,7 +97,7 @@ export async function createApp({
       .send(
         renderPage(
           "alice. private workspace",
-          `<nav><strong>alice.</strong><span>${escapeHtml(request.aliceUser!.email)}</span><a href="/connections">AI connections</a><a href="/review">Review queue</a><a href="/signals">Alpha signals</a><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></nav><h1>Private workspace</h1><p>Projects you create remain anchored to this account and can be shared only through explicit membership.</p>${projectList || "<p>No projects yet.</p>"}<h2>Shared with you</h2>${sharedProjectList || "<p>No shared projects.</p>"}<h2>Archived projects you own</h2>${archivedProjectList || "<p>No archived projects.</p>"}<h2>Create project</h2><form method="post" action="/projects"><label>Name<input name="name" maxlength="120" required></label><label>Brief<textarea name="brief" maxlength="4000" required></textarea></label><button type="submit">Create project</button></form>`,
+          `<nav><strong>alice.</strong><span>${escapeHtml(request.aliceUser!.email)}</span><a href="/connections">AI connections</a><a href="/review">Needs attention</a><a href="/signals">Alpha signals</a><form method="post" action="/auth/logout"><button type="submit">Sign out</button></form></nav><header class="hero"><p class="eyebrow">Private workspace</p><h1>Keep your project context clear.</h1><p>Projects stay under your control. Select a project and work context before connecting an AI tool, then inspect every proposed change before it becomes saved context.</p><div class="actions"><a href="#create-project">Create a project</a><a href="/connections">Manage AI connections</a></div></header><div class="dashboard-grid"><section><div class="section-heading"><h2>Your projects</h2><p class="muted">${projects.length} available</p></div>${projectList || '<div class="empty-state"><h2>Start with one project</h2><p>Give your work a clear home before you connect a host or save context.</p><a href="#create-project">Create your first project</a></div>'}</section><section><div class="section-heading"><h2>Shared with you</h2><p class="muted">${sharedProjects.length} available</p></div>${sharedProjectList || '<div class="empty-state"><h2>No shared projects yet</h2><p>Projects only appear here after an Owner explicitly gives you access.</p></div>'}</section></div><section><div class="section-heading"><h2>Archived projects you own</h2><p class="muted">${archivedProjects.length} retained</p></div>${archivedProjectList || '<p class="muted">No archived projects. Archive keeps your project data; it is not permanent deletion.</p>'}</section><section id="create-project"><div class="section-heading"><h2>Create a project</h2><p class="muted">This starts a private workspace for your work.</p></div><form method="post" action="/projects"><label>Name<input name="name" maxlength="120" required></label><label>Brief<textarea name="brief" maxlength="4000" required></textarea></label><button type="submit">Create project</button></form></section>`,
         ),
       );
   });
@@ -157,11 +157,11 @@ export async function createApp({
     const contextCards = contexts
       .map(
         (context) =>
-          `<article id="${escapeHtml(context.id)}"><h2>${escapeHtml(context.name)}</h2><p>${escapeHtml(context.description)}</p><p class="muted">${context.context_kind === "project_wide" ? "Included with every selected work context" : "Work context"} · ${escapeHtml(context.visibility)} · your context role: ${escapeHtml(context.context_role)}</p><p><a href="/projects/${encodeURIComponent(project.id)}/saved-context?context_id=${encodeURIComponent(context.id)}">View saved context</a> · <a href="/projects/${encodeURIComponent(project.id)}/context-preview${context.context_kind === "project_wide" ? "" : `?context_id=${encodeURIComponent(context.id)}`}">Preview host package</a>${fileStore ? ` · <a href="/projects/${encodeURIComponent(project.id)}/files?context_id=${encodeURIComponent(context.id)}">Files</a>` : ""}${context.visibility === "selected_members" && context.can_manage ? ` · <a href="/projects/${encodeURIComponent(project.id)}/contexts/${encodeURIComponent(context.id)}/access">Manage context access</a>` : ""}</p></article>`,
+          `<article class="context-card" id="${escapeHtml(context.id)}"><p class="eyebrow">${context.context_kind === "project_wide" ? "Project-wide" : "Work context"}</p><h2>${escapeHtml(context.name)}</h2><p>${escapeHtml(context.description)}</p><div class="context-meta"><span class="badge">${escapeHtml(context.visibility)}</span><span>Your role · ${escapeHtml(context.context_role)}</span></div><div class="actions"><a href="/projects/${encodeURIComponent(project.id)}/saved-context?context_id=${encodeURIComponent(context.id)}">Saved context</a><a href="/projects/${encodeURIComponent(project.id)}/context-preview${context.context_kind === "project_wide" ? "" : `?context_id=${encodeURIComponent(context.id)}`}">Preview host package</a>${fileStore ? `<a href="/projects/${encodeURIComponent(project.id)}/files?context_id=${encodeURIComponent(context.id)}">Files</a>` : ""}${context.visibility === "selected_members" && context.can_manage ? `<a href="/projects/${encodeURIComponent(project.id)}/contexts/${encodeURIComponent(context.id)}/access">Manage access</a>` : ""}</div></article>`,
       )
       .join("");
     const reviewLink = canWrite
-      ? `<p><a href="/review?project_id=${encodeURIComponent(project.id)}">Review candidate claims</a></p>`
+      ? `<a href="/review?project_id=${encodeURIComponent(project.id)}">Review candidate claims</a>`
       : "";
     const createContext = canWrite
       ? `<h2>Create a work context</h2><form method="post" action="/projects/${encodeURIComponent(project.id)}/contexts/preview"><label>Name<input name="name" maxlength="120" required></label><label>Description<textarea name="description" maxlength="2000" required></textarea></label><label>Visibility<select name="visibility"><option value="all_members">All project members</option><option value="selected_members">Selected members</option><option value="personal">Personal draft</option></select></label><p class="muted">Project Owners do not automatically receive access to selected-member or personal contexts.</p><button type="submit">Check for similar contexts</button></form>`
@@ -180,7 +180,7 @@ export async function createApp({
       .send(
         renderPage(
           project.name,
-          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a><a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>${collaboratorsLink}${lifecycleLink}</nav><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><p class="muted">Your project role: ${escapeHtml(project.project_role)}</p>${reviewLink}<h2>Project and work contexts</h2><p>Only contexts listed here are visible to you. Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}<h2>Your recent host reads</h2><p>These receipts show retrieval through your own AI connections. A successful retrieval does not prove the host used the context in its answer.</p>${readActivity}${createContext}`,
+          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a><a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>${collaboratorsLink}${lifecycleLink}</nav><header class="hero"><p class="eyebrow">Project · ${escapeHtml(project.project_role)}</p><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><div class="actions">${reviewLink}<a href="/connections">Choose the active AI target</a></div></header><section><div class="section-heading"><h2>Project and work contexts</h2><p class="muted">Only listed contexts are visible to you.</p></div><p>Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}</section><section><div class="section-heading"><h2>Recent host reads</h2><p class="muted">Your own AI connections only</p></div><p>These receipts show retrieval. A successful retrieval does not prove that a host used the context in its answer.</p>${readActivity}</section>${createContext}`,
         ),
       );
   });
