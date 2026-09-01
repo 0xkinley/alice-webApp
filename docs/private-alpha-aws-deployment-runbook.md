@@ -242,6 +242,16 @@ This completes direct private upload, GuardDuty clean/threat gating, and exact-v
 
 This completes the hosted backup/restore proof. It does not complete the clean-checkout contract or the final retain/disable and cost decision.
 
+### Clean-checkout verification (2026-09-01)
+
+- A true fresh clone of the pushed milestone branch resolved to exact commit `74ba21d8b9d93354e96786bd69c5ae9b8f1e2e6c` with a clean worktree. Node 24.0.2 and npm 11.3.0 installed 237 locked packages with `npm ci`.
+- The first database attempt stopped before migration because a two-day-old shared local container's current password did not match its creation environment. The empty database and role created for that attempt were removed. A new isolated `postgres:17-alpine` container named `alice-m06-clean-74ba21d-postgres`, bound only to local port 55434, was healthy before use; it received a commit-named constrained role and all 15 migrations from an empty database.
+- `npm run check` passed formatting, linting, TypeScript project references, the secret-leak scan, the 20/20 capture evaluation, both canonical cross-host traces, all 118 fast tests, all 17 real-PostgreSQL tests, and both production builds. Non-empty `apps/web/dist/server.js` and `apps/mcp/dist/server.js` artifacts were present, and the fresh checkout remained clean.
+- The separate `npm run db:backup:verify` proof used PostgreSQL 17 client tools, matched 64 protected tables across the application and isolated test schemas, and left no `alice_restore_*` database. A bounded credential-free script run from the fresh checkout then asserted HTTP 200 plus database reachability for both restored `/health` routes, web HTTP 303, MCP HTTP 401, and HTTP 200 protected-resource discovery bound to the exact restored MCP origin.
+- The commit-named PostgreSQL container and fresh clone were removed after the proof. The 102,460,416-byte local backup archive, its two local Docker image tags, and the four backup-proof CloudShell files were also removed; these temporary copies are not recoverable. The immutable scan-clean backup digest remains in the existing ECR lifecycle as reproducible deployment evidence.
+
+This completes the clean-checkout contract against PostgreSQL and both hosted deployables. The final retain/disable and cost decision remains open.
+
 ## CLI change-set helper
 
 `npm run aws:change-set -- <private-runtime|hosted-proof|invitation-operator|backup-verification|safe-stop>` prints the exact, review-only AWS CLI command for the approved stack and region. Add `--create` only after reviewing that printed command; it creates and waits for the change set but never executes it. The hosted-proof mode additionally requires both exact generated Function URL origins. The invitation-operator mode requires `--operator-image` with the separately built immutable Frankfurt ECR digest and must resolve to exactly three temporary private resources. Backup-verification mode requires `--backup-image`, disables services/origins/migration, and must resolve to exactly the same nine temporary private database-operation resources. Review the resulting resource diff before separately executing it, and remove temporary resources immediately after one use; use safe-stop after every bounded proof unless the product owner explicitly authorizes retention.
