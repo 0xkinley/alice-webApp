@@ -388,7 +388,10 @@ export async function createApp({
   );
   app.use("/projects", createSavedContextRouter({ database }));
   if (fileStore) {
-    app.use("/file-save-offers", createHostFileSaveOffersRouter({ database, publicUrl }));
+    app.use(
+      "/file-save-offers",
+      createHostFileSaveOffersRouter({ database, fileStore, publicUrl }),
+    );
     app.use("/projects", createFilesRouter({ database, fileStore, publicUrl }));
   }
   app.use("/review", createReviewRouter({ database }));

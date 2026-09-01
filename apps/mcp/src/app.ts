@@ -12,9 +12,11 @@ import {
 } from "@modelcontextprotocol/server";
 import { openDatabase } from "@alice/database";
 import {
+  beginHostFileSaveTransfer,
   ContextBudgetError,
   activeTargetForConnection,
   createHostFileSaveOffer,
+  finalizeHostFileSaveTransfer,
   getProjectContext,
   HostFileSaveOfferUserError,
   listProjects,
@@ -29,7 +31,9 @@ import {
 } from "@alice/domain";
 import type { PrivateFileStore } from "@alice/domain";
 import {
+  beginHostFileTransferSchema,
   consumptionContractVersion,
+  finalizeHostFileTransferSchema,
   getActiveContextSchema,
   getProjectContextOutputSchema,
   getProjectContextSchema,
@@ -79,7 +83,7 @@ function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes 
 }
 
 function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore | undefined) {
-  const server = new McpServer({ name: "alice-mcp", version: "0.6.1" });
+  const server = new McpServer({ name: "alice-mcp", version: "0.6.2" });
 
   server.registerTool(
     "list_projects",
@@ -163,6 +167,133 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           };
         } catch (error) {
           if (error instanceof HostFileSaveOfferUserError) {
+            return { content: [{ type: "text", text: error.message }], isError: true };
+          }
+          throw error;
+        }
+      },
+    );
+
+    server.registerTool(
+      "begin_host_file_transfer",
+      {
+        title: "Begin one confirmed host attachment transfer",
+        description:
+          "Use only after offer_host_file_save returned an offer and the user personally confirmed it on alice., and only when this exact host surface can securely expose the original attachment bytes and perform an HTTPS PUT using exact required headers. Starts one immutable, short-lived, exact-file transfer to the already confirmed project/context. Never include attachment bytes, host URLs, cookies, credentials, prompt text, or conversation history in this call. If the provider lacks this capability, send the user to the offer's alice.-controlled pre-targeted upload page instead.",
+        inputSchema: beginHostFileTransferSchema,
+        ...oauthToolSecurity("mcp:write"),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true,
+        },
+      },
+      async (payload, context) => {
+        const authInfo = context.http?.authInfo;
+        if (!authInfo?.scopes.includes("mcp:write")) {
+          return {
+            content: [{ type: "text", text: "The connection does not grant mcp:write." }],
+            isError: true,
+          };
+        }
+        try {
+          const result = await beginHostFileSaveTransfer(database, fileStore, {
+            userId: authenticatedUserId(context),
+            connectionId: authenticatedConnectionId(context),
+            offerId: payload.offer_id,
+            transferPath: "host_capability",
+            fileName: payload.file_name,
+            claimedMediaType: payload.claimed_media_type,
+            byteSize: payload.byte_size,
+            sha256: payload.sha256,
+            idempotencyKey: payload.idempotency_key,
+          });
+          if (!result) {
+            return {
+              content: [{ type: "text", text: "The confirmed file transfer is unavailable." }],
+              isError: true,
+            };
+          }
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  result.status === "completed"
+                    ? "The exact attachment is scan-clean and available in alice.; trusted project context was not changed."
+                    : "A short-lived exact-object upload capability is returned in structured content. Use it only for the confirmed attachment, retain no URL or headers, then call finalize_host_file_transfer with the immutable storage version.",
+              },
+            ],
+            structuredContent: result,
+          };
+        } catch (error) {
+          if (
+            error instanceof HostFileSaveOfferUserError ||
+            error instanceof ProjectFileUserError
+          ) {
+            return { content: [{ type: "text", text: error.message }], isError: true };
+          }
+          throw error;
+        }
+      },
+    );
+
+    server.registerTool(
+      "finalize_host_file_transfer",
+      {
+        title: "Finalize one confirmed host attachment transfer",
+        description:
+          "Finalize only the exact immutable storage version produced by begin_host_file_transfer. The transfer remains pending while either private-file security scan is incomplete, fails closed on any non-clean result or metadata mismatch, and returns a saved-file receipt only after the final exact object is scan-clean and authorized. It never changes trusted project context or generates candidate claims automatically.",
+        inputSchema: finalizeHostFileTransferSchema,
+        ...oauthToolSecurity("mcp:write"),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async (payload, context) => {
+        const authInfo = context.http?.authInfo;
+        if (!authInfo?.scopes.includes("mcp:write")) {
+          return {
+            content: [{ type: "text", text: "The connection does not grant mcp:write." }],
+            isError: true,
+          };
+        }
+        try {
+          const result = await finalizeHostFileSaveTransfer(database, fileStore, {
+            userId: authenticatedUserId(context),
+            connectionId: authenticatedConnectionId(context),
+            offerId: payload.offer_id,
+            intentId: payload.intent_id,
+            transferPath: "host_capability",
+            storageVersionId: payload.storage_version_id,
+          });
+          if (!result) {
+            return {
+              content: [{ type: "text", text: "The confirmed file transfer is unavailable." }],
+              isError: true,
+            };
+          }
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  result.status === "completed"
+                    ? "The exact attachment is scan-clean and available in alice.; trusted project context was not changed."
+                    : `The exact attachment is not available yet. Security gate: ${result.stage}. Retry this same finalization without uploading again.`,
+              },
+            ],
+            structuredContent: result,
+          };
+        } catch (error) {
+          if (
+            error instanceof HostFileSaveOfferUserError ||
+            error instanceof ProjectFileUserError
+          ) {
             return { content: [{ type: "text", text: error.message }], isError: true };
           }
           throw error;

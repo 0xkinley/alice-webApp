@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { DatabaseSync } from "node:sqlite";
 
 function sqliteSql(sql: string): string {
@@ -33,6 +34,7 @@ class SQLitePreparedStatement {
 
 export class SQLiteTestDatabase {
   readonly #database: DatabaseSync;
+  readonly #transaction = new AsyncLocalStorage<boolean>();
 
   constructor() {
     this.#database = new DatabaseSync(":memory:");
@@ -54,9 +56,10 @@ export class SQLiteTestDatabase {
   }
 
   async transaction<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.#transaction.getStore()) return operation();
     this.#database.exec("BEGIN IMMEDIATE");
     try {
-      const result = await operation();
+      const result = await this.#transaction.run(true, operation);
       this.#database.exec("COMMIT");
       return result;
     } catch (error) {
@@ -619,7 +622,8 @@ function createSchema(database: DatabaseSync) {
       FOREIGN KEY (workspace_id, project_id, context_id, replaces_reference_id)
         REFERENCES file_context_references(workspace_id, project_id, context_id, id),
       UNIQUE (workspace_id, id),
-      UNIQUE (workspace_id, project_id, context_id, id)
+      UNIQUE (workspace_id, project_id, context_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id, initiated_by_user_id)
     ) STRICT;
 
     CREATE TABLE file_upload_completions (
@@ -635,7 +639,8 @@ function createSchema(database: DatabaseSync) {
       FOREIGN KEY (workspace_id, project_id, context_id, intent_id)
         REFERENCES file_upload_intents(workspace_id, project_id, context_id, id),
       FOREIGN KEY (workspace_id, project_id, context_id, file_reference_id)
-        REFERENCES file_context_references(workspace_id, project_id, context_id, id)
+        REFERENCES file_context_references(workspace_id, project_id, context_id, id),
+      UNIQUE (intent_id, workspace_id, project_id, context_id, file_reference_id)
     ) STRICT;
 
     CREATE TABLE host_file_save_offers (
@@ -688,7 +693,73 @@ function createSchema(database: DatabaseSync) {
       decision_version TEXT NOT NULL CHECK (length(decision_version) = 64),
       decided_at TEXT NOT NULL,
       FOREIGN KEY (workspace_id, project_id, context_id, offer_id, decided_by_user_id)
-        REFERENCES host_file_save_offers(workspace_id, project_id, context_id, id, user_id)
+        REFERENCES host_file_save_offers(workspace_id, project_id, context_id, id, user_id),
+      UNIQUE (
+        workspace_id, project_id, context_id, offer_id, decided_by_user_id, decision
+      )
+    ) STRICT;
+
+    CREATE TABLE host_file_save_transfer_intents (
+      intent_id TEXT PRIMARY KEY,
+      offer_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      initiated_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      decision TEXT NOT NULL CHECK (decision IN (
+        'save_file_only', 'save_and_suggest_context'
+      )),
+      transfer_path TEXT NOT NULL CHECK (transfer_path IN (
+        'host_capability', 'browser_fallback'
+      )),
+      idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
+      request_hash TEXT NOT NULL CHECK (length(request_hash) = 64),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (
+        workspace_id, project_id, context_id, offer_id, initiated_by_user_id, decision
+      ) REFERENCES host_file_save_decisions(
+        workspace_id, project_id, context_id, offer_id, decided_by_user_id, decision
+      ),
+      FOREIGN KEY (
+        workspace_id, project_id, context_id, intent_id, initiated_by_user_id
+      ) REFERENCES file_upload_intents(
+        workspace_id, project_id, context_id, id, initiated_by_user_id
+      ),
+      UNIQUE (workspace_id, project_id, context_id, offer_id, intent_id),
+      UNIQUE (offer_id, transfer_path, idempotency_key)
+    ) STRICT;
+
+    CREATE TABLE host_file_save_transfer_completions (
+      offer_id TEXT PRIMARY KEY,
+      intent_id TEXT NOT NULL UNIQUE,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      file_reference_id TEXT NOT NULL UNIQUE,
+      completed_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id, offer_id, intent_id)
+        REFERENCES host_file_save_transfer_intents(
+          workspace_id, project_id, context_id, offer_id, intent_id
+        ),
+      FOREIGN KEY (intent_id, workspace_id, project_id, context_id, file_reference_id)
+        REFERENCES file_upload_completions(
+          intent_id, workspace_id, project_id, context_id, file_reference_id
+        ),
+      UNIQUE (offer_id, intent_id, workspace_id, project_id, context_id, file_reference_id)
+    ) STRICT;
+
+    CREATE TABLE host_file_save_transfer_availability (
+      offer_id TEXT PRIMARY KEY,
+      intent_id TEXT NOT NULL UNIQUE,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      file_reference_id TEXT NOT NULL UNIQUE,
+      available_at TEXT NOT NULL,
+      FOREIGN KEY (offer_id, intent_id, workspace_id, project_id, context_id, file_reference_id)
+        REFERENCES host_file_save_transfer_completions(
+          offer_id, intent_id, workspace_id, project_id, context_id, file_reference_id
+        )
     ) STRICT;
 
     CREATE TABLE evidence_file_sources (
@@ -725,6 +796,9 @@ function createSchema(database: DatabaseSync) {
 
     CREATE INDEX file_upload_intents_expiry
       ON file_upload_intents (workspace_id, initiated_by_user_id, expires_at, id);
+
+    CREATE INDEX host_file_save_transfer_intents_offer
+      ON host_file_save_transfer_intents (offer_id, created_at, intent_id);
 
     CREATE INDEX file_objects_scan_queue
       ON file_objects (workspace_id, scan_status, scan_updated_at, id);
@@ -1227,6 +1301,42 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON host_file_save_decisions
     BEGIN
       SELECT RAISE(ABORT, 'host file save decisions are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_transfer_intents_no_update
+    BEFORE UPDATE ON host_file_save_transfer_intents
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save transfer intents are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_transfer_intents_no_delete
+    BEFORE DELETE ON host_file_save_transfer_intents
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save transfer intents are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_transfer_completions_no_update
+    BEFORE UPDATE ON host_file_save_transfer_completions
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save transfer completions are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_transfer_completions_no_delete
+    BEFORE DELETE ON host_file_save_transfer_completions
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save transfer completions are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_transfer_availability_no_update
+    BEFORE UPDATE ON host_file_save_transfer_availability
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save transfer availability is immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_transfer_availability_no_delete
+    BEFORE DELETE ON host_file_save_transfer_availability
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save transfer availability is immutable');
     END;
 
     CREATE TRIGGER evidence_file_sources_no_update

@@ -341,6 +341,51 @@ export const hostFileSaveOfferSchema = z
   })
   .strict();
 
+export const beginHostFileTransferSchema = z
+  .object({
+    offer_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
+    transfer_capability: z.literal("exact_signed_put_v1"),
+    file_name: z.string().min(1).max(180),
+    claimed_media_type: z.enum([
+      "application/pdf",
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "text/markdown",
+      "text/plain",
+    ]),
+    byte_size: z
+      .number()
+      .int()
+      .min(1)
+      .max(25 * 1_024 * 1_024),
+    sha256: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[0-9a-f]{64}$/),
+    idempotency_key: z
+      .string()
+      .trim()
+      .min(8)
+      .max(captureValidationLimits.idempotencyKeyCharacters)
+      .regex(boundedIdentifierPattern),
+  })
+  .strict();
+
+export const finalizeHostFileTransferSchema = z
+  .object({
+    offer_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
+    intent_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
+    storage_version_id: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1_024)
+      .regex(/^[A-Za-z0-9._~+/=-]+$/),
+  })
+  .strict();
+
 const projectIdentitySchema = z
   .object({
     id: z.string(),

@@ -423,6 +423,7 @@ export async function finalizeProjectFileUpload(
     projectId: string;
     intentId: string;
     storageVersionId: string;
+    hostFileSaveOfferId?: string;
   },
 ) {
   const project = await projectScopeForUser(database, {
@@ -433,13 +434,25 @@ export async function finalizeProjectFileUpload(
   if (!project) return undefined;
   const intent = await database
     .prepare(
-      `SELECT id, workspace_id, project_id, context_id, initiated_by_user_id, display_name,
-              claimed_media_type, declared_byte_size, declared_sha256, staging_storage_key,
-              replaces_reference_id, expires_at, created_at
-       FROM file_upload_intents WHERE id = ? AND workspace_id = ? AND project_id = ?`,
+      `SELECT intent.id, intent.workspace_id, intent.project_id, intent.context_id,
+              intent.initiated_by_user_id, intent.display_name, intent.claimed_media_type,
+              intent.declared_byte_size, intent.declared_sha256, intent.staging_storage_key,
+              intent.replaces_reference_id, intent.expires_at, intent.created_at,
+              transfer.offer_id AS host_file_save_offer_id,
+              offer.source_host AS host_file_source_host
+       FROM file_upload_intents intent
+       LEFT JOIN host_file_save_transfer_intents transfer ON transfer.intent_id = intent.id
+       LEFT JOIN host_file_save_offers offer ON offer.id = transfer.offer_id
+       WHERE intent.id = ? AND intent.workspace_id = ? AND intent.project_id = ?`,
     )
     .get(input.intentId, project.projectWorkspaceId, input.projectId);
   if (!intent || intent.initiated_by_user_id !== input.userId) return undefined;
+  if (
+    (intent.host_file_save_offer_id || input.hostFileSaveOfferId) &&
+    intent.host_file_save_offer_id !== input.hostFileSaveOfferId
+  ) {
+    return undefined;
+  }
   const context = await authorizedContext(
     database,
     input.userId,
@@ -492,7 +505,7 @@ export async function finalizeProjectFileUpload(
     fileName: intent.display_name,
     claimedMediaType: intent.claimed_media_type,
     bytes: verified.bytes,
-    sourceHost: "alice_web_direct",
+    sourceHost: intent.host_file_source_host || "alice_web_direct",
     ...(intent.replaces_reference_id ? { replacesReferenceId: intent.replaces_reference_id } : {}),
   });
   if (!uploaded) return undefined;

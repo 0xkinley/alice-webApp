@@ -6,6 +6,7 @@ import {
   acceptCandidate,
   acceptProjectInvitation,
   archiveProject,
+  beginHostFileSaveTransfer,
   cancelProjectDeletion,
   confirmCapturedUpdate,
   createHostFileSaveOffer,
@@ -13,6 +14,7 @@ import {
   createWorkContext,
   createProjectInvitation,
   exportProjectData,
+  finalizeHostFileSaveTransfer,
   getCapturePreview,
   getHostFileSaveOfferPreview,
   getProjectContext,
@@ -57,6 +59,48 @@ let owner;
 let other;
 let postgresFileReferenceId;
 let postgresReplacementReferenceId;
+
+class PostgresHostTransferStore {
+  objects = new Map<string, { bytes: Buffer; versionId: string }>();
+  signedKeys: string[] = [];
+  putCount = 0;
+
+  async createSignedUpload({ key, expiresInSeconds }) {
+    this.signedKeys.push(key);
+    return {
+      url: `https://private-files.alice.example/${encodeURIComponent(key)}`,
+      headers: { "x-alice-postgres-transfer": "signed" },
+      expiresInSeconds,
+    };
+  }
+
+  stage(key: string, bytes: Buffer, versionId: string) {
+    this.objects.set(key, { bytes: Buffer.from(bytes), versionId });
+  }
+
+  async putObject({ key, bytes }) {
+    this.putCount += 1;
+    const versionId = `postgres-host-final-${this.putCount}`;
+    this.objects.set(key, { bytes: Buffer.from(bytes), versionId });
+    return { versionId, etag: `postgres-host-etag-${this.putCount}` };
+  }
+
+  async getScanResult({ key, versionId }) {
+    const object = this.objects.get(key);
+    if (!object || object.versionId !== versionId) throw new Error("exact object version missing");
+    return "clean" as const;
+  }
+
+  async getObject({ key, versionId }) {
+    const object = this.objects.get(key);
+    if (!object || object.versionId !== versionId) throw new Error("exact object version missing");
+    return Buffer.from(object.bytes);
+  }
+
+  async createSignedDownload() {
+    return "https://private-files.alice.example/postgres-host-download";
+  }
+}
 
 const clientId = "client_postgres_concurrency";
 const connectionId = "connection_postgres_concurrency";
@@ -133,8 +177,12 @@ before(async () => {
 });
 
 after(async () => {
-  await database.close();
-  await migrationDatabase.close();
+  if (database) await database.close();
+  if (migrationDatabase) {
+    await migrationDatabase.exec(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await migrationDatabase.exec(`DROP ROLE IF EXISTS "${applicationRole}"`);
+    await migrationDatabase.close();
+  }
 });
 
 test("one alpha invitation cannot create two users under concurrent acceptance", async () => {
@@ -184,12 +232,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 15, filename: "015_file_upload_intents.sql" },
     { version: 16, filename: "016_project_erasure_jobs.sql" },
     { version: 17, filename: "017_host_file_save_offers.sql" },
+    { version: 18, filename: "018_host_file_transfers.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    17,
+    18,
   );
   await reopened.close();
 });
@@ -434,6 +483,122 @@ test("PostgreSQL persists one exact host-file offer and one human decision immut
   await assert.rejects(
     database
       .prepare("DELETE FROM host_file_save_decisions WHERE offer_id = ?")
+      .run(receipt.offer_id),
+    /permission denied|immutable/i,
+  );
+});
+
+test("PostgreSQL consumes one confirmed host-file offer exactly once under concurrent finalization", async () => {
+  const store = new PostgresHostTransferStore();
+  const bytes = Buffer.from(
+    "# PostgreSQL host transfer\nConcurrent finalization must create one saved reference.\n",
+  );
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const receipt = await createHostFileSaveOffer(database, {
+    userId: owner.id,
+    connectionId,
+    publicUrl: "https://app.alice.example",
+    payload: {
+      file_name: "postgres-host-transfer.md",
+      declared_media_type: "text/markdown",
+      declared_byte_size: bytes.length,
+      declared_sha256: sha256,
+      conversation_reference: "postgres.host-transfer-001",
+      idempotency_key: "postgres-host-transfer-offer-001",
+    },
+  });
+  const preview = await getHostFileSaveOfferPreview(database, {
+    userId: owner.id,
+    offerId: receipt.offer_id,
+    publicUrl: "https://app.alice.example",
+  });
+  await decideHostFileSaveOffer(database, {
+    userId: owner.id,
+    offerId: receipt.offer_id,
+    previewVersion: preview.decision_version,
+    decision: "save_and_suggest_context",
+    publicUrl: "https://app.alice.example",
+  });
+  const start = async (idempotencyKey: string) =>
+    await beginHostFileSaveTransfer(database, store, {
+      userId: owner.id,
+      connectionId,
+      offerId: receipt.offer_id,
+      transferPath: "host_capability",
+      fileName: "postgres-host-transfer.md",
+      claimedMediaType: "text/markdown",
+      byteSize: bytes.length,
+      sha256,
+      idempotencyKey,
+    });
+  const first = await start("postgres-host-transfer-attempt-001");
+  const second = await start("postgres-host-transfer-attempt-002");
+  assert.equal(first.status, "ready");
+  assert.equal(second.status, "ready");
+  store.stage(store.signedKeys[0], bytes, "postgres-host-staging-001");
+  store.stage(store.signedKeys[1], bytes, "postgres-host-staging-002");
+
+  const attempts = await Promise.all([
+    finalizeHostFileSaveTransfer(database, store, {
+      userId: owner.id,
+      connectionId,
+      offerId: receipt.offer_id,
+      intentId: first.intent_id,
+      transferPath: "host_capability",
+      storageVersionId: "postgres-host-staging-001",
+    }),
+    finalizeHostFileSaveTransfer(database, store, {
+      userId: owner.id,
+      connectionId,
+      offerId: receipt.offer_id,
+      intentId: second.intent_id,
+      transferPath: "host_capability",
+      storageVersionId: "postgres-host-staging-002",
+    }),
+  ]);
+  assert.equal(attempts[0].status, "completed");
+  assert.equal(attempts[1].status, "completed");
+  assert.equal(attempts[0].file_reference_id, attempts[1].file_reference_id);
+  assert.equal(store.putCount, 1);
+  assert.equal(
+    (
+      await database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM host_file_save_transfer_completions WHERE offer_id = ?",
+        )
+        .get(receipt.offer_id)
+    ).count,
+    1,
+  );
+  assert.equal(
+    (
+      await database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM host_file_save_transfer_availability WHERE offer_id = ?",
+        )
+        .get(receipt.offer_id)
+    ).count,
+    1,
+  );
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM candidate_claims WHERE project_id = ?")
+        .get(owner.project_id)
+    ).count,
+    0,
+  );
+  await assert.rejects(
+    database
+      .prepare(
+        "UPDATE host_file_save_transfer_intents SET transfer_path = 'browser_fallback' WHERE intent_id = ?",
+      )
+      .run(first.intent_id),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database
+      .prepare("DELETE FROM host_file_save_transfer_availability WHERE offer_id = ?")
       .run(receipt.offer_id),
     /permission denied|immutable/i,
   );
