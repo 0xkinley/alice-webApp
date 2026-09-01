@@ -9,12 +9,19 @@ const migrationContainerScriptPath = new URL(
   "../scripts/migrate-postgres-container.mjs",
   import.meta.url,
 );
+const backupContainerScriptPath = new URL(
+  "../scripts/verify-postgres-backup-container.mjs",
+  import.meta.url,
+);
 
 test("production image pins the Lambda adapter and retains non-root portable startup", async () => {
   const dockerfile = await readFile(dockerfilePath, "utf8");
   const migrationContainerScript = await readFile(migrationContainerScriptPath, "utf8");
+  const backupContainerScript = await readFile(backupContainerScriptPath, "utf8");
   assert.match(dockerfile, /^# syntax=docker\/dockerfile:1$/m);
-  assert.equal(dockerfile.match(/^FROM node:24-alpine(?: AS \w+)?$/gm)?.length, 2);
+  assert.equal(dockerfile.match(/^FROM node:24-alpine(?: AS \w+)?$/gm)?.length, 3);
+  assert.match(dockerfile, /^FROM node:24-alpine AS backup$/m);
+  assert.match(dockerfile, /apk add --no-cache postgresql17-client/);
   assert.match(dockerfile, /^RUN apk upgrade --no-cache libcrypto3 libssl3$/m);
   assert.match(
     dockerfile,
@@ -42,13 +49,19 @@ test("production image pins the Lambda adapter and retains non-root portable sta
   assert.match(dockerfile, /CMD \["npm", "run", "start:mcp"\]/);
   assert.match(
     dockerfile,
-    /COPY scripts\/migrate-postgres\.mjs scripts\/migrate-postgres-container\.mjs scripts\/alpha-invitation-operator\.mjs \.\/scripts\//,
+    /COPY scripts\/migrate-postgres\.mjs scripts\/migrate-postgres-container\.mjs scripts\/verify-postgres-backup\.mjs scripts\/verify-postgres-backup-container\.mjs scripts\/alpha-invitation-operator\.mjs \.\/scripts\//,
   );
   assert.match(dockerfile, /COPY --from=build --chown=node:node \/app\/scripts \.\/scripts/);
   assert.doesNotMatch(dockerfile, /AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/);
   assert.doesNotMatch(dockerfile, /rejectUnauthorized\s*:\s*false/);
   assert.match(migrationContainerScript, /ALICE_DATABASE_SSLMODE \|\| "verify-full"/);
   assert.doesNotMatch(migrationContainerScript, /rejectUnauthorized\s*:\s*false/);
+  assert.match(backupContainerScript, /ALICE_DATABASE_SSLMODE \|\| "verify-full"/);
+  assert.match(
+    backupContainerScript,
+    /PGSSLROOTCERT \|\|= "\/app\/certs\/eu-central-1-bundle\.pem"/,
+  );
+  assert.doesNotMatch(backupContainerScript, /console\.|rejectUnauthorized\s*:\s*false/);
 });
 
 test("hosted probes accept only credential-free HTTPS origins", () => {
@@ -189,36 +202,82 @@ test("AWS-native services are private, bounded, buffered, and staged before publ
   );
 });
 
-test("private migration access is temporary, secret-backed, and cannot coexist with services", async () => {
+test("private database operations are temporary, exclusive, and least-secret", async () => {
   const template = JSON.parse(await readFile(templatePath, "utf8"));
   const resources = template.Resources;
   assert.equal(
     template.Rules.MigrationExcludesServices.Assertions[0].Assert["Fn::Equals"][1],
     "false",
   );
-  for (const name of [
+  assert.equal(template.Parameters.RunBackupVerification.Default, "false");
+  assert.equal(
+    template.Rules.BackupVerificationIsExclusive.Assertions[0].Assert["Fn::Equals"][1],
+    "false",
+  );
+  assert.equal(
+    template.Rules.BackupVerificationIsExclusive.Assertions[1].Assert["Fn::Equals"][1],
+    "false",
+  );
+  const temporaryResources = [
+    "MigrationEndpointSecurityGroup",
     "MigrationEcrApiEndpoint",
     "MigrationEcrDkrEndpoint",
     "MigrationLogsEndpoint",
     "MigrationSecretsEndpoint",
-  ]) {
-    assert.equal(resources[name].Condition, "MigrationEnabled");
+    "MigrationCluster",
+    "MigrationLogGroup",
+    "MigrationExecutionRole",
+    "MigrationTaskDefinition",
+  ];
+  assert.equal(temporaryResources.length, 9);
+  for (const name of temporaryResources) {
+    assert.equal(resources[name].Condition, "PrivateDatabaseTaskEnabled");
+  }
+  for (const name of temporaryResources.slice(1, 5)) {
     assert.equal(resources[name].Properties.VpcEndpointType, "Interface");
   }
   const task = resources.MigrationTaskDefinition;
-  assert.equal(task.Condition, "MigrationEnabled");
+  assert.equal(task.Condition, "PrivateDatabaseTaskEnabled");
   assert.deepEqual(task.Properties.RequiresCompatibilities, ["FARGATE"]);
   assert.equal(task.Properties.RuntimePlatform.CpuArchitecture, "ARM64");
   const container = task.Properties.ContainerDefinitions[0];
-  assert.deepEqual(container.Command, ["npm", "run", "db:migrate:container"]);
-  assert.deepEqual(container.Secrets.map(({ Name }) => Name).sort(), [
+  assert.deepEqual(container.Image["Fn::If"], [
+    "BackupVerificationEnabled",
+    { Ref: "BackupImageUri" },
+    { Ref: "ImageUri" },
+  ]);
+  assert.deepEqual(container.Command["Fn::If"], [
+    "BackupVerificationEnabled",
+    ["npm", "run", "db:backup:verify:container"],
+    ["npm", "run", "db:migrate:container"],
+  ]);
+  const [condition, backupSecrets, migrationSecrets] = container.Secrets["Fn::If"];
+  assert.equal(condition, "BackupVerificationEnabled");
+  assert.deepEqual(
+    backupSecrets.map(({ Name }) => Name),
+    ["ALICE_MIGRATION_DATABASE_PASSWORD"],
+  );
+  assert.deepEqual(migrationSecrets.map(({ Name }) => Name).sort(), [
     "ALICE_APPLICATION_DATABASE_PASSWORD",
     "ALICE_MIGRATION_DATABASE_PASSWORD",
   ]);
+  assert.ok(
+    container.Environment.some(
+      ({ Name, Value }) =>
+        Name === "PGSSLROOTCERT" && Value === "/app/certs/eu-central-1-bundle.pem",
+    ),
+  );
   assert.equal(
     container.Environment.some(({ Name }) => Name.toLowerCase().includes("password")),
     false,
   );
+  const secretResources =
+    resources.MigrationExecutionRole.Properties.Policies[0].PolicyDocument.Statement[0].Resource[
+      "Fn::If"
+    ];
+  assert.equal(secretResources[0], "BackupVerificationEnabled");
+  assert.equal(secretResources[1].length, 1);
+  assert.equal(secretResources[2].length, 2);
   assert.doesNotMatch(JSON.stringify(template), /AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/);
 });
 

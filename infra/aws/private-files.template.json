@@ -19,6 +19,12 @@
       "AllowedValues": ["false", "true"],
       "Description": "Temporarily creates the private Fargate migration task and paid interface endpoints. Disable immediately after one successful run."
     },
+    "RunBackupVerification": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "Temporarily creates the private Fargate backup/restore verifier and paid interface endpoints. Disable immediately after one successful run."
+    },
     "RunInvitationOperator": {
       "Type": "String",
       "Default": "false",
@@ -36,6 +42,12 @@
       "Default": "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "AllowedPattern": "^[0-9]{12}\\.dkr\\.ecr\\.eu-central-1\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$",
       "Description": "Immutable ARM64 image digest used only by the temporary invitation operator."
+    },
+    "BackupImageUri": {
+      "Type": "String",
+      "Default": "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "AllowedPattern": "^[0-9]{12}\\.dkr\\.ecr\\.eu-central-1\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$",
+      "Description": "Immutable ARM64 image digest used only by the temporary PostgreSQL backup/restore verifier."
     },
     "OriginsConfigured": {
       "Type": "String",
@@ -98,6 +110,32 @@
         }
       ]
     },
+    "BackupVerificationIsExclusive": {
+      "RuleCondition": { "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "true"] },
+      "Assertions": [
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "DeployServices" }, "false"] },
+          "AssertDescription": "The privileged backup verifier and runtime services cannot coexist."
+        },
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "RunMigration" }, "false"] },
+          "AssertDescription": "Migration and backup verification cannot run together."
+        },
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Equals": [
+                  { "Ref": "BackupImageUri" },
+                  "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                ]
+              }
+            ]
+          },
+          "AssertDescription": "A real immutable ECR image digest is required for backup verification."
+        }
+      ]
+    },
     "InvitationOperatorRequiresHostedServices": {
       "RuleCondition": {
         "Fn::Equals": [{ "Ref": "RunInvitationOperator" }, "true"]
@@ -151,7 +189,15 @@
     }
   },
   "Conditions": {
-    "MigrationEnabled": { "Fn::Equals": [{ "Ref": "RunMigration" }, "true"] },
+    "BackupVerificationEnabled": {
+      "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "true"]
+    },
+    "PrivateDatabaseTaskEnabled": {
+      "Fn::Or": [
+        { "Fn::Equals": [{ "Ref": "RunMigration" }, "true"] },
+        { "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "true"] }
+      ]
+    },
     "InvitationOperatorEnabled": {
       "Fn::Equals": [{ "Ref": "RunInvitationOperator" }, "true"]
     },
@@ -370,7 +416,7 @@
     },
     "MigrationEndpointSecurityGroup": {
       "Type": "AWS::EC2::SecurityGroup",
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "Properties": {
         "GroupDescription": "Temporary private endpoints for the one-off alice. migration task",
         "VpcId": { "Ref": "Vpc" },
@@ -388,7 +434,7 @@
     },
     "MigrationEcrApiEndpoint": {
       "Type": "AWS::EC2::VPCEndpoint",
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "Properties": {
         "PrivateDnsEnabled": true,
         "SecurityGroupIds": [{ "Fn::GetAtt": ["MigrationEndpointSecurityGroup", "GroupId"] }],
@@ -400,7 +446,7 @@
     },
     "MigrationEcrDkrEndpoint": {
       "Type": "AWS::EC2::VPCEndpoint",
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "Properties": {
         "PrivateDnsEnabled": true,
         "SecurityGroupIds": [{ "Fn::GetAtt": ["MigrationEndpointSecurityGroup", "GroupId"] }],
@@ -412,7 +458,7 @@
     },
     "MigrationLogsEndpoint": {
       "Type": "AWS::EC2::VPCEndpoint",
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "Properties": {
         "PrivateDnsEnabled": true,
         "SecurityGroupIds": [{ "Fn::GetAtt": ["MigrationEndpointSecurityGroup", "GroupId"] }],
@@ -424,7 +470,7 @@
     },
     "MigrationSecretsEndpoint": {
       "Type": "AWS::EC2::VPCEndpoint",
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "Properties": {
         "PrivateDnsEnabled": true,
         "SecurityGroupIds": [{ "Fn::GetAtt": ["MigrationEndpointSecurityGroup", "GroupId"] }],
@@ -682,7 +728,7 @@
     },
     "MigrationCluster": {
       "Type": "AWS::ECS::Cluster",
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "Properties": {
         "ClusterName": { "Fn::Sub": "${ResourcePrefix}-migration" },
         "ClusterSettings": [{ "Name": "containerInsights", "Value": "disabled" }],
@@ -691,7 +737,7 @@
     },
     "MigrationLogGroup": {
       "Type": "AWS::Logs::LogGroup",
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "DeletionPolicy": "Delete",
       "UpdateReplacePolicy": "Delete",
       "Properties": {
@@ -701,7 +747,7 @@
     },
     "MigrationExecutionRole": {
       "Type": "AWS::IAM::Role",
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "Properties": {
         "RoleName": { "Fn::Sub": "${ResourcePrefix}-migration-execution" },
         "AssumeRolePolicyDocument": {
@@ -728,10 +774,16 @@
                 {
                   "Effect": "Allow",
                   "Action": "secretsmanager:GetSecretValue",
-                  "Resource": [
-                    { "Ref": "ApplicationDatabaseSecret" },
-                    { "Fn::GetAtt": ["DatabaseCluster", "MasterUserSecret.SecretArn"] }
-                  ]
+                  "Resource": {
+                    "Fn::If": [
+                      "BackupVerificationEnabled",
+                      [{ "Fn::GetAtt": ["DatabaseCluster", "MasterUserSecret.SecretArn"] }],
+                      [
+                        { "Ref": "ApplicationDatabaseSecret" },
+                        { "Fn::GetAtt": ["DatabaseCluster", "MasterUserSecret.SecretArn"] }
+                      ]
+                    ]
+                  }
                 }
               ]
             }
@@ -741,7 +793,7 @@
     },
     "MigrationTaskDefinition": {
       "Type": "AWS::ECS::TaskDefinition",
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "DependsOn": [
         "DatabaseWriter",
         "MigrationEcrApiEndpoint",
@@ -764,27 +816,54 @@
           {
             "Name": "alice-migration",
             "Essential": true,
-            "Image": { "Ref": "ImageUri" },
-            "Command": ["npm", "run", "db:migrate:container"],
+            "Image": {
+              "Fn::If": [
+                "BackupVerificationEnabled",
+                { "Ref": "BackupImageUri" },
+                { "Ref": "ImageUri" }
+              ]
+            },
+            "Command": {
+              "Fn::If": [
+                "BackupVerificationEnabled",
+                ["npm", "run", "db:backup:verify:container"],
+                ["npm", "run", "db:migrate:container"]
+              ]
+            },
             "Environment": [
               {
                 "Name": "ALICE_DATABASE_HOST",
                 "Value": { "Fn::GetAtt": ["DatabaseCluster", "Endpoint.Address"] }
               },
-              { "Name": "ALICE_APPLICATION_DATABASE_ROLE", "Value": "alice_app" }
+              { "Name": "ALICE_APPLICATION_DATABASE_ROLE", "Value": "alice_app" },
+              { "Name": "ALICE_DATABASE_SSLMODE", "Value": "verify-full" },
+              { "Name": "PGSSLROOTCERT", "Value": "/app/certs/eu-central-1-bundle.pem" }
             ],
-            "Secrets": [
-              {
-                "Name": "ALICE_MIGRATION_DATABASE_PASSWORD",
-                "ValueFrom": {
-                  "Fn::Sub": "${DatabaseCluster.MasterUserSecret.SecretArn}:password::"
-                }
-              },
-              {
-                "Name": "ALICE_APPLICATION_DATABASE_PASSWORD",
-                "ValueFrom": { "Fn::Sub": "${ApplicationDatabaseSecret}:password::" }
-              }
-            ],
+            "Secrets": {
+              "Fn::If": [
+                "BackupVerificationEnabled",
+                [
+                  {
+                    "Name": "ALICE_MIGRATION_DATABASE_PASSWORD",
+                    "ValueFrom": {
+                      "Fn::Sub": "${DatabaseCluster.MasterUserSecret.SecretArn}:password::"
+                    }
+                  }
+                ],
+                [
+                  {
+                    "Name": "ALICE_MIGRATION_DATABASE_PASSWORD",
+                    "ValueFrom": {
+                      "Fn::Sub": "${DatabaseCluster.MasterUserSecret.SecretArn}:password::"
+                    }
+                  },
+                  {
+                    "Name": "ALICE_APPLICATION_DATABASE_PASSWORD",
+                    "ValueFrom": { "Fn::Sub": "${ApplicationDatabaseSecret}:password::" }
+                  }
+                ]
+              ]
+            },
             "LogConfiguration": {
               "LogDriver": "awslogs",
               "Options": {
@@ -1172,23 +1251,23 @@
       "Description": "Temporary direct-invoke operator; remove immediately after issuing the invitation."
     },
     "MigrationClusterName": {
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "Value": { "Ref": "MigrationCluster" }
     },
     "MigrationSecurityGroupId": {
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "Value": { "Fn::GetAtt": ["LambdaSecurityGroup", "GroupId"] }
     },
     "MigrationSubnetA": {
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "Value": { "Ref": "PrivateSubnetA" }
     },
     "MigrationSubnetB": {
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "Value": { "Ref": "PrivateSubnetB" }
     },
     "MigrationTaskDefinitionArn": {
-      "Condition": "MigrationEnabled",
+      "Condition": "PrivateDatabaseTaskEnabled",
       "Value": { "Ref": "MigrationTaskDefinition" }
     },
     "McpFunctionUrl": {

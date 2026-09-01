@@ -27,6 +27,7 @@ const pgEnvironment = {
   PGUSER: decodeURIComponent(source.username),
   PGPASSWORD: decodeURIComponent(source.password),
   PGSSLMODE: source.searchParams.get("sslmode") || "prefer",
+  ...(process.env.PGSSLROOTCERT ? { PGSSLROOTCERT: process.env.PGSSLROOTCERT } : {}),
 };
 
 function run(command, arguments_) {
@@ -55,41 +56,17 @@ function run(command, arguments_) {
 async function tableCounts(databaseUrl) {
   const pool = new Pool({ connectionString: databaseUrl, max: 1 });
   try {
-    const protectedTables = [
-      "alice_schema_migrations",
-      "alpha_invitations",
-      "users",
-      "workspaces",
-      "projects",
-      "project_memberships",
-      "project_invitations",
-      "context_access_grants",
-      "work_contexts",
-      "context_history_events",
-      "candidate_context_targets",
-      "accepted_context_entries",
-      "active_connection_targets",
-      "context_entry_exclusions",
-      "evidence_events",
-      "file_context_references",
-      "file_objects",
-      "file_reference_exclusions",
-      "candidate_claims",
-      "accepted_project_state",
-      "audit_events",
-    ];
     const discovered = await pool.query(
       `SELECT table_schema, table_name
        FROM information_schema.tables
        WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-         AND table_name = ANY($1::text[])
+         AND table_type = 'BASE TABLE'
        ORDER BY table_schema, table_name`,
-      [protectedTables],
     );
     const counts = {};
     for (const { table_schema: schema, table_name: table } of discovered.rows) {
-      if (!/^[a-z][a-z0-9_]{0,62}$/.test(schema)) {
-        throw new Error("Backup verification found an unsafe schema identifier.");
+      if (!/^[a-z][a-z0-9_]{0,62}$/.test(schema) || !/^[a-z][a-z0-9_]{0,62}$/.test(table)) {
+        throw new Error("Backup verification found an unsafe table identifier.");
       }
       const result = await pool.query(`SELECT COUNT(*)::int AS count FROM "${schema}"."${table}"`);
       counts[`${schema}.${table}`] = result.rows[0].count;

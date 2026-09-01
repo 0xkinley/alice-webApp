@@ -1,12 +1,12 @@
 # Private Alpha AWS Deployment Runbook
 
-Status: product-owner approved; Stages 1-5 complete, hosted health, authorization boundaries, and authenticated OAuth/MCP verified; private-file proof still open
+Status: product-owner approved; Stages 1-7 complete through hosted OAuth/MCP and private-file proof; hosted backup/restore preflight ready
 
 Date: 2026-09-01
 
 This runbook is the approval boundary for the first AWS-hosted proof. It is not permission to create the stack. The product owner must approve the region, resources, usage-priced costs, and security settings below before Stage 1. Every command after approval runs with short-lived console credentials in AWS CloudShell or with AWS CLI `aws login`; no IAM access key is created, copied, committed, or stored as a GitHub secret.
 
-Product-owner approval was received on 2026-08-31 for AWS Bundle 1 in `eu-central-1`, the existing USD 5 alert, the USD 5-15/month low-traffic expectation, the USD 45 planning ceiling, and at most three live proof rounds. This authorizes the staged procedure below; it does not authorize exceeding a stop rule, changing region or architecture, creating access keys, or retaining the stack after the proof without the Stage 7 review.
+Product-owner approval was received on 2026-08-31 for AWS Bundle 1 in `eu-central-1`, the existing USD 5 alert, the USD 5-15/month low-traffic expectation, the USD 45 planning ceiling, and at most three live proof rounds. This authorizes the staged procedure below; it does not authorize exceeding a stop rule, changing region or architecture, creating access keys, or retaining the stack after the proof without the final decision review.
 
 ## Approval envelope
 
@@ -33,7 +33,7 @@ The template has 44 possible CloudFormation resources. Conditions make them appe
 | Stage | Resource count | Resources |
 | --- | ---: | --- |
 | Foundation | 22 | VPC; two private subnets, route tables, and associations; Lambda and database security groups; database ingress; S3 bucket, bucket policy, and free S3 gateway endpoint; GuardDuty role and malware plan; database subnet group, Aurora cluster and writer; application secret; ECR repository; web and MCP execution roles |
-| Temporary migration | 9 | Four interface endpoints (`ecr.api`, `ecr.dkr`, CloudWatch Logs, Secrets Manager), their endpoint security group, ECS cluster, three-day migration log group, ECS execution role, and ARM64 Fargate task definition |
+| Temporary private database operation | 9 | Four interface endpoints (`ecr.api`, `ecr.dkr`, CloudWatch Logs, Secrets Manager), their endpoint security group, ECS cluster, three-day operation log group, ECS execution role, and ARM64 Fargate task definition; used for either migration or backup verification, never both |
 | Runtime | 6 | Two 14-day log groups, two image Lambdas, and two Function URL resources |
 | Final public-origin update | 4 | The two permissions required for each Function URL: `lambda:InvokeFunctionUrl` and `lambda:InvokeFunction` restricted to invocation through the URL |
 | Temporary invitation operator | 3 | One direct-invoke image Lambda, its dedicated least-privilege execution role, and a one-day log group; no Function URL or `AWS::Lambda::Permission` resource |
@@ -56,7 +56,7 @@ All figures are gross before the USD 100 promotional credit, tax, and any applic
 | GuardDuty S3 malware scanning | first 1 GB and 1,000 PUTs/month free, then USD 0.129/GB and USD 0.000308/scanned PUT | at most 5 GiB and fewer than 1,000 uploads | up to about USD 0.52/month |
 | CloudWatch Logs | USD 0.63/GB ingested and USD 0.0324/GB-month stored | at most 1 GiB content-free logs | up to about USD 0.66/month |
 | Temporary interface endpoints | USD 0.012/endpoint-AZ-hour plus USD 0.01/GB | 4 services x 2 AZs x at most 2 hours | about USD 0.19 plus cents once |
-| Temporary Fargate migration | USD 0.03725/vCPU-hour + USD 0.00409/GB-hour | 0.25 vCPU, 0.5 GiB, a few minutes | below USD 0.01 once |
+| Temporary Fargate database operation | USD 0.03725/vCPU-hour + USD 0.00409/GB-hour | 0.25 vCPU, 0.5 GiB, a few minutes per migration or backup proof | below USD 0.01 per operation |
 
 Expected gross cost is USD 1-5 for the bounded deployment proof and USD 5-15/month for low-traffic friend use. The main uncertainty is database awake time. A keepalive that prevents pause would cost about USD 51.10/month at a constant 0.5 ACU before storage and ancillary charges, so the dormant 15-minute hosted-health workflow must not be enabled. Stop live work and investigate when the existing USD 5 actual or forecast alert fires.
 
@@ -66,7 +66,7 @@ Expected gross cost is USD 1-5 for the bounded deployment proof and USD 5-15/mon
 - The application stack creates no IAM users. Lambda and the one-off ECS task receive short-lived role credentials from AWS.
 - The Aurora writer is encrypted, private, reachable on port 5432 only from the workload security group, deletion-protected, and retained as a snapshot on replacement/deletion.
 - Runtime connections use TLS and the constrained `alice_app` role. Schema migration uses the RDS-managed owner secret only in the temporary ECS task; the task creates/rotates `alice_app`, applies the exact migration ledger, refreshes grants, then is removed.
-- The VPC has no route to the internet. Runtime HTTPS egress reaches only the routed S3 gateway endpoint. Temporary private ECR, Logs, and Secrets Manager endpoints exist only during migration.
+- The VPC has no route to the internet. Runtime HTTPS egress reaches only the routed S3 gateway endpoint. Temporary private ECR, Logs, and Secrets Manager endpoints exist only during migration or backup verification.
 - The S3 bucket blocks public access, rejects insecure transport, versions every object, and encrypts with SSE-S3. Ordinary roles have no bucket list, object delete, or scan-tag write permission.
 - MCP can read only exact clean versions under `objects/`. Web can sign bounded staging/object writes and read exact clean versions. A bucket-policy deny blocks reads until GuardDuty sets `GuardDutyMalwareScanStatus=NO_THREATS_FOUND`.
 - Browser upload CORS is absent until the exact generated web origin is supplied. Then it allows only `PUT`, the required checksum/metadata/encryption headers, and exposes only `ETag` and `x-amz-version-id` for ten minutes.
@@ -87,7 +87,8 @@ Do not combine these stages. Review the CloudFormation change set before every c
 5. **Exact origins:** update both URL parameters with those exact outputs and set `OriginsConfigured=true`. Confirm only four invoke permissions and the exact web-origin S3 CORS rule are added.
 6. **Private invitation operator:** build and push the committed image, pin its digest only in `OperatorImageUri`, and create a reviewed `invitation-operator` change set. Confirm it adds exactly the dedicated role, one-day log group, and direct-invoke Lambda without changing the web or MCP image and without adding a Function URL or permission. Invoke it once for the approved alpha account, keep the response out of logs, then immediately run a reviewed hosted-proof update with `RunInvitationOperator=false` and verify all three temporary resources are gone.
 7. **Bounded proof:** complete the authenticated OAuth/MCP round trip and direct-file/GuardDuty/exact-version test. Perform one remediation rerun only if needed. Keep automated 15-minute probes disabled.
-8. **Decision:** retain the stack for the approved friend-alpha window only after reviewing Cost Explorer and budget status. Otherwise disable origins/services and start the separately reviewed teardown path.
+8. **Hosted backup/restore:** first safe-stop the public services, then update with `RunBackupVerification=true`, `RunMigration=false`, and a separately built and scan-clean `BackupImageUri`. Confirm exactly the same nine temporary private database-operation resources, run one Fargate task, require exit code 0 and a content-free 32-table comparison, and immediately update `RunBackupVerification=false`. Verify the four paid interface endpoints, task definition, cluster, role, security group, and log group are gone before restoring the hosted services.
+9. **Decision:** retain the stack for the approved friend-alpha window only after reviewing Cost Explorer and budget status. Otherwise disable origins/services and start the separately reviewed teardown path.
 
 CloudShell is pre-authenticated and AWS documents native Docker/ECR support. AWS CLI `aws login` is also acceptable because it derives renewable temporary credentials from the MFA-protected console session; it requires the AWS-managed `SignInLocalDevelopmentAccess` policy and CLI 2.32 or later. Neither path creates a long-term access key.
 
@@ -95,6 +96,7 @@ CloudShell is pre-authenticated and AWS documents native Docker/ECR support. AWS
 
 - If a template stage differs from this document, cancel it. Do not accept replacement of the retained S3 bucket or Aurora cluster.
 - If migration fails, do not deploy either Lambda. Preserve the logs, diagnose locally, and remove the four interface endpoints by setting `RunMigration=false`.
+- If backup verification fails, do not treat provider backup retention as a restore proof. Preserve only content-free failure evidence, diagnose locally, and remove the four interface endpoints by setting `RunBackupVerification=false`.
 - If the buffered MCP or OAuth proof fails, set `OriginsConfigured=false` and `DeployServices=false`; do not silently switch to ECS Express Mode.
 - If GuardDuty does not produce the exact clean tag, no file may be finalized or read.
 - If actual or forecast cost reaches USD 5 during the proof, stop additional live rounds and review usage. The USD 45 ceiling is not authority to ignore the alert.
@@ -221,9 +223,16 @@ This completes the stable hosted HTTPS web/MCP and authenticated read-only proto
 
 This completes direct private upload, GuardDuty clean/threat gating, and exact-version authorized download. Hosted PostgreSQL backup/restore, clean-checkout verification against both hosted deployables, and the final retain/disable and cost review remain open.
 
+### Hosted backup/restore verifier preflight (2026-09-01)
+
+- The hosted Aurora writer is intentionally private, and the stable web/MCP runtime image intentionally contains no database client utilities. The bounded proof therefore uses a separate Docker `backup` target rather than adding privileged restore tooling to either public deployable.
+- `RunBackupVerification` is disabled by default and cannot coexist with services or migration. It reuses exactly the existing nine temporary private database-operation resources. Its Fargate task receives only the RDS-managed owner password, pins a separate immutable Frankfurt ECR digest, uses the checksum-pinned RDS bundle with `sslmode=verify-full`, writes its custom-format dump only to task-local storage, restores to a uniquely named temporary database, and removes both before exit.
+- The verifier now discovers every non-system base table instead of relying on a stale hand-maintained list. It validates both schema and table identifiers, compares row counts without printing names or content, and emits only the final count. Local PostgreSQL 17 proof matched the 32 current hosted-schema tables and confirmed no temporary restore database remained; the complete fixture gate later matched 64 tables across application and test schemas.
+- The complete local gate passes formatting, linting, typechecking, secret scanning, both evaluations, 118 fast tests, 17 constrained-role PostgreSQL tests, and both builds. The backup-only Linux ARM64 image runs as UID 1000 with PostgreSQL 17.11 clients; the unchanged default runtime target remains Linux ARM64, non-root, and starts MCP by default. No AWS resource or image was created at this preflight checkpoint.
+
 ## CLI change-set helper
 
-`npm run aws:change-set -- <private-runtime|hosted-proof|invitation-operator|safe-stop>` prints the exact, review-only AWS CLI command for the approved stack and region. Add `--create` only after reviewing that printed command; it creates and waits for the change set but never executes it. The hosted-proof mode additionally requires both exact generated Function URL origins. The invitation-operator mode requires `--operator-image` with the separately built immutable Frankfurt ECR digest and must resolve to exactly three temporary private resources. Review the resulting resource diff before separately executing it, and remove the operator immediately after one use; use safe-stop after every bounded proof unless the product owner explicitly authorizes retention.
+`npm run aws:change-set -- <private-runtime|hosted-proof|invitation-operator|backup-verification|safe-stop>` prints the exact, review-only AWS CLI command for the approved stack and region. Add `--create` only after reviewing that printed command; it creates and waits for the change set but never executes it. The hosted-proof mode additionally requires both exact generated Function URL origins. The invitation-operator mode requires `--operator-image` with the separately built immutable Frankfurt ECR digest and must resolve to exactly three temporary private resources. Backup-verification mode requires `--backup-image`, disables services/origins/migration, and must resolve to exactly the same nine temporary private database-operation resources. Review the resulting resource diff before separately executing it, and remove temporary resources immediately after one use; use safe-stop after every bounded proof unless the product owner explicitly authorizes retention.
 
 ## Primary references
 

@@ -23,6 +23,7 @@
     "db:migrate": "node --conditions=development scripts/migrate-postgres.mjs",
     "db:migrate:container": "node scripts/migrate-postgres-container.mjs",
     "db:backup:verify": "node --conditions=development scripts/verify-postgres-backup.mjs",
+    "db:backup:verify:container": "node scripts/verify-postgres-backup-container.mjs",
     "aws:change-set": "node scripts/private-alpha-change-set.mjs",
     "aws:oauth:verify": "node scripts/probe-hosted-oauth.mjs",
     "alpha:invite": "node --conditions=development scripts/create-alpha-invitation.mjs",

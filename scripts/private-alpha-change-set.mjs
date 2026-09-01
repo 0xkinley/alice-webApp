@@ -5,7 +5,13 @@ export const PRIVATE_ALPHA_REGION = "eu-central-1";
 export const PRIVATE_ALPHA_STACK = "alice-private-alpha";
 export const PRIVATE_ALPHA_TEMPLATE = "infra/aws/private-files.template.json";
 
-const MODES = new Set(["private-runtime", "hosted-proof", "invitation-operator", "safe-stop"]);
+const MODES = new Set([
+  "private-runtime",
+  "hosted-proof",
+  "invitation-operator",
+  "backup-verification",
+  "safe-stop",
+]);
 const PLACEHOLDER_IMAGE =
   "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -43,6 +49,7 @@ function requireImage(name, value) {
 }
 
 export function createPrivateAlphaChangeSetPlan({
+  backupImage,
   mode,
   name,
   webOrigin,
@@ -60,8 +67,10 @@ export function createPrivateAlphaChangeSetPlan({
     "ParameterKey=BucketName,UsePreviousValue=true",
     "ParameterKey=ImageUri,UsePreviousValue=true",
     "ParameterKey=OperatorImageUri,UsePreviousValue=true",
+    `ParameterKey=BackupImageUri,ParameterValue=${PLACEHOLDER_IMAGE}`,
     "ParameterKey=ResourcePrefix,UsePreviousValue=true",
     "ParameterKey=RunMigration,ParameterValue=false",
+    "ParameterKey=RunBackupVerification,ParameterValue=false",
     "ParameterKey=RunInvitationOperator,ParameterValue=false",
   ];
   let description;
@@ -89,7 +98,7 @@ export function createPrivateAlphaChangeSetPlan({
   } else if (mode === "invitation-operator") {
     const exactOperatorImage = requireImage("operatorImage", operatorImage);
     parameters[2] = `ParameterKey=OperatorImageUri,ParameterValue=${exactOperatorImage}`;
-    parameters[5] = "ParameterKey=RunInvitationOperator,ParameterValue=true";
+    parameters[7] = "ParameterKey=RunInvitationOperator,ParameterValue=true";
     parameters.push(
       "ParameterKey=DeployServices,ParameterValue=true",
       "ParameterKey=OriginsConfigured,ParameterValue=true",
@@ -98,6 +107,18 @@ export function createPrivateAlphaChangeSetPlan({
     );
     description =
       "Review-only private direct-invoke invitation operator: three temporary resources, no Function URL or public permission; remove immediately after one use.";
+  } else if (mode === "backup-verification") {
+    const exactBackupImage = requireImage("backupImage", backupImage);
+    parameters[3] = `ParameterKey=BackupImageUri,ParameterValue=${exactBackupImage}`;
+    parameters[6] = "ParameterKey=RunBackupVerification,ParameterValue=true";
+    parameters.push(
+      "ParameterKey=DeployServices,ParameterValue=false",
+      "ParameterKey=OriginsConfigured,ParameterValue=false",
+      "ParameterKey=WebPublicUrl,UsePreviousValue=true",
+      "ParameterKey=McpPublicUrl,UsePreviousValue=true",
+    );
+    description =
+      "Review-only private backup/restore verifier: nine temporary resources, no runtime services; remove immediately after one successful run.";
   } else {
     parameters.push(
       "ParameterKey=DeployServices,ParameterValue=false",
@@ -152,6 +173,7 @@ function parseArguments(argumentsList) {
   return {
     create: flags.includes("--create"),
     mcpOrigin: valueAfter("--mcp-origin"),
+    backupImage: valueAfter("--backup-image"),
     mode,
     name: valueAfter("--name") || `runtime-${mode}-${Date.now()}`,
     operatorImage: valueAfter("--operator-image"),
@@ -161,7 +183,7 @@ function parseArguments(argumentsList) {
 
 function usage() {
   console.error(
-    "Usage: node scripts/private-alpha-change-set.mjs <private-runtime|hosted-proof|invitation-operator|safe-stop> [--name NAME] [--web-origin URL --mcp-origin URL] [--operator-image DIGEST_URI] [--create]",
+    "Usage: node scripts/private-alpha-change-set.mjs <private-runtime|hosted-proof|invitation-operator|backup-verification|safe-stop> [--name NAME] [--web-origin URL --mcp-origin URL] [--operator-image DIGEST_URI] [--backup-image DIGEST_URI] [--create]",
   );
 }
 

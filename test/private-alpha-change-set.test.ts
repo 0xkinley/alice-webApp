@@ -18,14 +18,41 @@ test("safe-stop plan disables services and public origins without changing retai
     "ParameterKey=BucketName,UsePreviousValue=true",
     "ParameterKey=ImageUri,UsePreviousValue=true",
     "ParameterKey=OperatorImageUri,UsePreviousValue=true",
+    "ParameterKey=BackupImageUri,ParameterValue=000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
     "ParameterKey=ResourcePrefix,UsePreviousValue=true",
     "ParameterKey=RunMigration,ParameterValue=false",
+    "ParameterKey=RunBackupVerification,ParameterValue=false",
     "ParameterKey=RunInvitationOperator,ParameterValue=false",
     "ParameterKey=DeployServices,ParameterValue=false",
     "ParameterKey=OriginsConfigured,ParameterValue=false",
     "ParameterKey=WebPublicUrl,UsePreviousValue=true",
     "ParameterKey=McpPublicUrl,UsePreviousValue=true",
   ]);
+});
+
+test("backup-verification plan requires one immutable Frankfurt image and stays private", () => {
+  assert.throws(
+    () =>
+      createPrivateAlphaChangeSetPlan({
+        mode: "backup-verification",
+        name: "bundle1-backup-verification",
+        backupImage: "latest",
+      }),
+    /immutable Frankfurt ECR image digest/,
+  );
+
+  const image =
+    "004669176288.dkr.ecr.eu-central-1.amazonaws.com/alice-private-alpha/application@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const plan = createPrivateAlphaChangeSetPlan({
+    mode: "backup-verification",
+    name: "bundle1-backup-verification",
+    backupImage: image,
+  });
+  assert.equal(plan.public, false);
+  assert.ok(plan.parameters.includes(`ParameterKey=BackupImageUri,ParameterValue=${image}`));
+  assert.ok(plan.parameters.includes("ParameterKey=RunBackupVerification,ParameterValue=true"));
+  assert.ok(plan.parameters.includes("ParameterKey=DeployServices,ParameterValue=false"));
+  assert.ok(plan.parameters.includes("ParameterKey=OriginsConfigured,ParameterValue=false"));
 });
 
 test("hosted-proof plan requires exact Frankfurt Function URL origins", () => {

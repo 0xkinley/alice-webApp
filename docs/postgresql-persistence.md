@@ -47,10 +47,12 @@ Runtime startup does not invoke DDL. It compares the database migration ledger w
 
 1. create a custom-format dump without ownership or ACL metadata;
 2. restore it into a unique temporary database;
-3. compare protected-table row counts across every application/test schema; and
+3. discover every non-system base table and compare its row count across every application/test schema; and
 4. drop the restored database and remove the temporary dump.
 
-The CI job runs this procedure on every milestone branch and `main`. It executes the client tools from the same PostgreSQL 17 service image, preventing an older Ubuntu client from producing a false backup failure against a newer server. A hosting plan must add encrypted scheduled retention and an operator-owned restore cadence; this repository check proves the logical dump is restorable, not that a provider backup policy exists.
+The verifier validates every discovered schema and table identifier before quoting it. The CI job runs this procedure on every milestone branch and `main`. It executes the client tools from the same PostgreSQL 17 service image, preventing an older Ubuntu client from producing a false backup failure against a newer server.
+
+The AWS proof uses a separate backup-only ARM64 image target with PostgreSQL 17 client tools. A one-off private Fargate task receives only the RDS-managed owner secret, uses `sslmode=verify-full` with the checksum-pinned Frankfurt RDS trust bundle, emits only the final table count, and removes both its dump and temporary restore database. It cannot coexist with migration or the public runtime services, and its nine private-network resources are removed immediately afterward. Aurora's encrypted seven-day automated backups remain the retention layer; this logical proof establishes recoverability, not cross-region disaster recovery.
 
 ## SQLite disposition
 
