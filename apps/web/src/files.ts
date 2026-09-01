@@ -7,10 +7,12 @@ import {
   finalizeProjectFileUpload,
   getProjectFileDownload,
   getProjectFilePreview,
+  getProjectFileReferencePreview,
   getProjectFileRemovalPreview,
   getProjectFileView,
   listProjectFiles,
   refreshProjectFileScan,
+  referenceProjectFileInContext,
   removeProjectFileReference,
   uploadProjectFile,
 } from "@alice/domain";
@@ -272,10 +274,81 @@ export function createFilesRouter({
       .send(
         renderPage(
           file.display_name,
-          `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}/files?context_id=${encodeURIComponent(file.context_id)}">Back to files</a></nav><header class="hero"><p class="eyebrow">File record</p><h1>${escapeHtml(file.display_name)}</h1><p><span class="badge">Version ${file.version}${file.is_current ? " · Current" : " · Superseded or processing"}</span></p></header>${file.exclusion_id ? `<p class="notice danger"><strong>Removed from active context</strong> · ${escapeHtml(timestampLabel(file.removed_at))}</p>${file.removal_reason ? `<p><strong>Reason:</strong> ${escapeHtml(file.removal_reason)}</p>` : ""}<p class="notice">The object metadata and audit history are preserved. This is not permanent erasure.</p>` : `<p class="notice${file.scan_status === "clean" ? "" : " warning"}"><strong>${escapeHtml(statusCopy(file.scan_status))}</strong></p>`}<section><h2>Verified record</h2><dl><dt>Project</dt><dd>${escapeHtml(file.project_name)}</dd><dt>Context and access</dt><dd>${escapeHtml(file.context_name)} · ${escapeHtml(accessLabel(file.visibility))}</dd><dt>Verified type</dt><dd>${escapeHtml(file.media_type)}</dd><dt>Size</dt><dd>${Number(file.byte_size).toLocaleString()} bytes</dd><dt>Source host</dt><dd>${escapeHtml(hostLabel(file.source_host))}</dd><dt>Referenced</dt><dd>${escapeHtml(timestampLabel(file.referenced_at))}</dd><dt>Last scan update</dt><dd>${escapeHtml(timestampLabel(file.scan_updated_at))}</dd><dt>File receipt</dt><dd><code>${escapeHtml(file.id)}</code></dd><dt>Immutable object receipt</dt><dd><code>${escapeHtml(file.file_object_id)}</code></dd></dl></section>${file.exclusion_id ? "" : `<div class="actions">${file.scan_status === "clean" && file.is_current ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/preview">Preview</a><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/download">Download</a>` : ""}${file.access.can_write && file.can_replace ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/replace">Upload replacement</a>` : ""}${file.access.can_write ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/remove">Remove from context</a>` : ""}</div>`}<section><div class="section-heading"><h2>Version history</h2><p class="muted">Earlier versions retain provenance</p></div>${file.versions.map((version) => `<article class="file-card${version.id === file.current_reference_id ? "" : " unavailable"}"><h3>Version ${version.version} · ${escapeHtml(version.display_name)}</h3><p>${escapeHtml(statusCopy(version.scan_status))} · ${escapeHtml(timestampLabel(version.referenced_at))}</p>${version.id === file.current_reference_id ? "<p><strong>Current clean version</strong></p>" : ""}<p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(version.id)}">View this version</a></p></article>`).join("")}</section>`,
+          `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}/files?context_id=${encodeURIComponent(file.context_id)}">Back to files</a></nav><header class="hero"><p class="eyebrow">File record</p><h1>${escapeHtml(file.display_name)}</h1><p><span class="badge">Version ${file.version}${file.is_current ? " · Current" : " · Superseded or processing"}</span></p></header>${file.exclusion_id ? `<p class="notice danger"><strong>Removed from active context</strong> · ${escapeHtml(timestampLabel(file.removed_at))}</p>${file.removal_reason ? `<p><strong>Reason:</strong> ${escapeHtml(file.removal_reason)}</p>` : ""}<p class="notice">The object metadata and audit history are preserved. This is not permanent erasure.</p>` : `<p class="notice${file.scan_status === "clean" ? "" : " warning"}"><strong>${escapeHtml(statusCopy(file.scan_status))}</strong></p>`}<section><h2>Verified record</h2><dl><dt>Project</dt><dd>${escapeHtml(file.project_name)}</dd><dt>Context and access</dt><dd>${escapeHtml(file.context_name)} · ${escapeHtml(accessLabel(file.visibility))}</dd><dt>Verified type</dt><dd>${escapeHtml(file.media_type)}</dd><dt>Size</dt><dd>${Number(file.byte_size).toLocaleString()} bytes</dd><dt>Source host</dt><dd>${escapeHtml(hostLabel(file.source_host))}</dd><dt>Referenced</dt><dd>${escapeHtml(timestampLabel(file.referenced_at))}</dd><dt>Last scan update</dt><dd>${escapeHtml(timestampLabel(file.scan_updated_at))}</dd><dt>File receipt</dt><dd><code>${escapeHtml(file.id)}</code></dd><dt>Immutable object receipt</dt><dd><code>${escapeHtml(file.file_object_id)}</code></dd></dl></section>${file.exclusion_id ? "" : `<div class="actions">${file.scan_status === "clean" && file.is_current ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/preview">Preview</a><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/download">Download</a><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/add-reference">Add to another context</a>` : ""}${file.access.can_write && file.can_replace ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/replace">Upload replacement</a>` : ""}${file.access.can_write ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/remove">Remove from context</a>` : ""}</div>`}<section><div class="section-heading"><h2>Version history</h2><p class="muted">Earlier versions retain provenance</p></div>${file.versions.map((version) => `<article class="file-card${version.id === file.current_reference_id ? "" : " unavailable"}"><h3>Version ${version.version} · ${escapeHtml(version.display_name)}</h3><p>${escapeHtml(statusCopy(version.scan_status))} · ${escapeHtml(timestampLabel(version.referenced_at))}</p>${version.id === file.current_reference_id ? "<p><strong>Current clean version</strong></p>" : ""}<p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(version.id)}">View this version</a></p></article>`).join("")}</section>`,
         ),
       );
   });
+
+  router.get(
+    "/:projectId/files/:referenceId/add-reference",
+    authenticated,
+    async (request, response) => {
+      const preview = await getProjectFileReferencePreview(database, {
+        userId: request.aliceUser!.id,
+        projectId: request.params.projectId,
+        referenceId: request.params.referenceId,
+      });
+      if (!preview) return notFound(response);
+      const destinations = preview.destinations
+        .map(
+          (context) =>
+            `<article class="file-card"><h2>${escapeHtml(context.name)}</h2><p>Access will follow ${escapeHtml(accessLabel(context.visibility))}.</p><form method="post" action="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}/add-reference"><input type="hidden" name="target_context_id" value="${escapeHtml(context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(context.preview_version)}"><button type="submit">Add reference to this context</button></form></article>`,
+        )
+        .join("");
+      response
+        .type("html")
+        .send(
+          renderPage(
+            "Add file to another context",
+            `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}">Back to file</a></nav><header class="hero"><p class="eyebrow">Explicit context access</p><h1>Add ${escapeHtml(preview.reference.display_name)} to another context</h1><p>This creates a separate access-controlled reference to the same scan-clean immutable object. No file bytes are copied, and access is granted only through the context you choose.</p></header>${destinations || '<div class="empty-state"><h2>No eligible contexts</h2><p>You need write access to another context that does not already reference this exact object.</p></div>'}`,
+          ),
+        );
+    },
+  );
+
+  router.post(
+    "/:projectId/files/:referenceId/add-reference",
+    authenticated,
+    async (request, response) => {
+      let result;
+      try {
+        result = await referenceProjectFileInContext(database, {
+          userId: request.aliceUser!.id,
+          projectId: request.params.projectId,
+          referenceId: request.params.referenceId,
+          targetContextId: String(request.body.target_context_id || ""),
+          expectedPreviewVersion: String(request.body.preview_version || ""),
+        });
+      } catch {
+        return response
+          .status(500)
+          .type("html")
+          .send(
+            renderStatusPage(
+              "File not added",
+              `<h1>The file reference could not be added.</h1><p>No file bytes or context access changed.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}">Return to the file</a></p>`,
+              "danger",
+            ),
+          );
+      }
+      if (!result) return notFound(response);
+      if (result.conflict) {
+        return response
+          .status(409)
+          .type("html")
+          .send(
+            renderStatusPage(
+              "File or context changed",
+              `<h1>The file or destination context changed.</h1><p>No reference was created. Review the current choices before deciding.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}/add-reference">Review eligible contexts</a></p>`,
+            ),
+          );
+      }
+      response.redirect(
+        303,
+        `/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(result.referenceId)}`,
+      );
+    },
+  );
 
   router.get("/:projectId/files/:referenceId/replace", authenticated, async (request, response) => {
     const file = await getProjectFileView(database, {

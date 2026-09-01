@@ -4,6 +4,7 @@ import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { pdfExtractionVersion } from "@alice/schemas";
 import { appendAuditEvent } from "./audit.ts";
 import { contextScopeForUser, type ContextCapability } from "./authorization.ts";
+import { listWorkContexts } from "./work-contexts.ts";
 
 export const FILE_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
 export const FILE_UPLOAD_INTENT_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -914,7 +915,7 @@ async function authorizedFileReference(
   const reference = await database
     .prepare(
       `SELECT r.id, r.context_id, c.context_kind, r.logical_file_id, r.version, r.display_name,
-              r.source_host, r.referenced_at, r.file_object_id,
+              r.source_host, r.uploader_user_id, r.referenced_at, r.file_object_id,
               o.content_sha256, o.byte_size,
               o.storage_key, o.storage_version_id, o.verified_media_type AS media_type,
               o.scan_status
@@ -959,6 +960,138 @@ async function authorizedFileReference(
         contextRole: access.contextRole,
       }
     : undefined;
+}
+
+function fileReferenceLinkPreviewVersion(reference, target): string {
+  return `file_reference_link_preview_${createHash("sha256")
+    .update(
+      JSON.stringify({
+        source_reference_id: reference.id,
+        source_context_id: reference.context_id,
+        file_object_id: reference.file_object_id,
+        logical_file_id: reference.logical_file_id,
+        version: reference.version,
+        display_name: reference.display_name,
+        content_sha256: reference.content_sha256,
+        scan_status: reference.scan_status,
+        referenced_at: reference.referenced_at,
+        target_context_id: target.id,
+        target_name: target.name,
+        target_visibility: target.visibility,
+        target_updated_at: target.updated_at,
+      }),
+    )
+    .digest("hex")}`;
+}
+
+export async function getProjectFileReferencePreview(
+  database,
+  input: { userId: string; projectId: string; referenceId: string },
+) {
+  const reference = await authorizedFileReference(database, input, { currentCleanOnly: true });
+  if (!reference || reference.scan_status !== "clean") return undefined;
+  const contexts = await listWorkContexts(database, input.userId, input.projectId);
+  if (!contexts) return undefined;
+  const existing = await database
+    .prepare(
+      `SELECT context_id FROM file_context_references
+       WHERE workspace_id = ? AND project_id = ? AND file_object_id = ?`,
+    )
+    .all(reference.workspaceId, input.projectId, reference.file_object_id);
+  const existingContextIds = new Set(existing.map(({ context_id: contextId }) => contextId));
+  const destinations = contexts
+    .filter(
+      (context) =>
+        context.can_write &&
+        context.id !== reference.context_id &&
+        !existingContextIds.has(context.id),
+    )
+    .map((context) => ({
+      id: context.id,
+      name: context.name,
+      visibility: context.visibility,
+      preview_version: fileReferenceLinkPreviewVersion(reference, context),
+    }));
+  return { reference, destinations };
+}
+
+export async function referenceProjectFileInContext(
+  database,
+  input: {
+    userId: string;
+    projectId: string;
+    referenceId: string;
+    targetContextId: string;
+    expectedPreviewVersion: string;
+  },
+) {
+  const initial = await getProjectFileReferencePreview(database, input);
+  const initialTarget = initial?.destinations.find(({ id }) => id === input.targetContextId);
+  if (!initial || !initialTarget) return undefined;
+  return await database.transaction(
+    async () => {
+      await database
+        .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
+        .get(
+          `${initial.reference.workspaceId}:file-reference:${initial.reference.file_object_id}:${input.targetContextId}`,
+        );
+      const preview = await getProjectFileReferencePreview(database, input);
+      const target = preview?.destinations.find(({ id }) => id === input.targetContextId);
+      if (!preview || !target || target.preview_version !== input.expectedPreviewVersion) {
+        return { conflict: true as const };
+      }
+
+      const referenceId = `file_ref_${randomUUID()}`;
+      const referencedAt = new Date().toISOString();
+      await database
+        .prepare(
+          `INSERT INTO file_context_references
+           (id, workspace_id, project_id, context_id, file_object_id, logical_file_id,
+            version, display_name, source_host, uploader_user_id, access_scope, referenced_at)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 'inherit_context', ?)`,
+        )
+        .run(
+          referenceId,
+          preview.reference.workspaceId,
+          input.projectId,
+          target.id,
+          preview.reference.file_object_id,
+          referenceId,
+          preview.reference.display_name,
+          preview.reference.source_host,
+          preview.reference.uploader_user_id,
+          referencedAt,
+        );
+      await database
+        .prepare(
+          `UPDATE work_contexts SET updated_at = ?
+           WHERE workspace_id = ? AND project_id = ? AND id = ?`,
+        )
+        .run(referencedAt, preview.reference.workspaceId, input.projectId, target.id);
+      const audit = await appendAuditEvent(database, {
+        workspaceId: preview.reference.workspaceId,
+        projectId: input.projectId,
+        action: "file_reference_linked",
+        actorType: "human_user",
+        actorId: input.userId,
+        correlationId: `file_reference_link_${randomUUID()}`,
+        metadata: {
+          source_context_id: preview.reference.context_id,
+          source_file_reference_id: preview.reference.id,
+          target_context_id: target.id,
+          file_object_id: preview.reference.file_object_id,
+          file_reference_id: referenceId,
+        },
+      });
+      return {
+        conflict: false as const,
+        referenceId,
+        contextId: target.id,
+        auditEventId: audit.id,
+      };
+    },
+    { isolation: "READ COMMITTED" },
+  );
 }
 
 async function fileReferenceAccess(

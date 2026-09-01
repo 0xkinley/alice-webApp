@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
-import { issueAlphaInvitation, validateProjectFile } from "@alice/domain";
+import { createWorkContext, issueAlphaInvitation, validateProjectFile } from "@alice/domain";
 import { createApp } from "../apps/web/src/app.ts";
 
 class FakePrivateFileStore {
@@ -740,6 +740,142 @@ test("an exact human removal disables access without erasing file provenance", a
   assert.throws(
     () => created.database.prepare("DELETE FROM file_reference_exclusions").run(),
     /immutable/,
+  );
+});
+
+test("references one clean immutable object from another authorized context without copying bytes", async () => {
+  const owner = created.database
+    .prepare("SELECT id FROM users WHERE lower(email) = ?")
+    .get("file-owner@alice.example");
+  const personal = await createWorkContext(created.database, {
+    userId: owner.id,
+    projectId: ownerProjectId,
+    input: {
+      name: "Owner private evidence",
+      description: "A private destination for exact-reference access testing.",
+      visibility: "personal",
+    },
+  });
+  const source = created.database
+    .prepare(
+      `SELECT r.id, r.file_object_id, r.source_host, r.uploader_user_id
+       FROM file_context_references r
+       JOIN work_contexts c ON c.id = r.context_id
+       WHERE r.project_id = ? AND c.context_kind = 'project_wide'
+         AND r.file_object_id = (
+           SELECT file_object_id FROM file_context_references WHERE id = ?
+         )`,
+    )
+    .get(ownerProjectId, cleanReferenceId);
+  const countsBefore = {
+    objects: created.database.prepare("SELECT COUNT(*) AS count FROM file_objects").get().count,
+    references: created.database
+      .prepare("SELECT COUNT(*) AS count FROM file_context_references")
+      .get().count,
+  };
+
+  const foreignPreview = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${source.id}/add-reference`,
+    { headers: { cookie: otherCookie } },
+  );
+  assert.equal(foreignPreview.status, 404);
+  assert.doesNotMatch(await foreignPreview.text(), /same-content\.md|Owner private evidence/);
+
+  const preview = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${source.id}/add-reference`,
+    { headers: { cookie: ownerCookie } },
+  );
+  assert.equal(preview.status, 200);
+  const previewHtml = await preview.text();
+  assert.match(previewHtml, /same scan-clean immutable object/i);
+  assert.match(previewHtml, /Owner private evidence/);
+  assert.doesNotMatch(previewHtml, />General</);
+  const previewVersion = previewHtml.match(/name="preview_version" value="([^"]+)"/)?.[1];
+  assert.match(previewVersion, /^file_reference_link_preview_[0-9a-f]{64}$/);
+
+  const stale = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${source.id}/add-reference`,
+    {
+      method: "POST",
+      headers: { cookie: ownerCookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        target_context_id: personal.id,
+        preview_version: "stale",
+      }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(stale.status, 409);
+
+  const linked = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${source.id}/add-reference`,
+    {
+      method: "POST",
+      headers: { cookie: ownerCookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        target_context_id: personal.id,
+        preview_version: previewVersion,
+      }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(linked.status, 303);
+  const linkedReferenceId = decodeURIComponent(linked.headers.get("location").split("/").at(-1));
+  const linkedReference = created.database
+    .prepare(
+      `SELECT context_id, file_object_id, logical_file_id, version, source_host, uploader_user_id
+       FROM file_context_references WHERE id = ?`,
+    )
+    .get(linkedReferenceId);
+  assert.equal(linkedReference.context_id, personal.id);
+  assert.equal(linkedReference.file_object_id, source.file_object_id);
+  assert.equal(linkedReference.logical_file_id, linkedReferenceId);
+  assert.equal(linkedReference.version, 1);
+  assert.equal(linkedReference.source_host, source.source_host);
+  assert.equal(linkedReference.uploader_user_id, source.uploader_user_id);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM file_objects").get().count,
+    countsBefore.objects,
+  );
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM file_context_references").get().count,
+    countsBefore.references + 1,
+  );
+  assert.equal(
+    (
+      await fetch(`${baseUrl}/projects/${ownerProjectId}/files/${linkedReferenceId}/download`, {
+        headers: { cookie: ownerCookie },
+        redirect: "manual",
+      })
+    ).status,
+    302,
+  );
+  assert.equal(
+    (
+      await fetch(`${baseUrl}/projects/${ownerProjectId}/files/${linkedReferenceId}/download`, {
+        headers: { cookie: otherCookie },
+        redirect: "manual",
+      })
+    ).status,
+    404,
+  );
+
+  const replay = await fetch(
+    `${baseUrl}/projects/${ownerProjectId}/files/${source.id}/add-reference`,
+    {
+      method: "POST",
+      headers: { cookie: ownerCookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        target_context_id: personal.id,
+        preview_version: previewVersion,
+      }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(replay.status, 404);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM file_context_references").get().count,
+    countsBefore.references + 1,
   );
 });
 

@@ -23,6 +23,7 @@ const PROJECT_SECURITY_ACTIONS = new Map([
   ["context_access_ended", "Context access ended"],
   ["active_context_target_selected", "AI connection target changed"],
   ["saved_context_removed", "Saved context removed"],
+  ["file_reference_linked", "File added to context"],
   ["file_reference_removed", "File reference removed"],
 ]);
 
@@ -33,6 +34,7 @@ const CONTEXT_SECURITY_ACTIONS = new Set([
   "context_access_ended",
   "active_context_target_selected",
   "saved_context_removed",
+  "file_reference_linked",
   "file_reference_removed",
 ]);
 
