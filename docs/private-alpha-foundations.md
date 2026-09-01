@@ -275,9 +275,9 @@ No fabricated testimonials, customer logos, accuracy/ROI claims, compliance badg
 
 ## Privacy and friend-testing boundary
 
-Until Milestone 06 is complete, testers must be told that this is a local/private prototype and must not enter sensitive, regulated, or client-confidential information.
+Until Milestone 06 is complete, testers must be told that this is a private prototype and must not enter sensitive, regulated, or client-confidential information. Version `2026-09-01.1` of the published operational notice is the durable disclosure in [`docs/private-alpha-privacy-security.md`](private-alpha-privacy-security.md); the unauthenticated web route is `/privacy-security`, every rendered product page links to it, and the prohibition appears before invited account creation.
 
-Before invitations open, alice. must publish an understandable private-alpha notice describing:
+The published notice describes:
 
 - data collected and why;
 - project and context collaborator visibility;
@@ -290,6 +290,8 @@ Before invitations open, alice. must publish an understandable private-alpha not
 - prohibited alpha data categories.
 
 Do not promise that providers do not train on submitted context, that data remains in a particular country, that deletion is instantaneous, or that infrastructure staff can never access data unless the selected services, account configurations, contracts, and implemented controls make those statements true.
+
+No public incident-response address or legal entity name has been approved for the alpha. The notice therefore identifies the operator as the person who delivered the private invitation and sends privacy/security reports through that same private invitation channel. It must be updated only after a monitored public contact or formal operator identity is actually approved; neither may be inferred from Git metadata or a personal account.
 
 Privacy-preserving instrumentation records events and bounded identifiers needed to measure setup, selection, retrieval, save offers, confirmation/cancellation, removal, restatement, and repeat use. It must not record passwords, bearer tokens, exact evidence payloads, complete prompts, model responses, or restricted-context metadata.
 

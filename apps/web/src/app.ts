@@ -23,6 +23,7 @@ import {
 } from "./auth.ts";
 import { createConnectionsRouter } from "./connections.ts";
 import { createContextAccessRouter } from "./context-access.ts";
+import { privateAlphaPrivacySecurityBody } from "./disclosures.ts";
 import { createFilesRouter } from "./files.ts";
 import { createHostFileSaveOffersRouter } from "./host-file-save-offers.ts";
 import { createProjectLifecycleRouter } from "./project-lifecycle.ts";
@@ -69,6 +70,12 @@ export async function createApp({
     } catch {
       response.status(503).json({ database: "unreachable", service: "alice-web", status: "error" });
     }
+  });
+  app.get("/privacy-security", (_request, response) => {
+    response
+      .type("html")
+      .set("Cache-Control", "no-store")
+      .send(renderPage("Private alpha privacy and security", privateAlphaPrivacySecurityBody));
   });
   app.use("/auth", createAuthRouter({ database, publicUrl }));
   app.use("/connections", createConnectionsRouter({ database, mcpPublicUrl }));

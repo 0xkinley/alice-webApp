@@ -30,6 +30,28 @@ after(async () => {
   created.database.close();
 });
 
+test("publishes the private-alpha privacy and security boundary without authentication", async () => {
+  const response = await fetch(`${baseUrl}/privacy-security`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const html = await response.text();
+  assert.match(html, /version 2026-09-01\.1/);
+  assert.match(html, /Do not use sensitive test data/);
+  assert.match(html, /regulated, or client-confidential information/);
+  assert.match(html, /What alice\. collects and why/);
+  assert.match(html, /Who may receive data/);
+  assert.match(html, /The AI-provider boundary/);
+  assert.match(html, /AWS Europe \(Frankfurt\)/);
+  assert.match(html, /not a promise that every operational or support process stays/);
+  assert.match(html, /Application logs/);
+  assert.match(html, /14 days/);
+  assert.match(html, /automated backups are currently retained for seven days/);
+  assert.match(html, /Hosted erasure and observed backup expiry are not yet verified/);
+  assert.match(html, /Account-wide erasure is not yet implemented/);
+  assert.match(html, /same private channel in which you received your alice\. invitation/);
+  assert.match(html, /does not sell alpha data or use it for advertising/);
+});
+
 test("requires a live single-email alpha invitation", async () => {
   const missing = await fetch(`${baseUrl}/auth/register`);
   assert.equal(missing.status, 403);
@@ -42,6 +64,9 @@ test("requires a live single-email alpha invitation", async () => {
   const html = await registration.text();
   assert.match(html, /owner@alice\.example/i);
   assert.match(html, /name="email"[^>]*readonly/);
+  assert.match(html, /Private alpha data boundary/);
+  assert.match(html, /Do not enter sensitive, regulated, or client-confidential information/);
+  assert.match(html, /href="\/privacy-security"/);
   assert.equal(
     created.database.prepare("SELECT accepted_at FROM alpha_invitations").get().accepted_at,
     null,
