@@ -1,6 +1,6 @@
 # Private Alpha AWS Deployment Runbook
 
-Status: AWS Bundle 1 complete and retained; Bundle 2 project-erasure operator implemented locally, hosted proof not authorized or executed
+Status: AWS Bundle 1 complete and retained; Bundle 2 disposable fixture is in the seven-day deletion cooling-off period, hosted erasure not executed
 
 Date: 2026-09-01
 
@@ -276,6 +276,14 @@ This completes AWS Bundle 1's final retain/disable and cost review. Retention is
 - Local verification passed formatting, linting, typechecking, both builds, secret scanning, both deterministic evaluations, all 121 fast tests, 14 focused private-file/deployment tests, and all 18 real PostgreSQL tests. The PostgreSQL proof deletes an unshared exact object version and all target rows, retains a shared object and unrelated project, denies the application role, proves late cancellation waits and then fails after preparation, simulates interruption after object deletion, completes from the prepared receipt, and proves terminal replay. The dedicated `erasure` Docker target built with zero npm vulnerabilities, ran as UID 1000, omitted `/app/apps`, and retained the required compiled database/S3 packages, operator scripts, and readable pinned RDS trust bundle. The disposable PostgreSQL 17 container and local image tag were removed.
 
 Hosted preflight must be read-only before creating a change set: verify stack `UPDATE_COMPLETE`; no active change set; services/origins healthy and unchanged; migration, backup, erasure, and invitation flags disabled; no temporary ECS cluster or interface endpoint; Aurora backup retention exactly seven days; no untracked manual snapshot containing the fixture; GuardDuty active; bucket versioning/public-access block unchanged; Lambda count/quota unchanged; the USD 5 budget below its stop threshold; and enough ECS, VPC endpoint, IAM-role, and CloudFormation headroom for exactly ten temporary resources. Prepare the immediate `RunProjectErasure=false` cleanup command and record the currently deployed runtime digest/origins before mutation.
+
+### Bundle 2 hosted fixture and cooling-off evidence (2026-09-01)
+
+- The signed-in Owner created exactly one disposable project, `Bundle 2 Erasure Proof 2026-09-01` (`project_f41087a3-2451-48eb-acff-531003904f83`). Its brief states that it is a synthetic Milestone 06 erasure fixture and contains no user or project content. The existing `Hosted Bundle 1 Proof` project was not changed.
+- The browser uploaded exactly one 97-byte UTF-8 text fixture directly to the private project-wide context. Local and exported metadata agreed on SHA-256 `024d38461a54eddf399825818d14b57ea346c0913d67169ea796c75d488042a5`; the immutable object receipt is `file_1e63b6b1-f45e-43b3-8b3a-b1239d0ec569` and its context reference is `file_ref_7c24838a-49d7-43e2-8783-d62155107398`. The UI first showed the object as unavailable while scanning, then `Ready`; the permission-filtered export recorded `scan_status=clean`.
+- The Owner archived the project at `2026-09-01 15:12:46.316+00` and created exact deletion request `project_deletion_dc49940c-dd2e-43c5-ae90-e8984f7097f7` at `2026-09-01 15:12:56.525+00`. The earliest operator time is `2026-09-08 15:12:56.525+00`. Until then the request remains cancellable and the project remains archived and unavailable through ordinary project and AI-connection paths.
+- The lifecycle UI explicitly confirmed that no PostgreSQL row, object version, security receipt, or provider backup was deleted by the request. No CloudFormation change set, interface endpoint, ECS resource, image, or operator task was created. The synthetic local fixture and the temporary permission-filtered export were removed after their safe evidence fields were checked; they are not recoverable from the local machine.
+- Do not run the operator before the exact `not_before` timestamp. On or after that time, repeat the full read-only preflight, obtain the required approval for four temporary paid interface endpoints, one short Fargate task, and destructive deletion of this exact disposable fixture, then build/scan/deploy/preview/execute/disable as separate bounded stages. The permanent-erasure task remains open until active deletion, ordinary-path denial, exact S3-version absence, unrelated-project retention, temporary-resource cleanup, and the later Aurora backup-expiry observation all pass.
 
 Read-only hosted preflight at `2026-09-01T15:03:41Z` passed without creating a change set or resource:
 
