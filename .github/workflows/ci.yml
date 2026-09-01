@@ -82,6 +82,9 @@ jobs:
       - name: Evaluate cross-host context
         run: npm run eval:context
 
+      - name: Evaluate private-alpha capabilities and host matrix
+        run: npm run eval:private-alpha
+
       - name: Test
         run: npm test
 

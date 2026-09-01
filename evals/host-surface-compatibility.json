@@ -1,0 +1,195 @@
+{
+  "version": "2026-09-01.1",
+  "as_of_date": "2026-09-01",
+  "matrix_contract": "alice.host-surface-compatibility.v1",
+  "local_mcp_server_version": "0.6.2",
+  "hosted_mcp_server_version": "0.6.0",
+  "hosted_runtime_note": "The retained hosted deployment predates the local host-attachment transfer contract. Run no surface against version 0.6.2 until that exact runtime and migration are separately deployed and verified.",
+  "status_definitions": {
+    "pass": "A dated live run on this exact surface passed the capability against the recorded deployment.",
+    "fail": "A dated live run reached the capability but did not satisfy the alice. contract.",
+    "provider_blocked": "The exact surface could not expose or complete the capability through its supported provider path.",
+    "untested": "No qualifying dated live run exists for this exact surface and capability. Treat it as unsupported."
+  },
+  "capabilities": [
+    "oauth_connect_reconnect_revoke",
+    "project_discovery_selection",
+    "accepted_context_read",
+    "candidate_save_confirm_cancel",
+    "file_reference_attachment_fallback",
+    "permission_non_disclosure",
+    "cross_host_reuse"
+  ],
+  "fallbacks": {
+    "oauth_connect_reconnect_revoke": "Do not advertise the surface; use a separately passing surface.",
+    "project_discovery_selection": "Select the exact project and work context in the alice. connection center.",
+    "accepted_context_read": "Use the permission-filtered alice. package preview or explicit handoff.",
+    "candidate_save_confirm_cancel": "Use the alice. Needs attention queue and exact authenticated confirmation page.",
+    "file_reference_attachment_fallback": "Use the authenticated pre-targeted alice. upload page after exact confirmation.",
+    "permission_non_disclosure": "Do not admit the surface until denial and no-mutation behavior pass.",
+    "cross_host_reuse": "Use an explicit permission-filtered handoff; do not claim automatic cross-host continuation."
+  },
+  "live_runs": [],
+  "surfaces": [
+    {
+      "id": "claude_web",
+      "provider": "Anthropic",
+      "surface": "Claude web",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "candidate_save_confirm_cancel": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "claude_desktop",
+      "provider": "Anthropic",
+      "surface": "Claude Desktop",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "candidate_save_confirm_cancel": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "claude_ios",
+      "provider": "Anthropic",
+      "surface": "Claude iOS",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "candidate_save_confirm_cancel": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "claude_android",
+      "provider": "Anthropic",
+      "surface": "Claude Android",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "candidate_save_confirm_cancel": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "claude_code",
+      "provider": "Anthropic",
+      "surface": "Claude Code",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "candidate_save_confirm_cancel": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "chatgpt_web",
+      "provider": "OpenAI",
+      "surface": "ChatGPT web",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "candidate_save_confirm_cancel": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "chatgpt_desktop",
+      "provider": "OpenAI",
+      "surface": "ChatGPT desktop",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "candidate_save_confirm_cancel": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "codex_desktop",
+      "provider": "OpenAI",
+      "surface": "Codex desktop",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "candidate_save_confirm_cancel": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "codex_cli",
+      "provider": "OpenAI",
+      "surface": "Codex CLI",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "candidate_save_confirm_cancel": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "codex_ide_extension",
+      "provider": "OpenAI",
+      "surface": "Codex IDE extension",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "candidate_save_confirm_cancel": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    }
+  ]
+}

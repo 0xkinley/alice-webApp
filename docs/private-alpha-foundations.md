@@ -206,22 +206,24 @@ The initial Railway/Neon provider recommendation was superseded before provision
 
 Remote MCP is the integration architecture, but capability claims are made per host surface rather than per provider brand. A successful result on one client does not establish support on another client, even when they use the same account or server URL.
 
-Milestone 06 records live, dated results for this matrix:
+The versioned machine-readable source of truth is `evals/host-surface-compatibility.json`; its maintenance and bounded evaluation procedure are documented in `docs/host-surface-compatibility.md`. Milestone 06 records live, dated results for this matrix:
 
 | Provider | Surface | OAuth connect, reconnect, revoke | Project list and active selection | Accepted-context read | Candidate save, exact confirm, cancel | File reference and attachment fallback | Permission denial/non-disclosure | Milestone 06 status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Anthropic | Claude web | Required | Required | Required | Required | Required | Required | Planned |
-| Anthropic | Claude Desktop | Required | Required | Required | Required | Required | Required | Planned |
-| Anthropic | Claude iOS | Required | Required | Required | Required | Required | Required | Planned |
-| Anthropic | Claude Android | Required | Required | Required | Required | Required | Required | Planned |
-| Anthropic | Claude Code | Required | Required | Required | Required | Required | Required | Planned |
-| OpenAI | ChatGPT web | Required | Required | Required | Required | Required | Required | Planned |
-| OpenAI | ChatGPT desktop | Required | Required | Required | Required | Required | Required | Planned |
-| OpenAI | Codex desktop | Required | Required | Required | Required | Required | Required | Planned |
-| OpenAI | Codex CLI | Required | Required | Required | Required | Required | Required | Planned |
-| OpenAI | Codex IDE extension | Required | Required | Required | Required | Required | Required | Planned |
+| Anthropic | Claude web | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
+| Anthropic | Claude Desktop | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
+| Anthropic | Claude iOS | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
+| Anthropic | Claude Android | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
+| Anthropic | Claude Code | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
+| OpenAI | ChatGPT web | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
+| OpenAI | ChatGPT desktop | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
+| OpenAI | Codex desktop | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
+| OpenAI | Codex CLI | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
+| OpenAI | Codex IDE extension | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
 
 Each result records the date, provider/client version, account type, region, transport, authorization scopes, tool exposure, observed confirmation behavior, and durable evidence location. `Pass`, `Fail`, `Provider-blocked`, and `Not tested` are distinct states. Only passing capabilities may appear in onboarding or marketing copy. Provider-blocked or failed native save and file-transfer paths use an alice.-controlled confirmation or pre-targeted upload fallback; they are not reported as native support.
+
+The local deterministic private-alpha harness covers all required product capabilities and cross-host invariants, validates runtime-test evidence paths, and prevents incomplete matrix records from being advertised. It is deliberately not live-host evidence. The generic hosted OAuth/MCP verifier is also server-side deployment evidence rather than a result for any exact provider surface.
 
 ChatGPT mobile is outside the initial advertised matrix because current support has not been established for alice.'s custom remote integration path. It may be added only through a dated documentation review and separate live run; generic “ChatGPT support” must not imply mobile support.
 

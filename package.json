@@ -20,6 +20,7 @@
     "check:secrets": "node scripts/check-secrets.mjs",
     "eval:capture": "node scripts/evaluate-capture-tool-selection.mjs",
     "eval:context": "node --conditions=development scripts/evaluate-cross-host-context.mjs",
+    "eval:private-alpha": "node scripts/evaluate-private-alpha-capabilities.mjs",
     "db:migrate": "node --conditions=development scripts/migrate-postgres.mjs",
     "db:migrate:container": "node scripts/migrate-postgres-container.mjs",
     "db:backup:verify": "node --conditions=development scripts/verify-postgres-backup.mjs",
@@ -33,7 +34,7 @@
     "test": "node --conditions=development --test test/*.test.ts",
     "test:postgres": "node --conditions=development --test test/postgres/*.test.ts",
     "build": "tsc -b --clean && tsc -b --pretty false",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run check:secrets && npm run eval:capture && npm run eval:context && npm test && npm run test:postgres && npm run build"
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run check:secrets && npm run eval:capture && npm run eval:context && npm run eval:private-alpha && npm test && npm run test:postgres && npm run build"
   },
   "engines": {
     "node": ">=24"

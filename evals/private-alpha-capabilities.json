@@ -1,0 +1,531 @@
+{
+  "version": "2026-09-01.1",
+  "policy": "Host calls may create evidence, candidates, or confirmed file-transfer intents, but only exact authenticated human actions may select a target, activate candidate context, authorize file storage, remove active context, grant access, or revoke a connection. Every denied path is non-disclosing and mutation-free.",
+  "capabilities": [
+    "project_context_selection",
+    "read_fetch",
+    "save_offer",
+    "one_confirmation_activation",
+    "cancellation",
+    "file_upload_transfer_extraction",
+    "removal",
+    "sharing",
+    "revocation",
+    "concurrent_users",
+    "permission_non_disclosure",
+    "cross_host_reuse"
+  ],
+  "runtime_evidence": {
+    "project_context_selection": ["test/context-selection.test.ts"],
+    "read_fetch": ["test/project-context.test.ts", "test/file-retrieval.test.ts"],
+    "save_offer": ["test/candidate-updates.test.ts", "test/host-file-save-offers.test.ts"],
+    "one_confirmation_activation": ["test/review.test.ts"],
+    "cancellation": ["test/review.test.ts", "test/host-file-save-offers.test.ts"],
+    "file_upload_transfer_extraction": [
+      "test/direct-file-uploads.test.ts",
+      "test/host-file-transfers.test.ts",
+      "test/pdf-file-suggestions.test.ts"
+    ],
+    "removal": ["test/saved-context.test.ts"],
+    "sharing": ["test/project-memberships.test.ts", "test/context-access.test.ts"],
+    "revocation": ["test/connections.test.ts", "test/oauth-endpoint.test.ts"],
+    "concurrent_users": ["test/postgres/persistence.test.ts"],
+    "permission_non_disclosure": ["test/authorization.test.ts", "test/cross-tenant.test.ts"],
+    "cross_host_reuse": ["test/cross-host-context-eval.test.ts"]
+  },
+  "cases": [
+    {
+      "id": "human_selects_exact_target",
+      "capability": "project_context_selection",
+      "host": "provider-neutral",
+      "trace": ["human.preview_target", "human.select_target", "state.active_target_changed"],
+      "assertions": {
+        "ordered": ["human.preview_target", "human.select_target", "state.active_target_changed"],
+        "absent": ["state.accepted_created"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "host_cannot_select_target",
+      "capability": "project_context_selection",
+      "host": "chatgpt",
+      "trace": ["host.chatgpt.select_target", "state.active_target_changed"],
+      "assertions": { "required": ["host.chatgpt.select_target"] },
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "active_context_read_is_read_only",
+      "capability": "read_fetch",
+      "host": "claude",
+      "trace": [
+        "host.claude.get_active_context",
+        "state.accepted_context_returned",
+        "state.no_mutation"
+      ],
+      "assertions": {
+        "ordered": ["host.claude.get_active_context", "state.accepted_context_returned"],
+        "required": ["state.no_mutation"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "exact_text_fetch_is_read_only",
+      "capability": "read_fetch",
+      "host": "chatgpt",
+      "trace": [
+        "host.chatgpt.read_project_file_text",
+        "state.exact_clean_version_returned",
+        "state.no_mutation"
+      ],
+      "assertions": {
+        "required": ["state.exact_clean_version_returned", "state.no_mutation"],
+        "absent": ["state.candidate_created", "state.accepted_created"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "candidate_save_creates_offer_only",
+      "capability": "save_offer",
+      "host": "chatgpt",
+      "trace": [
+        "host.chatgpt.save_project_update",
+        "state.evidence_created",
+        "state.candidate_created",
+        "state.exact_preview_opened"
+      ],
+      "assertions": {
+        "ordered": [
+          "host.chatgpt.save_project_update",
+          "state.candidate_created",
+          "state.exact_preview_opened"
+        ],
+        "absent": ["state.accepted_created"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "human_confirmation_activates_once",
+      "capability": "one_confirmation_activation",
+      "host": "provider-neutral",
+      "trace": [
+        "host.chatgpt.save_project_update",
+        "state.candidate_created",
+        "human.review_exact_preview",
+        "human.confirm_save",
+        "state.accepted_created",
+        "state.exact_once"
+      ],
+      "assertions": {
+        "ordered": [
+          "state.candidate_created",
+          "human.review_exact_preview",
+          "human.confirm_save",
+          "state.accepted_created"
+        ],
+        "exact_counts": { "human.confirm_save": 1, "state.accepted_created": 1 }
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "model_generated_confirmation_is_rejected",
+      "capability": "one_confirmation_activation",
+      "host": "claude",
+      "trace": [
+        "host.claude.save_project_update",
+        "state.candidate_created",
+        "host.claude.confirm_save",
+        "state.accepted_created"
+      ],
+      "assertions": { "required": ["host.claude.confirm_save", "state.accepted_created"] },
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "human_cancellation_activates_nothing",
+      "capability": "cancellation",
+      "host": "provider-neutral",
+      "trace": [
+        "host.claude.save_project_update",
+        "state.candidate_created",
+        "human.review_exact_preview",
+        "human.cancel_save",
+        "state.candidate_cancelled",
+        "state.no_activation"
+      ],
+      "assertions": {
+        "ordered": ["state.candidate_created", "human.cancel_save", "state.candidate_cancelled"],
+        "absent": ["state.accepted_created"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "direct_private_upload_requires_clean_exact_version",
+      "capability": "file_upload_transfer_extraction",
+      "host": "provider-neutral",
+      "trace": [
+        "human.preview_file_upload",
+        "human.confirm_file_only",
+        "human.direct_upload",
+        "security.staging_scan_clean",
+        "security.final_scan_clean",
+        "state.file_reference_created"
+      ],
+      "assertions": {
+        "ordered": [
+          "human.confirm_file_only",
+          "human.direct_upload",
+          "security.staging_scan_clean",
+          "security.final_scan_clean",
+          "state.file_reference_created"
+        ],
+        "absent": ["state.accepted_created"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "native_attachment_transfer_requires_confirmation_and_two_clean_scans",
+      "capability": "file_upload_transfer_extraction",
+      "host": "chatgpt",
+      "trace": [
+        "host.chatgpt.offer_host_file_save",
+        "human.review_file_offer",
+        "human.confirm_file_only",
+        "host.chatgpt.begin_host_file_transfer",
+        "security.staging_scan_clean",
+        "host.chatgpt.finalize_host_file_transfer",
+        "security.final_scan_clean",
+        "state.file_reference_created",
+        "state.exact_once"
+      ],
+      "assertions": {
+        "ordered": [
+          "human.confirm_file_only",
+          "host.chatgpt.begin_host_file_transfer",
+          "security.staging_scan_clean",
+          "host.chatgpt.finalize_host_file_transfer",
+          "security.final_scan_clean",
+          "state.file_reference_created"
+        ],
+        "exact_counts": { "state.file_reference_created": 1 }
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "alice_controlled_attachment_fallback",
+      "capability": "file_upload_transfer_extraction",
+      "host": "claude",
+      "trace": [
+        "host.claude.offer_host_file_save",
+        "human.review_file_offer",
+        "human.confirm_file_only",
+        "human.fallback_upload",
+        "security.staging_scan_clean",
+        "security.final_scan_clean",
+        "state.file_reference_created"
+      ],
+      "assertions": {
+        "ordered": [
+          "human.confirm_file_only",
+          "human.fallback_upload",
+          "security.final_scan_clean",
+          "state.file_reference_created"
+        ],
+        "absent": ["host.claude.begin_host_file_transfer"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "threat_marked_file_never_creates_reference",
+      "capability": "file_upload_transfer_extraction",
+      "host": "provider-neutral",
+      "trace": [
+        "human.confirm_file_only",
+        "human.direct_upload",
+        "security.staging_scan_threat",
+        "state.transfer_denied",
+        "state.no_mutation"
+      ],
+      "assertions": {
+        "required": ["security.staging_scan_threat", "state.transfer_denied"],
+        "absent": ["state.file_reference_created"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "file_reference_without_final_clean_scan_is_rejected",
+      "capability": "file_upload_transfer_extraction",
+      "host": "provider-neutral",
+      "trace": [
+        "human.confirm_file_only",
+        "human.direct_upload",
+        "security.staging_scan_clean",
+        "state.file_reference_created"
+      ],
+      "assertions": { "required": ["state.file_reference_created"] },
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "pdf_extraction_creates_candidates_not_trusted_state",
+      "capability": "file_upload_transfer_extraction",
+      "host": "claude",
+      "trace": [
+        "host.claude.read_project_file_pdf_text",
+        "state.exact_extraction_receipt_returned",
+        "host.claude.suggest_project_updates_from_file",
+        "state.evidence_created",
+        "state.candidate_created"
+      ],
+      "assertions": {
+        "ordered": [
+          "state.exact_extraction_receipt_returned",
+          "host.claude.suggest_project_updates_from_file",
+          "state.candidate_created"
+        ],
+        "absent": ["state.accepted_created"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "removal_appends_exclusion_without_deleting_history",
+      "capability": "removal",
+      "host": "provider-neutral",
+      "trace": [
+        "human.preview_removal",
+        "human.confirm_removal",
+        "state.exclusion_created",
+        "state.accepted_history_preserved"
+      ],
+      "assertions": {
+        "ordered": ["human.preview_removal", "human.confirm_removal", "state.exclusion_created"],
+        "required": ["state.accepted_history_preserved"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "owner_shares_project_without_sharing_connection",
+      "capability": "sharing",
+      "host": "provider-neutral",
+      "trace": [
+        "human.owner_invites_member",
+        "human.member_accepts_invitation",
+        "state.project_membership_created",
+        "state.ai_connection_not_shared"
+      ],
+      "assertions": {
+        "ordered": [
+          "human.owner_invites_member",
+          "human.member_accepts_invitation",
+          "state.project_membership_created"
+        ],
+        "required": ["state.ai_connection_not_shared"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "selected_context_requires_explicit_grant",
+      "capability": "sharing",
+      "host": "provider-neutral",
+      "trace": [
+        "human.manager_previews_context_access",
+        "human.manager_grants_context",
+        "state.context_grant_created",
+        "state.project_role_bound_preserved"
+      ],
+      "assertions": {
+        "ordered": ["human.manager_grants_context", "state.context_grant_created"],
+        "required": ["state.project_role_bound_preserved"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "revoked_connection_receives_401",
+      "capability": "revocation",
+      "host": "chatgpt",
+      "trace": [
+        "human.revoke_connection",
+        "state.connection_revoked",
+        "host.chatgpt.retry_access_token",
+        "host.http_401",
+        "state.no_mutation"
+      ],
+      "assertions": {
+        "ordered": [
+          "human.revoke_connection",
+          "state.connection_revoked",
+          "host.chatgpt.retry_access_token",
+          "host.http_401"
+        ],
+        "required": ["state.no_mutation"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "revoked_connection_cannot_succeed",
+      "capability": "revocation",
+      "host": "claude",
+      "trace": [
+        "human.revoke_connection",
+        "state.connection_revoked",
+        "host.claude.get_active_context",
+        "state.accepted_context_returned"
+      ],
+      "assertions": { "required": ["state.accepted_context_returned"] },
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "concurrent_idempotent_capture_is_exact_once",
+      "capability": "concurrent_users",
+      "host": "provider-neutral",
+      "trace": [
+        "concurrency.capture_same_idempotency_key",
+        "state.evidence_created",
+        "state.candidate_created",
+        "state.exact_once"
+      ],
+      "assertions": {
+        "exact_counts": { "state.evidence_created": 1, "state.candidate_created": 1 },
+        "required": ["state.exact_once"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "concurrent_human_confirmation_is_exact_once",
+      "capability": "concurrent_users",
+      "host": "provider-neutral",
+      "trace": [
+        "host.chatgpt.save_project_update",
+        "state.candidate_created",
+        "concurrency.confirm_same_preview",
+        "human.confirm_save",
+        "state.accepted_created",
+        "state.exact_once"
+      ],
+      "assertions": {
+        "exact_counts": { "state.accepted_created": 1 },
+        "required": ["state.exact_once"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "foreign_project_is_denied_without_disclosure",
+      "capability": "permission_non_disclosure",
+      "host": "chatgpt",
+      "trace": [
+        "host.chatgpt.guess_foreign_project",
+        "state.not_found_equivalent",
+        "state.no_metadata_disclosed",
+        "state.no_mutation"
+      ],
+      "assertions": {
+        "required": [
+          "state.not_found_equivalent",
+          "state.no_metadata_disclosed",
+          "state.no_mutation"
+        ]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "restricted_context_is_denied_without_counts",
+      "capability": "permission_non_disclosure",
+      "host": "claude",
+      "trace": [
+        "host.claude.guess_restricted_context",
+        "state.not_found_equivalent",
+        "state.no_metadata_disclosed",
+        "state.no_mutation"
+      ],
+      "assertions": {
+        "required": ["state.no_metadata_disclosed", "state.no_mutation"],
+        "absent": ["state.restricted_count_disclosed"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "denial_that_leaks_metadata_is_rejected",
+      "capability": "permission_non_disclosure",
+      "host": "provider-neutral",
+      "trace": [
+        "host.provider-neutral.guess_foreign_project",
+        "state.foreign_name_disclosed",
+        "state.no_mutation"
+      ],
+      "assertions": { "required": ["state.foreign_name_disclosed"] },
+      "expected_policy_result": "fail"
+    },
+    {
+      "id": "chatgpt_to_claude_uses_confirmed_context",
+      "capability": "cross_host_reuse",
+      "host": "cross-host",
+      "trace": [
+        "host.chatgpt.save_project_update",
+        "state.candidate_created",
+        "human.confirm_save",
+        "state.accepted_created",
+        "host.claude.get_active_context",
+        "state.accepted_used_without_restatement"
+      ],
+      "assertions": {
+        "ordered": [
+          "host.chatgpt.save_project_update",
+          "human.confirm_save",
+          "state.accepted_created",
+          "host.claude.get_active_context",
+          "state.accepted_used_without_restatement"
+        ],
+        "absent": ["human.manual_restatement"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "claude_cancelled_candidate_stays_out_of_chatgpt",
+      "capability": "cross_host_reuse",
+      "host": "cross-host",
+      "trace": [
+        "host.claude.save_project_update",
+        "state.candidate_created",
+        "human.cancel_save",
+        "state.candidate_cancelled",
+        "host.chatgpt.get_active_context",
+        "state.cancelled_value_excluded"
+      ],
+      "assertions": {
+        "ordered": [
+          "human.cancel_save",
+          "state.candidate_cancelled",
+          "host.chatgpt.get_active_context",
+          "state.cancelled_value_excluded"
+        ],
+        "absent": ["state.accepted_created"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "chatgpt_attachment_fallback_is_reused_by_claude_as_untrusted_file",
+      "capability": "cross_host_reuse",
+      "host": "cross-host",
+      "trace": [
+        "host.chatgpt.offer_host_file_save",
+        "human.confirm_file_only",
+        "human.fallback_upload",
+        "security.staging_scan_clean",
+        "security.final_scan_clean",
+        "state.file_reference_created",
+        "host.claude.get_active_context",
+        "host.claude.read_project_file_text",
+        "state.file_treated_as_untrusted_data"
+      ],
+      "assertions": {
+        "ordered": [
+          "human.confirm_file_only",
+          "security.final_scan_clean",
+          "state.file_reference_created",
+          "host.claude.get_active_context",
+          "host.claude.read_project_file_text",
+          "state.file_treated_as_untrusted_data"
+        ],
+        "absent": ["state.accepted_created"]
+      },
+      "expected_policy_result": "pass"
+    }
+  ]
+}
