@@ -28,6 +28,7 @@ import { createFilesRouter } from "./files.ts";
 import { createHostFileSaveOffersRouter } from "./host-file-save-offers.ts";
 import { createProjectLifecycleRouter } from "./project-lifecycle.ts";
 import { createProjectMembershipRouter } from "./project-memberships.ts";
+import { privateAlphaAboutBody } from "./public-site.ts";
 import { createReviewRouter } from "./review.ts";
 import { createSavedContextRouter } from "./saved-context.ts";
 import { accessLabel, hostLabel, roleLabel, timestampLabel } from "./product-copy.ts";
@@ -76,6 +77,12 @@ export async function createApp({
       .type("html")
       .set("Cache-Control", "no-store")
       .send(renderPage("Private alpha privacy and security", privateAlphaPrivacySecurityBody));
+  });
+  app.get("/about", (_request, response) => {
+    response
+      .type("html")
+      .set("Cache-Control", "no-store")
+      .send(renderPage("Project intelligence for the AI tools you choose", privateAlphaAboutBody));
   });
   app.use("/auth", createAuthRouter({ database, publicUrl }));
   app.use("/connections", createConnectionsRouter({ database, mcpPublicUrl }));

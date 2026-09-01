@@ -257,6 +257,10 @@ Keel (`https://keel.framer.ai/`) is the single visual-system reference for the M
 
 alice. will not copy Keel source, assets, screenshots, identity, claims, or deployment terminology. The implementation derives an original alice. design system with its own wordmark, tokens, components, product screenshots, responsive behavior, and accessibility. The same system covers marketing, authentication, onboarding, project/context selection, saved context, files, collaborators, permissions, connections, history, privacy, and deletion controls.
 
+The friend-facing entry point is the unauthenticated `/about` route. Its hero uses direct participant language—keep the decisions, questions, and files the user chooses to save in one place so the same project can continue across AI tools—rather than leading with internal governance or project-intelligence terminology. The rest of the page explains the human-only save boundary, project/context loop, private-file and collaboration scopes, visible read receipts, provider boundary, invitation requirement, and prohibited-data rule without advertising an untested provider surface. Sign-in, invited registration, the privacy/security notice, and every rendered page link back into this small public information architecture.
+
+Product-owner visual feedback on 2026-09-01 established one additional interaction rule: every anchor must look clickable rather than relying on underlined text alone. Primary navigation or continuation actions use the filled green button treatment; secondary navigation, contextual actions, footer links, and inline links use the quieter bordered dark button treatment. Both retain the shared visible focus outline, hover contrast, responsive wrapping, and semantic anchor behavior.
+
 Functional, database, authorization, file, provider-capability, and deployment foundations precede final presentation work. The product owner reviews and explicitly approves public and in-product copy before the friend-facing UI is complete. Copy must describe shipped behavior and must not position alice. as a chatbot, AI model, router, or agent orchestrator.
 
 The copy review must cover at least:

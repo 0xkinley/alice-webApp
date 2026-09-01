@@ -52,6 +52,27 @@ test("publishes the private-alpha privacy and security boundary without authenti
   assert.match(html, /does not sell alpha data or use it for advertising/);
 });
 
+test("presents an honest friend-facing product entry point without authentication", async () => {
+  const response = await fetch(`${baseUrl}/about`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const html = await response.text();
+  assert.match(html, /Keep your project context in one place/);
+  assert.match(html, /decisions, questions, and files you choose to save/);
+  assert.match(html, /AI can propose\. Only you can save/);
+  assert.match(html, /Choose the destination/);
+  assert.match(html, /Your providers, your accounts/);
+  assert.match(html, /No Claude, ChatGPT, or Codex client surface is advertised as supported/);
+  assert.match(html, /Do not enter sensitive, regulated, or client-confidential information/);
+  assert.match(html, /href="\/auth\/login"/);
+  assert.match(html, /href="\/privacy-security"/);
+  assert.doesNotMatch(html, /customer|certified|guaranteed|never trains/i);
+
+  const login = await fetch(`${baseUrl}/auth/login`);
+  assert.equal(login.status, 200);
+  assert.match(await login.text(), /href="\/about"/);
+});
+
 test("requires a live single-email alpha invitation", async () => {
   const missing = await fetch(`${baseUrl}/auth/register`);
   assert.equal(missing.status, 403);
