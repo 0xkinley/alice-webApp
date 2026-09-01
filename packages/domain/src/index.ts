@@ -57,6 +57,14 @@ export { ContextBudgetError, getProjectContext, listProjects } from "./project-c
 export { getPrivateAlphaSignals } from "./product-signals.ts";
 export { getProjectAccessOverview } from "./project-access.ts";
 export {
+  createHostFileSaveOffer,
+  decideHostFileSaveOffer,
+  getHostFileSaveOfferPreview,
+  HOST_FILE_SAVE_OFFER_LIFETIME_MS,
+  HostFileSaveOfferUserError,
+} from "./host-file-save-offers.ts";
+export type { HostFileSaveDecision } from "./host-file-save-offers.ts";
+export {
   archiveProject,
   cancelProjectDeletion,
   exportProjectData,
@@ -103,6 +111,7 @@ export {
   refreshProjectFileScan,
   referenceProjectFileInContext,
   removeProjectFileReference,
+  sanitizeProjectFileDisplayName,
   uploadProjectFile,
   validateProjectFileUploadDeclaration,
   validateProjectFile,

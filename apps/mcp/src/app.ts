@@ -14,7 +14,9 @@ import { openDatabase } from "@alice/database";
 import {
   ContextBudgetError,
   activeTargetForConnection,
+  createHostFileSaveOffer,
   getProjectContext,
+  HostFileSaveOfferUserError,
   listProjects,
   listSelectableProjectContexts,
   ProjectFileUserError,
@@ -31,6 +33,7 @@ import {
   getActiveContextSchema,
   getProjectContextOutputSchema,
   getProjectContextSchema,
+  hostFileSaveOfferSchema,
   listProjectsOutputSchema,
   listProjectsSchema,
   readProjectFileTextOutputSchema,
@@ -76,7 +79,7 @@ function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes 
 }
 
 function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore | undefined) {
-  const server = new McpServer({ name: "alice-mcp", version: "0.6.0" });
+  const server = new McpServer({ name: "alice-mcp", version: "0.6.1" });
 
   server.registerTool(
     "list_projects",
@@ -116,6 +119,57 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
   );
 
   if (fileStore) {
+    server.registerTool(
+      "offer_host_file_save",
+      {
+        title: "Offer to save one host attachment to alice.",
+        description:
+          "Use only when the user is working with one specific ChatGPT or Claude attachment and saving it to the connection's exact active alice. target could help. Creates an immutable metadata-only preview and returns an alice.-controlled confirmation URL. It accepts no bytes, host URL, credential, cookie, prompt text, or model-generated confirmation. The user must personally choose save file only, save and request context suggestions, or cancel on the authenticated alice. page before any transfer tool may accept bytes. This tool never stores the attachment and never changes trusted project state.",
+        inputSchema: hostFileSaveOfferSchema,
+        ...oauthToolSecurity("mcp:write"),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async (payload, context) => {
+        const authInfo = context.http?.authInfo;
+        if (!authInfo?.scopes.includes("mcp:write")) {
+          return {
+            content: [{ type: "text", text: "The connection does not grant mcp:write." }],
+            isError: true,
+          };
+        }
+        try {
+          const result = await createHostFileSaveOffer(database, {
+            userId: authenticatedUserId(context),
+            connectionId: authenticatedConnectionId(context),
+            publicUrl,
+            payload,
+          });
+          if ("error" in result) {
+            return { content: [{ type: "text", text: result.error }], isError: true };
+          }
+          return {
+            content: [
+              {
+                type: "text",
+                text: `No attachment bytes were copied. Ask the user to open this exact authenticated alice. preview and choose personally: ${result.confirmation_url} ${JSON.stringify(result)}`,
+              },
+            ],
+            structuredContent: result,
+          };
+        } catch (error) {
+          if (error instanceof HostFileSaveOfferUserError) {
+            return { content: [{ type: "text", text: error.message }], isError: true };
+          }
+          throw error;
+        }
+      },
+    );
+
     server.registerTool(
       "read_project_file_text",
       {

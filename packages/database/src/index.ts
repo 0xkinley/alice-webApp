@@ -211,6 +211,9 @@ export async function configureApplicationRole(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.file_upload_intents, ${schema}.file_upload_completions FROM ${role}`,
     );
     await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.host_file_save_offers, ${schema}.host_file_save_decisions FROM ${role}`,
+    );
+    await database.exec(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.project_memberships FROM ${role}`,
     );
     await database.exec(

@@ -299,6 +299,48 @@ export const suggestProjectUpdatesFromFileSchema = z
     });
   });
 
+export const hostFileSaveOfferSchema = z
+  .object({
+    file_name: z.string().min(1).max(180),
+    declared_media_type: z
+      .enum([
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "text/markdown",
+        "text/plain",
+      ])
+      .optional(),
+    declared_byte_size: z
+      .number()
+      .int()
+      .min(1)
+      .max(25 * 1_024 * 1_024)
+      .optional(),
+    declared_sha256: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
+    conversation_reference: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .regex(boundedIdentifierPattern)
+      .describe("Optional opaque conversation identifier; never include prompt or message text")
+      .optional(),
+    idempotency_key: z
+      .string()
+      .trim()
+      .min(8)
+      .max(captureValidationLimits.idempotencyKeyCharacters)
+      .regex(boundedIdentifierPattern),
+  })
+  .strict();
+
 const projectIdentitySchema = z
   .object({
     id: z.string(),

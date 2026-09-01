@@ -24,6 +24,7 @@ import {
 import { createConnectionsRouter } from "./connections.ts";
 import { createContextAccessRouter } from "./context-access.ts";
 import { createFilesRouter } from "./files.ts";
+import { createHostFileSaveOffersRouter } from "./host-file-save-offers.ts";
 import { createProjectLifecycleRouter } from "./project-lifecycle.ts";
 import { createProjectMembershipRouter } from "./project-memberships.ts";
 import { createReviewRouter } from "./review.ts";
@@ -386,7 +387,10 @@ export async function createApp({
     },
   );
   app.use("/projects", createSavedContextRouter({ database }));
-  if (fileStore) app.use("/projects", createFilesRouter({ database, fileStore, publicUrl }));
+  if (fileStore) {
+    app.use("/file-save-offers", createHostFileSaveOffersRouter({ database, publicUrl }));
+    app.use("/projects", createFilesRouter({ database, fileStore, publicUrl }));
+  }
   app.use("/review", createReviewRouter({ database }));
 
   return { app, database };

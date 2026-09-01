@@ -72,7 +72,7 @@ type ValidatedFile = {
   sha256: string;
 };
 
-function sanitizeDisplayName(value: string): string {
+export function sanitizeProjectFileDisplayName(value: string): string {
   const name = value
     .normalize("NFKC")
     .replace(/[\\/]/g, "_")
@@ -198,7 +198,7 @@ export function validateProjectFileUploadDeclaration(input: {
   byteSize: number;
   sha256: string;
 }) {
-  const displayName = sanitizeDisplayName(input.fileName);
+  const displayName = sanitizeProjectFileDisplayName(input.fileName);
   const mediaType = declaredMediaType(displayName, input.claimedMediaType || "");
   if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 1) {
     throw new ProjectFileUserError("The declared file size must be a positive integer.");
@@ -228,7 +228,7 @@ export function validateProjectFile(input: {
       `Files must contain data and be no larger than ${FILE_UPLOAD_LIMIT_BYTES} bytes.`,
     );
   }
-  const displayName = sanitizeDisplayName(input.fileName);
+  const displayName = sanitizeProjectFileDisplayName(input.fileName);
   const mediaType = detectMediaType(bytes, displayName);
   if (!allowedExtensions(mediaType).includes(extensionFor(displayName))) {
     throw new ProjectFileUserError("The file extension does not match the verified file type.");

@@ -8,11 +8,13 @@ import {
   archiveProject,
   cancelProjectDeletion,
   confirmCapturedUpdate,
+  createHostFileSaveOffer,
   createProject,
   createWorkContext,
   createProjectInvitation,
   exportProjectData,
   getCapturePreview,
+  getHostFileSaveOfferPreview,
   getProjectContext,
   getPrivateAlphaSignals,
   getProjectLifecycle,
@@ -35,6 +37,7 @@ import {
   saveCandidateUpdate,
   setActiveConnectionTarget,
   restoreProject,
+  decideHostFileSaveOffer,
   supersedeAcceptedState,
   uploadProjectFile,
   updateProjectMemberRole,
@@ -124,7 +127,7 @@ before(async () => {
       `INSERT INTO integration_connections
         (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
          first_connected_at, last_used_at)
-       VALUES (?, ?, ?, ?, 'test', 'mcp:read mcp:write', ?, ?)`,
+         VALUES (?, ?, ?, ?, 'chatgpt', 'mcp:read mcp:write', ?, ?)`,
     )
     .run(connectionId, owner.id, owner.workspace_id, clientId, now, now);
 });
@@ -180,12 +183,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 14, filename: "014_pdf_evidence_sources.sql" },
     { version: 15, filename: "015_file_upload_intents.sql" },
     { version: 16, filename: "016_project_erasure_jobs.sql" },
+    { version: 17, filename: "017_host_file_save_offers.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    16,
+    17,
   );
   await reopened.close();
 });
@@ -371,6 +375,67 @@ test("concurrent active-target changes cannot silently overwrite one another", a
         .get(connectionId)
     ).count,
     1,
+  );
+});
+
+test("PostgreSQL persists one exact host-file offer and one human decision immutably", async () => {
+  const receipt = await createHostFileSaveOffer(database, {
+    userId: owner.id,
+    connectionId,
+    publicUrl: "https://app.alice.example",
+    payload: {
+      file_name: "postgres-host-file.md",
+      declared_media_type: "text/markdown",
+      declared_byte_size: 128,
+      declared_sha256: "b".repeat(64),
+      conversation_reference: "postgres.conversation-001",
+      idempotency_key: "postgres-host-file-offer-001",
+    },
+  });
+  assert.match(receipt.offer_id, /^file_save_offer_/);
+  assert.equal(receipt.bytes_received, false);
+  const preview = await getHostFileSaveOfferPreview(database, {
+    userId: owner.id,
+    offerId: receipt.offer_id,
+    publicUrl: "https://app.alice.example",
+  });
+  const attempts = await Promise.allSettled([
+    decideHostFileSaveOffer(database, {
+      userId: owner.id,
+      offerId: receipt.offer_id,
+      previewVersion: preview.decision_version,
+      decision: "save_file_only",
+      publicUrl: "https://app.alice.example",
+    }),
+    decideHostFileSaveOffer(database, {
+      userId: owner.id,
+      offerId: receipt.offer_id,
+      previewVersion: preview.decision_version,
+      decision: "save_and_suggest_context",
+      publicUrl: "https://app.alice.example",
+    }),
+  ]);
+  assert.equal(attempts.filter(({ status }) => status === "fulfilled").length, 1);
+  assert.equal(attempts.filter(({ status }) => status === "rejected").length, 1);
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM host_file_save_decisions WHERE offer_id = ?")
+        .get(receipt.offer_id)
+    ).count,
+    1,
+  );
+  await assert.rejects(
+    database
+      .prepare("UPDATE host_file_save_offers SET display_name = 'rewritten.md' WHERE id = ?")
+      .run(receipt.offer_id),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database
+      .prepare("DELETE FROM host_file_save_decisions WHERE offer_id = ?")
+      .run(receipt.offer_id),
+    /permission denied|immutable/i,
   );
 });
 

@@ -638,6 +638,59 @@ function createSchema(database: DatabaseSync) {
         REFERENCES file_context_references(workspace_id, project_id, context_id, id)
     ) STRICT;
 
+    CREATE TABLE host_file_save_offers (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      connection_workspace_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
+      request_hash TEXT NOT NULL CHECK (length(request_hash) = 64),
+      target_selection_version TEXT NOT NULL CHECK (
+        length(target_selection_version) BETWEEN 1 AND 200
+      ),
+      display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 180),
+      declared_media_type TEXT CHECK (declared_media_type IS NULL OR declared_media_type IN (
+        'application/pdf', 'image/png', 'image/jpeg', 'image/webp',
+        'text/plain', 'text/markdown'
+      )),
+      declared_byte_size INTEGER CHECK (
+        declared_byte_size IS NULL OR declared_byte_size BETWEEN 1 AND 26214400
+      ),
+      declared_sha256 TEXT CHECK (declared_sha256 IS NULL OR length(declared_sha256) = 64),
+      source_host TEXT NOT NULL CHECK (length(source_host) BETWEEN 1 AND 80),
+      conversation_reference TEXT CHECK (
+        conversation_reference IS NULL OR length(conversation_reference) BETWEEN 1 AND 200
+      ),
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      FOREIGN KEY (connection_workspace_id, user_id, connection_id)
+        REFERENCES integration_connections(workspace_id, user_id, id),
+      UNIQUE (workspace_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id, user_id),
+      UNIQUE (connection_workspace_id, connection_id, idempotency_key)
+    ) STRICT;
+
+    CREATE TABLE host_file_save_decisions (
+      offer_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      decided_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      decision TEXT NOT NULL CHECK (decision IN (
+        'save_file_only', 'save_and_suggest_context', 'cancelled'
+      )),
+      decision_version TEXT NOT NULL CHECK (length(decision_version) = 64),
+      decided_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id, offer_id, decided_by_user_id)
+        REFERENCES host_file_save_offers(workspace_id, project_id, context_id, id, user_id)
+    ) STRICT;
+
     CREATE TABLE evidence_file_sources (
       evidence_id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
@@ -1150,6 +1203,30 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON file_upload_completions
     BEGIN
       SELECT RAISE(ABORT, 'file upload completions are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_offers_no_update
+    BEFORE UPDATE ON host_file_save_offers
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save offers are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_offers_no_delete
+    BEFORE DELETE ON host_file_save_offers
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save offers are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_decisions_no_update
+    BEFORE UPDATE ON host_file_save_decisions
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save decisions are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_decisions_no_delete
+    BEFORE DELETE ON host_file_save_decisions
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save decisions are immutable');
     END;
 
     CREATE TRIGGER evidence_file_sources_no_update

@@ -1,6 +1,6 @@
 # Bounded Untrusted File Retrieval and PDF Suggestions
 
-Status: Implemented locally for clean UTF-8 text, Markdown, and PDF embedded text in Milestone 06
+Status: Implemented locally for clean UTF-8 text, Markdown, PDF embedded text, and metadata-only host attachment save offers in Milestone 06
 
 Decision date: 2026-08-31
 
@@ -38,8 +38,14 @@ The existing atomic capture path stores the evidence, relational file source, pe
 
 All retrieved or extracted content is `untrusted_artifact` data. Malware-clean, successfully parsed, host-generated, or user-uploaded does not mean alice.-verified. Content cannot become an instruction source, expand access, select another file or context, trigger tools, or activate its own statements. Ordinary file reads create no evidence, candidates, accepted state, file lifecycle changes, or project/audit mutations. A file-suggestion call is a separately authorized explicit capture and creates pending evidence-backed candidates only.
 
+## Metadata-only host attachment save offer
+
+`offer_host_file_save` is available only with the private-file adapter, a ChatGPT- or Claude-classified connection, `mcp:write`, and an exact writable active project/work-context target. It creates no file object and accepts no attachment bytes or reusable host location. Its strict input is limited to a safe filename, optional host-declared type/size/hash, an optional opaque conversation identifier, and an idempotency key. Prompt/message text, cookies, credentials, attachment URLs, destination overrides, and confirmation fields are unknown and rejected.
+
+Migration `017_host_file_save_offers.sql` stores one immutable offer bound to the connection and active-target selection version. The alice. web control plane reauthorizes the same signed-in user and current destination write access, verifies the active selection and exact preview hash, and appends one immutable decision: save file only, save and later request context suggestions, or cancel. The confirmation step grants no host credential and receives no bytes. It therefore cannot truthfully return a saved-file receipt. Cancellation creates no transfer authority or file/candidate/trusted-state write. Capability-gated attachment transfer and the pre-targeted direct-upload fallback remain the next boundary.
+
 ## Verification and deferred work
 
 SQLite integration coverage verifies strict capability-gated tools, exact deterministic extraction, complete-response budgets, no-OCR labelling, malicious instruction retention as data, read-only mutation counts, read-only OAuth denial, active-context isolation, receipt/hash mismatch denial, idempotency, superseded-reference invalidation, pending-only capture, relational provenance, review visibility, and immutable provenance guards. The real PostgreSQL suite verifies migration `014`, exact composite links, constrained-role insert, pending-only semantics, and update/delete denial. Logical backup/restore covers the new table with the rest of the schema.
 
-The 2026-09-01 hosted file proof separately verified the production S3/IAM/GuardDuty boundary for one clean fixture and one EICAR threat fixture, including exact-origin direct upload, immutable object versions, clean/threat gating, exact-version authorized download, and direct-S3 denial. This checkpoint still does not implement or claim OCR, image understanding, non-PDF binary extraction, host attachment transfer, automatic candidate generation, automatic activation, a separate PDF parser sandbox, or permanent object-version/backup erasure.
+The 2026-09-01 hosted file proof separately verified the production S3/IAM/GuardDuty boundary for one clean fixture and one EICAR threat fixture, including exact-origin direct upload, immutable object versions, clean/threat gating, exact-version authorized download, and direct-S3 denial. This checkpoint still does not implement or claim OCR, image understanding, non-PDF binary extraction, host attachment byte transfer, the pre-targeted attachment fallback, automatic candidate generation, automatic activation, a separate PDF parser sandbox, or permanent object-version/backup erasure.

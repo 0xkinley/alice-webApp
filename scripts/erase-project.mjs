@@ -28,6 +28,8 @@ const DELETE_TRIGGER_TABLES = [
   "file_reference_exclusions",
   "file_upload_completions",
   "file_upload_intents",
+  "host_file_save_decisions",
+  "host_file_save_offers",
   "project_deletion_requests",
   "project_invitations",
   "project_memberships",
@@ -293,6 +295,14 @@ async function deleteProjectRows(database, input, plan) {
   const scoped = [plan.project.workspace_id, input.projectId];
   await remove(
     "DELETE FROM evidence_file_sources WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove(
+    "DELETE FROM host_file_save_decisions WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove(
+    "DELETE FROM host_file_save_offers WHERE workspace_id = ? AND project_id = ?",
     ...scoped,
   );
   await remove(
