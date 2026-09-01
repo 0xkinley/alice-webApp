@@ -23,6 +23,7 @@ test("private-alpha evaluation covers every required capability and exact host s
     new Set(["chatgpt", "claude", "provider-neutral", "cross-host"]),
   );
   assert.equal(matrix.surfaces.length, 10);
+  assert.equal(matrix.invocation_denominator_contract, "evals/host-invocation-denominators.json");
   assert.equal(
     matrix.surfaces.every(
       ({ advertised, results }) =>

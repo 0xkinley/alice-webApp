@@ -1,7 +1,8 @@
 {
-  "version": "2026-09-01.1",
+  "version": "2026-09-01.2",
   "as_of_date": "2026-09-01",
   "matrix_contract": "alice.host-surface-compatibility.v1",
+  "invocation_denominator_contract": "evals/host-invocation-denominators.json",
   "local_mcp_server_version": "0.6.2",
   "hosted_mcp_server_version": "0.6.0",
   "hosted_runtime_note": "The retained hosted deployment predates the local host-attachment transfer contract. Run no surface against version 0.6.2 until that exact runtime and migration are separately deployed and verified.",

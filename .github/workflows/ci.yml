@@ -85,6 +85,9 @@ jobs:
       - name: Evaluate private-alpha capabilities and host matrix
         run: npm run eval:private-alpha
 
+      - name: Evaluate host invocation denominators
+        run: npm run eval:invocation
+
       - name: Test
         run: npm test
 

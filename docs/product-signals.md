@@ -1,8 +1,8 @@
 # Private Alpha Product Signals
 
-Status: Implemented for locally observable workflow signals
+Status: Implemented for observable signals and controlled per-surface denominator policy
 
-Decision date: 2026-08-30
+Decision dates: 2026-08-30 (signals); 2026-09-01 (denominator policy)
 
 ## Purpose and boundary
 
@@ -20,6 +20,18 @@ The aggregation queries do not select prompts, task text, model responses, evide
 - **Confirmation burden:** proposed entries per offer and median elapsed seconds from evidence capture to an exact aggregate confirm/cancel audit.
 - **Repairs:** append-only removal audits carrying only the bounded `stale`, `contradicted`, or `wrong` classification. The optional human explanation is excluded from audit metadata and aggregation.
 
-## Invocation-rate limitation
+## Host invocation denominator
 
-alice. cannot observe a conversation turn where an AI host never invokes its MCP tool. Dividing successful reads by ordinary host turns would therefore require a denominator supplied by a verified host surface or an explicit user-started workflow. Until such a privacy-safe denominator is implemented and validated per surface, the product reports received attempts and their outcomes but does not claim a host invocation rate or treat absence of a receipt as a known failure.
+alice. cannot observe an ordinary conversation turn where an AI host never invokes its MCP tool. Ordinary private-alpha traffic therefore has no valid host-turn denominator, and the product must not infer skipped calls from missing receipts or call the success-among-observed-attempts figure an invocation rate.
+
+The implemented denominator contract is limited to a controlled compatibility cohort on one exact host surface:
+
+1. A user explicitly consents to and starts a synthetic trial before the host turn. The trial uses a non-sensitive fixture and an isolated test connection.
+2. Every started eligible trial receives exactly one durable outcome: `successful_read`, `failed_read`, or `no_call`. A failed read means alice. received a call that failed; `no_call` means the declared trial ended without alice. receiving a read attempt.
+3. The numerator is eligible trials with any received read attempt: `successful_read + failed_read`. The denominator is all explicitly started eligible trials, including `no_call`.
+4. Results belong only to the exact surface, provider/client version, account type, region, deployment commit, and dated run. No web, desktop, mobile, CLI, or IDE result may be inherited by another surface.
+5. Retained trial data is limited to opaque trial ID, exact surface/run metadata, outcome class, aggregate counts, and the calculated percentage. Prompts, model responses, conversation or project content, file bytes, credentials, authorization codes, and access or refresh tokens are prohibited.
+
+The machine-readable contract is `evals/host-invocation-denominators.json`. `npm run eval:invocation` validates the formula, explicit outcomes, content-free allowlist, exact-surface registry, and compatibility-matrix gate. A surface cannot be advertised until it has its own dated `measurable` denominator record. A `provider_blocked` or `untested` surface remains unsupported.
+
+This contract makes future controlled compatibility rates defensible; it does not create or claim a population-wide rate for ordinary private-alpha use. The current registry has no live denominator run, so all ten exact surfaces remain untested and no current invocation percentage is published.
