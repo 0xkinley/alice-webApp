@@ -9,6 +9,9 @@ import express from "express";
 import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 import { hostLabel, permissionLabel, timestampLabel } from "./product-copy.ts";
 
+const CHATGPT_APP_SETTINGS_URL = "https://chatgpt.com/#settings/Apps";
+const CLAUDE_CONNECTOR_SETTINGS_URL = "https://claude.ai/settings/connectors";
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -55,6 +58,12 @@ function readEventCard(event) {
   return `<article><p><strong>${result}</strong></p><p>${escapeHtml(event.client_name)} · ${escapeHtml(hostLabel(event.client_classification))} · ${route}${destination}</p><p class="muted">${escapeHtml(timestampLabel(event.created_at))}</p></article>`;
 }
 
+function guidedConnectionScript() {
+  return `<script>
+for(const link of document.querySelectorAll("[data-copy-mcp-address]")){link.addEventListener("click",()=>{const status=document.getElementById("mcp-copy-status"),address=link.dataset.copyMcpAddress;if(!navigator.clipboard?.writeText){status.textContent="Copy the address above, paste it and choose Connect.";status.className="notice warning";return}navigator.clipboard.writeText(address).then(()=>{status.textContent="The address is copied—paste it and choose Connect.";status.className="notice accepted"}).catch(()=>{status.textContent="Copy the address above, paste it and choose Connect.";status.className="notice warning"})})}
+</script>`;
+}
+
 export function createConnectionsRouter({ database, mcpPublicUrl }) {
   const router = express.Router();
   router.use(requireAuthenticatedUser(database));
@@ -71,6 +80,7 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
         .map((connection) => [connection.id, connection.target_version || null]),
     );
     const endpoint = new URL("/mcp", mcpPublicUrl).href;
+    const escapedEndpoint = escapeHtml(endpoint);
     const cards = connections
       .map((connection) => connectionCard(connection, projects, expectedVersions))
       .join("");
@@ -82,7 +92,7 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
       .send(
         renderPage(
           "AI connections",
-          `<nav><a href="/">Projects</a></nav><header class="hero"><p class="eyebrow">Your connections</p><h1>Choose what each AI tool can access.</h1><p>Every connection belongs only to your alice. account. Collaborators never inherit these permissions, and a connected host cannot save context without your exact human confirmation.</p></header><div class="dashboard-grid"><section><h2>Connect ChatGPT</h2><p>Add a custom remote MCP connection in ChatGPT using the address configured for this environment.</p><pre>${escapeHtml(endpoint)}</pre><p class="muted">Complete alice. sign-in and review permission to read context and propose updates for your review.</p></section><section><h2>Connect Claude</h2><p>Add a custom remote connector in Claude using the same configured address, then authorize your own alice. account.</p><pre>${escapeHtml(endpoint)}</pre></section></div><section><div class="section-heading"><h2>Connection status</h2><p class="muted">${connections.filter(({ revoked_at: revokedAt }) => !revokedAt).length} active</p></div>${cards || '<div class="empty-state"><h2>No AI host is connected</h2><p>Use the setup address above when this environment is ready for a supported host connection.</p></div>'}</section><section><div class="section-heading"><h2>Your recent host reads</h2><p class="muted">Immutable, content-free receipts</p></div><p>These receipts distinguish successful retrieval from failure. Success does not prove that a host used the returned context in its answer.</p>${readActivity}</section>`,
+          `<nav><a href="/">Projects</a></nav><header class="hero"><p class="eyebrow">Your connections</p><h1>Add alice. to the AI tools you use.</h1><p>Choose a provider below. alice. copies this environment's exact MCP address and opens the provider in a new tab. You still review and approve the connection there.</p></header><section class="connection-setup"><div class="section-heading"><h2>Your alice. MCP address</h2><p class="muted">One address for your account connections</p></div><pre id="mcp-address"><code>${escapedEndpoint}</code></pre><p id="mcp-copy-status" class="notice" role="status" aria-live="polite">Choose a provider to copy the address and continue.</p><div class="dashboard-grid"><section><p class="eyebrow">OpenAI</p><h2>Add alice. to ChatGPT</h2><p>In ChatGPT, open Apps and add a custom app. Paste the copied address, then choose Connect.</p><a class="button-link" href="${CHATGPT_APP_SETTINGS_URL}" target="_blank" rel="noopener noreferrer" data-copy-mcp-address="${escapedEndpoint}" aria-describedby="mcp-copy-status">Add alice. to ChatGPT <span aria-hidden="true">↗</span></a></section><section><p class="eyebrow">Anthropic</p><h2>Add alice. to Claude</h2><p>In Claude Connectors, choose Add custom connector. Paste the copied address, then choose Connect.</p><a class="button-link" href="${CLAUDE_CONNECTOR_SETTINGS_URL}" target="_blank" rel="noopener noreferrer" data-copy-mcp-address="${escapedEndpoint}" aria-describedby="mcp-copy-status">Add alice. to Claude <span aria-hidden="true">↗</span></a></section></div><p class="muted">If copying is unavailable, select the address above and paste it manually. Complete alice. sign-in and review the requested read and propose-for-review permissions. Provider availability still depends on the exact account, plan, workspace, region, and client surface.</p></section><section><div class="section-heading"><h2>Connection status</h2><p class="muted">${connections.filter(({ revoked_at: revokedAt }) => !revokedAt).length} active</p></div>${cards || '<div class="empty-state"><h2>No AI host is connected</h2><p>Use a guided setup above when this environment is ready for a supported host connection.</p></div>'}</section><section><div class="section-heading"><h2>Your recent host reads</h2><p class="muted">Immutable, content-free receipts</p></div><p>These receipts distinguish successful retrieval from failure. Success does not prove that a host used the returned context in its answer.</p>${readActivity}</section>${guidedConnectionScript()}`,
         ),
       );
   });

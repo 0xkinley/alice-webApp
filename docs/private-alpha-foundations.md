@@ -196,7 +196,9 @@ Migration requirements include:
 
 The target experience has stable web and MCP HTTPS origins. Friends do not run terminals, create Cloudflare quick tunnels, paste changing MCP URLs, or configure raw authorization headers.
 
-The alice. web application provides Connect ChatGPT and Connect Claude surfaces with current connection status, supported-account requirements, reconnect, and revoke controls. OAuth remains per user. The deployment shares one managed PostgreSQL database, injects secrets server-side, applies migrations deliberately, redacts evidence and bearer values from logs, and verifies both deployables through stable health and protocol checks.
+The alice. web application provides Add alice. to ChatGPT and Add alice. to Claude surfaces with current connection status, supported-account requirements, reconnect, and revoke controls. For the private alpha, each add action copies only the exact public MCP address already displayed on the page and opens the provider's current app/connector settings in a separate tab. alice. then displays: “The address is copied—paste it and choose Connect.” If clipboard access is unavailable, the address remains visible for manual selection. This guided fallback does not fill, submit, or bypass the provider's form; the user still reviews and approves the connection in the provider and then completes alice.'s per-user OAuth flow. Directory-based installation remains the future no-copy path after provider review. The provider destination is a dated convenience link, not compatibility evidence, and must be rechecked when provider UI changes.
+
+The deployment shares one managed PostgreSQL database, injects secrets server-side, applies migrations deliberately, redacts evidence and bearer values from logs, and verifies both deployables through stable health and protocol checks.
 
 Vercel may host the deployables only if the built Express applications, MCP request/transport behavior, stable OAuth origins, PostgreSQL connection strategy, migration process, and operational limits pass hosted tests. Platform choice is subordinate to these properties.
 
