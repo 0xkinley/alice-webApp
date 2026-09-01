@@ -8,6 +8,7 @@ import {
   archiveProject,
   cancelProjectDeletion,
   confirmCapturedUpdate,
+  createProject,
   createWorkContext,
   createProjectInvitation,
   exportProjectData,
@@ -38,6 +39,7 @@ import {
   uploadProjectFile,
   updateProjectMemberRole,
 } from "@alice/domain";
+import { eraseProject, previewProjectErasure } from "../../scripts/erase-project.mjs";
 import { createTestIdentity } from "../helpers.ts";
 
 const connectionString = process.env.ALICE_TEST_DATABASE_URL;
@@ -177,12 +179,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 13, filename: "013_project_lifecycle.sql" },
     { version: 14, filename: "014_pdf_evidence_sources.sql" },
     { version: 15, filename: "015_file_upload_intents.sql" },
+    { version: 16, filename: "016_project_erasure_jobs.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    15,
+    16,
   );
   await reopened.close();
 });
@@ -1321,6 +1324,323 @@ test("PostgreSQL project lifecycle preserves data behind constrained-role archiv
     ).count,
     1,
   );
+});
+
+test("privileged erasure removes exact project rows and unshared object versions with a retry receipt", async () => {
+  const erasedProject = await createProject(database, owner.id, {
+    name: "Erasure fixture",
+    brief: "A disposable project for privileged erasure verification.",
+  });
+  const retainedProject = await createProject(database, owner.id, {
+    name: "Retained erasure control",
+    brief: "Proves shared immutable bytes and unrelated project data remain.",
+  });
+  const erasedContext = await database
+    .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND context_kind = 'work'")
+    .get(erasedProject.id);
+  const retainedContext = await database
+    .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND context_kind = 'work'")
+    .get(retainedProject.id);
+  const storedVersions = new Map();
+  const store = {
+    async putObject({ key, bytes }) {
+      const versionId = `version-${randomUUID()}`;
+      storedVersions.set(key, [{ key, versionId, deleteMarker: false, bytes: Buffer.from(bytes) }]);
+      return { versionId, etag: `etag-${randomUUID()}` };
+    },
+    async getScanResult() {
+      return "clean";
+    },
+    async getObject({ key }) {
+      return Buffer.from(storedVersions.get(key)[0].bytes);
+    },
+    async createSignedDownload() {
+      return "https://private-files.alice.example/retained-shared-object";
+    },
+  };
+  const unique = await uploadProjectFile(database, store, {
+    userId: owner.id,
+    projectId: erasedProject.id,
+    contextId: erasedContext.id,
+    fileName: "erase-only.txt",
+    claimedMediaType: "text/plain",
+    bytes: Buffer.from("private bytes that belong only to the erased project"),
+  });
+  await refreshProjectFileScan(database, store, {
+    userId: owner.id,
+    projectId: erasedProject.id,
+    referenceId: unique.id,
+  });
+  const sharedBytes = Buffer.from("exact immutable bytes shared across two authorized projects");
+  const erasedShared = await uploadProjectFile(database, store, {
+    userId: owner.id,
+    projectId: erasedProject.id,
+    contextId: erasedContext.id,
+    fileName: "shared.txt",
+    claimedMediaType: "text/plain",
+    bytes: sharedBytes,
+  });
+  await refreshProjectFileScan(database, store, {
+    userId: owner.id,
+    projectId: erasedProject.id,
+    referenceId: erasedShared.id,
+  });
+  const retainedShared = await uploadProjectFile(database, store, {
+    userId: owner.id,
+    projectId: retainedProject.id,
+    contextId: retainedContext.id,
+    fileName: "shared-retained.txt",
+    claimedMediaType: "text/plain",
+    bytes: sharedBytes,
+  });
+  const uniqueKey = (
+    await migrationDatabase
+      .prepare("SELECT storage_key FROM file_objects WHERE id = ?")
+      .get(unique.object_id)
+  ).storage_key;
+  const sharedKey = (
+    await migrationDatabase
+      .prepare("SELECT storage_key FROM file_objects WHERE id = ?")
+      .get(erasedShared.object_id)
+  ).storage_key;
+
+  const lifecycle = await getProjectLifecycle(database, {
+    userId: owner.id,
+    projectId: erasedProject.id,
+  });
+  await archiveProject(database, {
+    userId: owner.id,
+    projectId: erasedProject.id,
+    expectedPreviewVersion: lifecycle.preview_version,
+  });
+  const requestId = `project_deletion_${randomUUID()}`;
+  const requestedAt = new Date("2026-08-01T00:00:00.000Z");
+  const notBefore = new Date("2026-08-08T00:00:00.000Z");
+  await migrationDatabase
+    .prepare(
+      `INSERT INTO project_deletion_requests
+       (id, workspace_id, project_id, requested_by_user_id, requested_at, not_before)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      requestId,
+      owner.workspace_id,
+      erasedProject.id,
+      owner.id,
+      requestedAt.toISOString(),
+      notBefore.toISOString(),
+    );
+  await assert.rejects(
+    database.prepare("SELECT * FROM project_erasure_jobs").all(),
+    /permission denied/i,
+  );
+  await assert.rejects(
+    database.prepare("DELETE FROM projects WHERE id = ?").run(erasedProject.id),
+    /permission denied|immutable/i,
+  );
+
+  let interruptAfterObjectDeletion = true;
+  let reportObjectDeletion!: () => void;
+  let releaseInterruptedErasure!: () => void;
+  const objectDeletionReached = new Promise<void>((resolve) => {
+    reportObjectDeletion = resolve;
+  });
+  const interruptedErasureMayReturn = new Promise<void>((resolve) => {
+    releaseInterruptedErasure = resolve;
+  });
+  const erasureStore = {
+    async inventory(keys) {
+      return keys.flatMap((key) =>
+        (storedVersions.get(key) || []).map(({ versionId, deleteMarker }) => ({
+          key,
+          versionId,
+          deleteMarker,
+        })),
+      );
+    },
+    async erase(keys, versions) {
+      for (const { key, versionId } of versions) {
+        storedVersions.set(
+          key,
+          (storedVersions.get(key) || []).filter((version) => version.versionId !== versionId),
+        );
+      }
+      assert.deepEqual(
+        keys.flatMap((key) => storedVersions.get(key) || []),
+        [],
+      );
+      if (interruptAfterObjectDeletion) {
+        interruptAfterObjectDeletion = false;
+        reportObjectDeletion();
+        await interruptedErasureMayReturn;
+        throw new Error("simulated interruption after private object deletion");
+      }
+      return { deletedVersions: versions.length };
+    },
+  };
+  const operatorNow = new Date("2026-09-01T00:00:00.000Z");
+  const preview = await previewProjectErasure({
+    database: migrationDatabase,
+    store: erasureStore,
+    projectId: erasedProject.id,
+    requestId,
+    now: operatorNow,
+  });
+  assert.equal(preview.status, "eligible");
+  assert.match(preview.preview_version, /^project_erasure_preview_[0-9a-f]{64}$/);
+  assert.equal(preview.object_key_count, 1);
+  assert.equal(preview.object_version_count, 1);
+  assert.equal(preview.shared_object_count, 1);
+  await assert.rejects(
+    eraseProject({
+      database: migrationDatabase,
+      store: erasureStore,
+      projectId: erasedProject.id,
+      requestId,
+      expectedPreviewVersion: "project_erasure_preview_" + "0".repeat(64),
+      providerBackupRetentionDays: 7,
+      now: operatorNow,
+    }),
+    /preview changed/i,
+  );
+
+  const exactErasure = {
+    database: migrationDatabase,
+    store: erasureStore,
+    projectId: erasedProject.id,
+    requestId,
+    expectedPreviewVersion: preview.preview_version,
+    providerBackupRetentionDays: 7,
+    now: operatorNow,
+  };
+  const deletionLifecycle = await getProjectLifecycle(database, {
+    userId: owner.id,
+    projectId: erasedProject.id,
+  });
+  const interruptedErasure = eraseProject(exactErasure);
+  await objectDeletionReached;
+  const lateCancellation = cancelProjectDeletion(database, {
+    userId: owner.id,
+    projectId: erasedProject.id,
+    expectedPreviewVersion: deletionLifecycle.preview_version,
+  });
+  assert.equal(
+    await Promise.race([
+      lateCancellation.then(
+        () => "settled",
+        () => "settled",
+      ),
+      new Promise((resolve) => setTimeout(() => resolve("blocked"), 100)),
+    ]),
+    "blocked",
+  );
+  releaseInterruptedErasure();
+  await assert.rejects(interruptedErasure, /simulated interruption after private object deletion/i);
+  await assert.rejects(lateCancellation, /erasure has started/i);
+  assert.equal(storedVersions.get(uniqueKey).length, 0);
+  assert.equal(
+    (
+      await migrationDatabase
+        .prepare("SELECT COUNT(*) AS count FROM projects WHERE id = ?")
+        .get(erasedProject.id)
+    ).count,
+    1,
+  );
+  assert.equal(
+    (
+      await migrationDatabase
+        .prepare("SELECT status FROM project_erasure_jobs WHERE preview_version = ?")
+        .get(preview.preview_version)
+    ).status,
+    "prepared",
+  );
+
+  const erased = await eraseProject(exactErasure);
+  assert.equal(erased.status, "completed");
+  assert.equal(erased.object_key_count, 1);
+  assert.equal(erased.object_version_count, 1);
+  assert.equal(erased.shared_object_count, 1);
+  assert.ok(erased.database_row_count > 0);
+  assert.equal(storedVersions.get(uniqueKey).length, 0);
+  assert.equal(storedVersions.get(sharedKey).length, 1);
+  assert.equal(
+    (
+      await migrationDatabase
+        .prepare("SELECT COUNT(*) AS count FROM projects WHERE id = ?")
+        .get(erasedProject.id)
+    ).count,
+    0,
+  );
+  assert.equal(
+    (
+      await migrationDatabase
+        .prepare("SELECT COUNT(*) AS count FROM file_objects WHERE id = ?")
+        .get(unique.object_id)
+    ).count,
+    0,
+  );
+  assert.equal(
+    (
+      await migrationDatabase
+        .prepare("SELECT COUNT(*) AS count FROM file_objects WHERE id = ?")
+        .get(erasedShared.object_id)
+    ).count,
+    1,
+  );
+  assert.equal(
+    (
+      await getProjectFileDownload(database, store, {
+        userId: owner.id,
+        projectId: retainedProject.id,
+        referenceId: retainedShared.id,
+      })
+    ).available,
+    true,
+  );
+  const receipt = await migrationDatabase
+    .prepare(
+      `SELECT project_id, status, object_key_count, object_version_count,
+              shared_object_count, database_row_count, provider_backup_expires_at
+       FROM project_erasure_jobs WHERE preview_version = ?`,
+    )
+    .get(preview.preview_version);
+  assert.equal(receipt.project_id, null);
+  assert.equal(receipt.status, "completed");
+  assert.equal(receipt.object_key_count, 1);
+  assert.equal(receipt.object_version_count, 1);
+  assert.equal(receipt.shared_object_count, 1);
+  assert.equal(receipt.database_row_count, erased.database_row_count);
+  assert.ok(Date.parse(receipt.provider_backup_expires_at) > Date.now());
+  await assert.rejects(
+    migrationDatabase
+      .prepare("UPDATE project_erasure_jobs SET database_row_count = 0 WHERE preview_version = ?")
+      .run(preview.preview_version),
+    /terminal|immutable/i,
+  );
+  await assert.rejects(
+    migrationDatabase
+      .prepare("DELETE FROM project_erasure_jobs WHERE preview_version = ?")
+      .run(preview.preview_version),
+    /immutable/i,
+  );
+
+  const replay = await eraseProject(exactErasure);
+  assert.equal(replay.status, "completed");
+  assert.equal(replay.database_row_count, erased.database_row_count);
+  assert.equal("id" in replay, false);
+  assert.equal("preview_version" in replay, false);
+  assert.equal("object_manifest_sha256" in replay, false);
+  const completedPreview = await previewProjectErasure({
+    database: migrationDatabase,
+    store: erasureStore,
+    projectId: erasedProject.id,
+    requestId,
+    now: operatorNow,
+  });
+  assert.equal(completedPreview.status, "completed");
+  assert.equal("id" in completedPreview, false);
+  assert.equal("preview_version" in completedPreview, false);
+  assert.equal("object_manifest_sha256" in completedPreview, false);
 });
 
 test("cross-tenant and mismatched-connection access disclose nothing and mutate nothing", async () => {

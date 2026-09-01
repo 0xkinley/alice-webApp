@@ -10,6 +10,7 @@ const MODES = new Set([
   "hosted-proof",
   "invitation-operator",
   "backup-verification",
+  "project-erasure",
   "safe-stop",
 ]);
 const PLACEHOLDER_IMAGE =
@@ -50,6 +51,7 @@ function requireImage(name, value) {
 
 export function createPrivateAlphaChangeSetPlan({
   backupImage,
+  erasureImage,
   mode,
   name,
   webOrigin,
@@ -68,9 +70,11 @@ export function createPrivateAlphaChangeSetPlan({
     "ParameterKey=ImageUri,UsePreviousValue=true",
     "ParameterKey=OperatorImageUri,UsePreviousValue=true",
     `ParameterKey=BackupImageUri,ParameterValue=${PLACEHOLDER_IMAGE}`,
+    `ParameterKey=ErasureImageUri,ParameterValue=${PLACEHOLDER_IMAGE}`,
     "ParameterKey=ResourcePrefix,UsePreviousValue=true",
     "ParameterKey=RunMigration,ParameterValue=false",
     "ParameterKey=RunBackupVerification,ParameterValue=false",
+    "ParameterKey=RunProjectErasure,ParameterValue=false",
     "ParameterKey=RunInvitationOperator,ParameterValue=false",
   ];
   let description;
@@ -98,7 +102,7 @@ export function createPrivateAlphaChangeSetPlan({
   } else if (mode === "invitation-operator") {
     const exactOperatorImage = requireImage("operatorImage", operatorImage);
     parameters[2] = `ParameterKey=OperatorImageUri,ParameterValue=${exactOperatorImage}`;
-    parameters[7] = "ParameterKey=RunInvitationOperator,ParameterValue=true";
+    parameters[9] = "ParameterKey=RunInvitationOperator,ParameterValue=true";
     parameters.push(
       "ParameterKey=DeployServices,ParameterValue=true",
       "ParameterKey=OriginsConfigured,ParameterValue=true",
@@ -110,7 +114,7 @@ export function createPrivateAlphaChangeSetPlan({
   } else if (mode === "backup-verification") {
     const exactBackupImage = requireImage("backupImage", backupImage);
     parameters[3] = `ParameterKey=BackupImageUri,ParameterValue=${exactBackupImage}`;
-    parameters[6] = "ParameterKey=RunBackupVerification,ParameterValue=true";
+    parameters[7] = "ParameterKey=RunBackupVerification,ParameterValue=true";
     parameters.push(
       "ParameterKey=DeployServices,ParameterValue=false",
       "ParameterKey=OriginsConfigured,ParameterValue=false",
@@ -119,6 +123,18 @@ export function createPrivateAlphaChangeSetPlan({
     );
     description =
       "Review-only private backup/restore verifier: nine temporary resources, no runtime services; remove immediately after one successful run.";
+  } else if (mode === "project-erasure") {
+    const exactErasureImage = requireImage("erasureImage", erasureImage);
+    parameters[4] = `ParameterKey=ErasureImageUri,ParameterValue=${exactErasureImage}`;
+    parameters[8] = "ParameterKey=RunProjectErasure,ParameterValue=true";
+    parameters.push(
+      "ParameterKey=DeployServices,ParameterValue=true",
+      "ParameterKey=OriginsConfigured,ParameterValue=true",
+      "ParameterKey=WebPublicUrl,UsePreviousValue=true",
+      "ParameterKey=McpPublicUrl,UsePreviousValue=true",
+    );
+    description =
+      "Review-only two-phase private project erasure: ten temporary private resources, unchanged hosted services, exact IDs supplied only as ECS task overrides; remove immediately after verified completion.";
   } else {
     parameters.push(
       "ParameterKey=DeployServices,ParameterValue=false",
@@ -174,6 +190,7 @@ function parseArguments(argumentsList) {
     create: flags.includes("--create"),
     mcpOrigin: valueAfter("--mcp-origin"),
     backupImage: valueAfter("--backup-image"),
+    erasureImage: valueAfter("--erasure-image"),
     mode,
     name: valueAfter("--name") || `runtime-${mode}-${Date.now()}`,
     operatorImage: valueAfter("--operator-image"),
@@ -183,7 +200,7 @@ function parseArguments(argumentsList) {
 
 function usage() {
   console.error(
-    "Usage: node scripts/private-alpha-change-set.mjs <private-runtime|hosted-proof|invitation-operator|backup-verification|safe-stop> [--name NAME] [--web-origin URL --mcp-origin URL] [--operator-image DIGEST_URI] [--backup-image DIGEST_URI] [--create]",
+    "Usage: node scripts/private-alpha-change-set.mjs <private-runtime|hosted-proof|invitation-operator|backup-verification|project-erasure|safe-stop> [--name NAME] [--web-origin URL --mcp-origin URL] [--operator-image DIGEST_URI] [--backup-image DIGEST_URI] [--erasure-image DIGEST_URI] [--create]",
   );
 }
 

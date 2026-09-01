@@ -25,6 +25,12 @@
       "AllowedValues": ["false", "true"],
       "Description": "Temporarily creates the private Fargate backup/restore verifier and paid interface endpoints. Disable immediately after one successful run."
     },
+    "RunProjectErasure": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "Temporarily creates the private two-phase project-erasure task and paid interface endpoints. Disable immediately after verified completion."
+    },
     "RunInvitationOperator": {
       "Type": "String",
       "Default": "false",
@@ -48,6 +54,12 @@
       "Default": "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "AllowedPattern": "^[0-9]{12}\\.dkr\\.ecr\\.eu-central-1\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$",
       "Description": "Immutable ARM64 image digest used only by the temporary PostgreSQL backup/restore verifier."
+    },
+    "ErasureImageUri": {
+      "Type": "String",
+      "Default": "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "AllowedPattern": "^[0-9]{12}\\.dkr\\.ecr\\.eu-central-1\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$",
+      "Description": "Immutable ARM64 image digest used only by the temporary project-erasure operator."
     },
     "OriginsConfigured": {
       "Type": "String",
@@ -136,6 +148,36 @@
         }
       ]
     },
+    "ProjectErasureIsExclusive": {
+      "RuleCondition": { "Fn::Equals": [{ "Ref": "RunProjectErasure" }, "true"] },
+      "Assertions": [
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "RunMigration" }, "false"] },
+          "AssertDescription": "Project erasure and migration cannot run together."
+        },
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "false"] },
+          "AssertDescription": "Project erasure and backup verification cannot run together."
+        },
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "RunInvitationOperator" }, "false"] },
+          "AssertDescription": "Project erasure and the invitation operator cannot run together."
+        },
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Equals": [
+                  { "Ref": "ErasureImageUri" },
+                  "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                ]
+              }
+            ]
+          },
+          "AssertDescription": "A real immutable ECR image digest is required for project erasure."
+        }
+      ]
+    },
     "InvitationOperatorRequiresHostedServices": {
       "RuleCondition": {
         "Fn::Equals": [{ "Ref": "RunInvitationOperator" }, "true"]
@@ -168,6 +210,7 @@
       "RuleCondition": {
         "Fn::Or": [
           { "Fn::Equals": [{ "Ref": "RunMigration" }, "true"] },
+          { "Fn::Equals": [{ "Ref": "RunProjectErasure" }, "true"] },
           { "Fn::Equals": [{ "Ref": "DeployServices" }, "true"] }
         ]
       },
@@ -183,7 +226,7 @@
               }
             ]
           },
-          "AssertDescription": "A real immutable ECR image digest is required for migration or services."
+          "AssertDescription": "A real immutable ECR image digest is required for migration, project erasure, or services."
         }
       ]
     }
@@ -192,10 +235,20 @@
     "BackupVerificationEnabled": {
       "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "true"]
     },
+    "ProjectErasureEnabled": {
+      "Fn::Equals": [{ "Ref": "RunProjectErasure" }, "true"]
+    },
+    "PrivilegedDatabaseOperatorEnabled": {
+      "Fn::Or": [
+        { "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "true"] },
+        { "Fn::Equals": [{ "Ref": "RunProjectErasure" }, "true"] }
+      ]
+    },
     "PrivateDatabaseTaskEnabled": {
       "Fn::Or": [
         { "Fn::Equals": [{ "Ref": "RunMigration" }, "true"] },
-        { "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "true"] }
+        { "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "true"] },
+        { "Fn::Equals": [{ "Ref": "RunProjectErasure" }, "true"] }
       ]
     },
     "InvitationOperatorEnabled": {
@@ -776,7 +829,7 @@
                   "Action": "secretsmanager:GetSecretValue",
                   "Resource": {
                     "Fn::If": [
-                      "BackupVerificationEnabled",
+                      "PrivilegedDatabaseOperatorEnabled",
                       [{ "Fn::GetAtt": ["DatabaseCluster", "MasterUserSecret.SecretArn"] }],
                       [
                         { "Ref": "ApplicationDatabaseSecret" },
@@ -784,6 +837,48 @@
                       ]
                     ]
                   }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ProjectErasureTaskRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "ProjectErasureEnabled",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "${ResourcePrefix}-project-erasure" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "ecs-tasks.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "erase-exact-private-object-versions",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:ListBucketVersions",
+                  "Resource": { "Fn::GetAtt": ["PrivateFilesBucket", "Arn"] },
+                  "Condition": {
+                    "StringLike": {
+                      "s3:prefix": ["objects/*", "staging/*"]
+                    }
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:DeleteObjectVersion",
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
                 }
               ]
             }
@@ -804,6 +899,13 @@
       "Properties": {
         "Cpu": "256",
         "ExecutionRoleArn": { "Fn::GetAtt": ["MigrationExecutionRole", "Arn"] },
+        "TaskRoleArn": {
+          "Fn::If": [
+            "ProjectErasureEnabled",
+            { "Fn::GetAtt": ["ProjectErasureTaskRole", "Arn"] },
+            { "Ref": "AWS::NoValue" }
+          ]
+        },
         "Family": { "Fn::Sub": "${ResourcePrefix}-migration" },
         "Memory": "512",
         "NetworkMode": "awsvpc",
@@ -818,16 +920,28 @@
             "Essential": true,
             "Image": {
               "Fn::If": [
-                "BackupVerificationEnabled",
-                { "Ref": "BackupImageUri" },
-                { "Ref": "ImageUri" }
+                "ProjectErasureEnabled",
+                { "Ref": "ErasureImageUri" },
+                {
+                  "Fn::If": [
+                    "BackupVerificationEnabled",
+                    { "Ref": "BackupImageUri" },
+                    { "Ref": "ImageUri" }
+                  ]
+                }
               ]
             },
             "Command": {
               "Fn::If": [
-                "BackupVerificationEnabled",
-                ["npm", "run", "db:backup:verify:container"],
-                ["npm", "run", "db:migrate:container"]
+                "ProjectErasureEnabled",
+                ["npm", "run", "project:erase:container"],
+                {
+                  "Fn::If": [
+                    "BackupVerificationEnabled",
+                    ["npm", "run", "db:backup:verify:container"],
+                    ["npm", "run", "db:migrate:container"]
+                  ]
+                }
               ]
             },
             "Environment": [
@@ -837,11 +951,26 @@
               },
               { "Name": "ALICE_APPLICATION_DATABASE_ROLE", "Value": "alice_app" },
               { "Name": "ALICE_DATABASE_SSLMODE", "Value": "verify-full" },
-              { "Name": "PGSSLROOTCERT", "Value": "/app/certs/eu-central-1-bundle.pem" }
+              { "Name": "AWS_REGION", "Value": { "Ref": "AWS::Region" } },
+              { "Name": "PGSSLROOTCERT", "Value": "/app/certs/eu-central-1-bundle.pem" },
+              {
+                "Fn::If": [
+                  "ProjectErasureEnabled",
+                  { "Name": "ALICE_S3_BUCKET", "Value": { "Ref": "PrivateFilesBucket" } },
+                  { "Ref": "AWS::NoValue" }
+                ]
+              },
+              {
+                "Fn::If": [
+                  "ProjectErasureEnabled",
+                  { "Name": "ALICE_PROVIDER_BACKUP_RETENTION_DAYS", "Value": "7" },
+                  { "Ref": "AWS::NoValue" }
+                ]
+              }
             ],
             "Secrets": {
               "Fn::If": [
-                "BackupVerificationEnabled",
+                "PrivilegedDatabaseOperatorEnabled",
                 [
                   {
                     "Name": "ALICE_MIGRATION_DATABASE_PASSWORD",

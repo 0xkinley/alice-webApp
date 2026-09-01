@@ -1,8 +1,8 @@
 # Project Archive, Export, and Deletion Requests
 
-Status: Implemented local foundation for Milestone 06; privileged erasure remains unimplemented
+Status: Local privileged-erasure foundation implemented for Milestone 06; hosted execution and provider-backup expiry remain unverified
 
-Decision date: 2026-08-30
+Decision dates: 2026-08-30 and 2026-09-01
 
 ## User-visible distinctions
 
@@ -35,18 +35,31 @@ The export also excludes object storage keys/versions, credentials, bearer/sessi
 
 ## Deletion request and cancellation
 
-Only an Owner may request deletion, and only after archive. The form requires both the current lifecycle preview and the exact project name. The request records requester, request time, and a `not_before` time seven days later. It appends `project_deletion_requested`; exact cancellation appends `project_deletion_cancelled`. Request identity and timing are immutable, cancellation is one-way, and rows cannot be deleted through the application role.
+Only an Owner may request deletion, and only after archive. The form requires both the current lifecycle preview and the exact project name. The request records requester, request time, and a `not_before` time seven days later. It appends `project_deletion_requested`; exact cancellation appends `project_deletion_cancelled`. Request identity and timing are immutable, cancellation is one-way, and rows cannot be deleted through the application role. Once the privileged operator commits a prepared receipt, cancellation is rejected because exact object-version deletion may already have started; a prepared run must be reconciled to completion.
 
-The cooling-off interval is a cancellation guard, not an erasure service-level promise. There is currently no operator that consumes the queue and no approved maximum PostgreSQL, object-version, audit/security-record, or backup erasure window.
+The cooling-off interval is a cancellation guard. The working private-alpha policy schedules a manually approved operator run no later than seven days after `not_before`, so active PostgreSQL and S3 data should be removed no later than 14 days after the request. This maximum must not be promised to testers until the hosted operator and provider-backup behavior pass their live proof.
+
+## Private-alpha retention policy
+
+- An active deletion request remains cancellable for seven days. Cancellation before `not_before` prevents erasure.
+- During the invite-only alpha, an operator reviews eligible requests and should remove active PostgreSQL rows and exact private S3 object versions within seven additional days. PostgreSQL deletion and S3 reconciliation are one operator workflow, not separate user-visible states.
+- Aurora automated backups are retained for seven days. Active-data erasure records the calculated backup-expiry time; therefore request data may remain recoverable in provider backups for at most 21 days after the request if the operator meets the active-data window. Provider expiry still requires live verification.
+- Do not create a manual database snapshot containing alpha data unless its owner and deletion date are recorded. A retained or replacement snapshot is not automatically erased by the project operator and blocks a complete deletion promise until separately removed or expired.
+- Project-scoped audit events, read/security receipts, invitations, memberships, evidence, accepted state, candidates, contexts, upload intents, and file references are active project data and are deleted with the project. The operator retains only a content-free, pseudonymous erasure receipt: fingerprints, safe counts, timestamps, manifest hash, and calculated provider-backup expiry. It contains no project identifier after completion and is append-preserving for operational accountability.
+- An immutable file object's bytes are deleted only when the target project is its last project reference. If another authorized project still references the same bytes, the object remains; all target-project references and provenance associations are removed.
+- Collaborator removal revokes that collaborator's access immediately but does not erase the shared project. Account-wide erasure is a separate, currently unimplemented workflow; a project request covers only the named project.
+- The friend alpha has no ordinary legal-hold feature. If a legal obligation or active security incident requires preservation, alice. must suspend the affected erasure, document the authority and scope outside ordinary runtime roles, and notify the requester before relying on any deletion timeline.
 
 ## Database and operator boundary
 
-Migration `013_project_lifecycle.sql` adds the project archive pair and append-preserving deletion-request queue. The constrained application role may update only project archive fields and deletion-request cancellation fields. It cannot delete projects, requests, evidence, accepted state, file objects, audit events, or security receipts, and it cannot rewrite project identity/content through this lifecycle surface.
+Migration `013_project_lifecycle.sql` adds the project archive pair and append-preserving deletion-request queue. Migration `016_project_erasure_jobs.sql` adds the privileged operator's prepared/completed reconciliation receipt. The constrained application role may update only project archive fields and deletion-request cancellation fields. It has no access to erasure receipts and cannot delete projects, requests, evidence, accepted state, file objects, audit events, or security receipts, or rewrite project identity/content through this lifecycle surface.
 
-Permanent erasure remains a separate Milestone 06 task. It requires an approved retention policy; a credential and executable unavailable to web/MCP runtime roles; an ordered dependency plan; live deletion of PostgreSQL project data and every private object version; defined treatment for security/audit records and legal holds; provider backup-expiry verification; retry/reconciliation receipts; and negative proof that ordinary roles still cannot invoke or emulate it. Until those conditions pass, alice. must not promise that a request has deleted data or name a maximum erasure window.
+The local operator is a two-phase `preview`/`execute` command unavailable to web and MCP roles. It validates exact opaque project/request identifiers, archive state, the active request, and cooling-off completion; inventories bounded exact S3 versions and delete markers; and returns only safe counts plus an opaque preview token. Execute requires that exact token, locks the project and deletion-request rows in the same order as lifecycle cancellation, takes per-object advisory locks, rechecks the plan, deletes and reconciles eligible S3 versions, deletes the explicitly ordered PostgreSQL dependency set, and commits a terminal pseudonymous receipt. A cancellation that commits first makes execution ineligible; after preparation, a database trigger rejects late cancellation. Shared objects remain when another project references them. A prepared receipt survives a partial S3 failure so an exact retry can reconcile without restoring already-erased bytes; a completed receipt makes replay read-only.
+
+The AWS template keeps this executable in a separate immutable image and a temporary private Fargate task. It receives the database owner secret, bounded version-list/delete permission on the one private bucket, and no public route. Exact project/request identifiers and the preview token are supplied only as one-task environment overrides, never persisted in CloudFormation. The temporary role, task definition, cluster, endpoints, security group, and log group must be removed immediately after the bounded run. Hosted execution, negative application non-disclosure after live deletion, and observed Aurora backup expiry remain open; until they pass, alice. must not claim that a hosted request has completed permanent deletion.
 
 ## Verification
 
 SQLite web/domain coverage compares Editor and outsider lifecycle denial, verifies a stale preview cannot mutate, proves restricted/personal names and content are absent from Owner export without a grant, checks archive removal from ordinary paths, pending-invitation revocation, data preservation, exact deletion confirmation, restore blocking, one-way cancellation history, and project/request no-delete guards.
 
-Real PostgreSQL coverage runs archive, export, request, cancellation, and restore through the constrained application role, verifies ordinary reads fail while archived, verifies data remains, and proves direct project/request rewrite and deletion attempts are denied. Privileged erasure and live provider backup/object deletion are not covered because they do not exist yet.
+Real PostgreSQL 17 coverage runs archive, export, request, cancellation, and restore through the constrained application role, verifies ordinary reads fail while archived, verifies data remains, and proves direct project/request rewrite, receipt access, and deletion attempts are denied. The privileged test erases every version of one unshared object, retains a shared object and unrelated project, removes project-scoped rows, simulates interruption after object deletion, completes from the prepared receipt, and proves terminal replay is safe. Focused S3 tests verify exact-key prefix filtering, version/delete-marker deletion, and zero-version reconciliation. All 18 PostgreSQL tests pass locally. Hosted S3 deletion and Aurora automated-backup expiry are not yet verified.

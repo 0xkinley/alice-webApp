@@ -11,7 +11,7 @@ ADD --checksum=sha256:56a0cae044b6cc433971d964347401692a92ea0294e392753a3ebdaee5
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
 COPY apps ./apps
 COPY packages ./packages
-COPY scripts/migrate-postgres.mjs scripts/migrate-postgres-container.mjs scripts/verify-postgres-backup.mjs scripts/verify-postgres-backup-container.mjs scripts/alpha-invitation-operator.mjs ./scripts/
+COPY scripts/migrate-postgres.mjs scripts/migrate-postgres-container.mjs scripts/verify-postgres-backup.mjs scripts/verify-postgres-backup-container.mjs scripts/alpha-invitation-operator.mjs scripts/erase-project.mjs scripts/erase-project-container.mjs ./scripts/
 
 RUN npm ci --ignore-scripts && npm run build && npm prune --omit=dev --ignore-scripts
 
@@ -34,6 +34,27 @@ COPY --from=build --chown=node:node /app/scripts ./scripts
 USER node
 
 CMD ["npm", "run", "db:backup:verify:container"]
+
+FROM node:24-alpine AS erasure
+
+RUN apk upgrade --no-cache libcrypto3 libssl3
+
+ENV NODE_ENV=production
+ENV NODE_EXTRA_CA_CERTS=/app/certs/eu-central-1-bundle.pem
+ENV PGSSLROOTCERT=/app/certs/eu-central-1-bundle.pem
+
+WORKDIR /app
+
+COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
+COPY --from=build --chown=node:node --chmod=0644 /app/certs/eu-central-1-bundle.pem ./certs/eu-central-1-bundle.pem
+RUN chmod 0755 ./certs && chmod 0644 ./certs/eu-central-1-bundle.pem
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/packages ./packages
+COPY --from=build --chown=node:node /app/scripts ./scripts
+
+USER node
+
+CMD ["npm", "run", "project:erase:container"]
 
 FROM node:24-alpine AS runtime
 

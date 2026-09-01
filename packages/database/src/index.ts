@@ -241,6 +241,7 @@ export async function configureApplicationRole(
     await database.exec(
       `GRANT UPDATE (cancelled_by_user_id, cancelled_at) ON TABLE ${schema}.project_deletion_requests TO ${role}`,
     );
+    await database.exec(`REVOKE ALL ON TABLE ${schema}.project_erasure_jobs FROM ${role}`);
     await database.exec(
       `REVOKE INSERT, UPDATE, DELETE ON TABLE ${schema}.alice_schema_migrations FROM ${role}`,
     );

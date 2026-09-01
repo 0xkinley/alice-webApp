@@ -19,15 +19,42 @@ test("safe-stop plan disables services and public origins without changing retai
     "ParameterKey=ImageUri,UsePreviousValue=true",
     "ParameterKey=OperatorImageUri,UsePreviousValue=true",
     "ParameterKey=BackupImageUri,ParameterValue=000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "ParameterKey=ErasureImageUri,ParameterValue=000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
     "ParameterKey=ResourcePrefix,UsePreviousValue=true",
     "ParameterKey=RunMigration,ParameterValue=false",
     "ParameterKey=RunBackupVerification,ParameterValue=false",
+    "ParameterKey=RunProjectErasure,ParameterValue=false",
     "ParameterKey=RunInvitationOperator,ParameterValue=false",
     "ParameterKey=DeployServices,ParameterValue=false",
     "ParameterKey=OriginsConfigured,ParameterValue=false",
     "ParameterKey=WebPublicUrl,UsePreviousValue=true",
     "ParameterKey=McpPublicUrl,UsePreviousValue=true",
   ]);
+});
+
+test("project-erasure plan requires one immutable Frankfurt image and stays private", () => {
+  assert.throws(
+    () =>
+      createPrivateAlphaChangeSetPlan({
+        mode: "project-erasure",
+        name: "bundle2-project-erasure",
+        erasureImage: "latest",
+      }),
+    /immutable Frankfurt ECR image digest/,
+  );
+
+  const image =
+    "004669176288.dkr.ecr.eu-central-1.amazonaws.com/alice-private-alpha/application@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+  const plan = createPrivateAlphaChangeSetPlan({
+    mode: "project-erasure",
+    name: "bundle2-project-erasure",
+    erasureImage: image,
+  });
+  assert.equal(plan.public, false);
+  assert.ok(plan.parameters.includes(`ParameterKey=ErasureImageUri,ParameterValue=${image}`));
+  assert.ok(plan.parameters.includes("ParameterKey=RunProjectErasure,ParameterValue=true"));
+  assert.ok(plan.parameters.includes("ParameterKey=DeployServices,ParameterValue=true"));
+  assert.ok(plan.parameters.includes("ParameterKey=OriginsConfigured,ParameterValue=true"));
 });
 
 test("backup-verification plan requires one immutable Frankfurt image and stays private", () => {

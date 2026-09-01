@@ -262,6 +262,40 @@ function createSchema(database: DatabaseSync) {
     CREATE INDEX project_deletion_requests_operator_queue
       ON project_deletion_requests (not_before, requested_at, id) WHERE cancelled_at IS NULL;
 
+    CREATE TABLE project_erasure_jobs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT,
+      project_fingerprint TEXT NOT NULL,
+      deletion_request_fingerprint TEXT NOT NULL,
+      preview_version TEXT NOT NULL,
+      object_manifest_sha256 TEXT NOT NULL,
+      object_key_count INTEGER NOT NULL CHECK (object_key_count BETWEEN 0 AND 10000),
+      object_version_count INTEGER NOT NULL CHECK (object_version_count BETWEEN 0 AND 50000),
+      shared_object_count INTEGER NOT NULL CHECK (shared_object_count BETWEEN 0 AND 10000),
+      database_row_count INTEGER NOT NULL CHECK (database_row_count >= 0),
+      status TEXT NOT NULL CHECK (status IN ('prepared', 'completed')),
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      active_data_deleted_at TEXT,
+      provider_backup_expires_at TEXT,
+      CHECK (length(project_fingerprint) = 64),
+      CHECK (length(deletion_request_fingerprint) = 64),
+      CHECK (length(object_manifest_sha256) = 64),
+      CHECK (
+        (status = 'prepared' AND project_id IS NOT NULL
+          AND completed_at IS NULL AND active_data_deleted_at IS NULL
+          AND provider_backup_expires_at IS NULL)
+        OR
+        (status = 'completed' AND project_id IS NULL
+          AND completed_at IS NOT NULL AND active_data_deleted_at IS NOT NULL
+          AND provider_backup_expires_at IS NOT NULL)
+      ),
+      UNIQUE (project_fingerprint, deletion_request_fingerprint)
+    ) STRICT;
+
+    CREATE INDEX project_erasure_jobs_status_lookup
+      ON project_erasure_jobs (status, started_at, id);
+
     CREATE TRIGGER projects_create_owner_membership
     AFTER INSERT ON projects
     BEGIN
@@ -733,6 +767,46 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON project_deletion_requests
     BEGIN
       SELECT RAISE(ABORT, 'deletion request history is retained until privileged erasure');
+    END;
+
+    CREATE TRIGGER project_erasure_jobs_validate_update
+    BEFORE UPDATE ON project_erasure_jobs
+    WHEN OLD.status != 'prepared'
+      OR NEW.status != 'completed'
+      OR NEW.id IS NOT OLD.id
+      OR NEW.project_fingerprint IS NOT OLD.project_fingerprint
+      OR NEW.deletion_request_fingerprint IS NOT OLD.deletion_request_fingerprint
+      OR NEW.preview_version IS NOT OLD.preview_version
+      OR NEW.object_manifest_sha256 IS NOT OLD.object_manifest_sha256
+      OR NEW.object_key_count IS NOT OLD.object_key_count
+      OR NEW.object_version_count IS NOT OLD.object_version_count
+      OR NEW.shared_object_count IS NOT OLD.shared_object_count
+      OR NEW.started_at IS NOT OLD.started_at
+      OR NEW.project_id IS NOT NULL
+      OR NEW.completed_at IS NULL
+      OR NEW.active_data_deleted_at IS NULL
+      OR NEW.provider_backup_expires_at IS NULL
+      OR NEW.database_row_count < OLD.database_row_count
+    BEGIN
+      SELECT RAISE(ABORT, 'project erasure jobs permit one terminal transition');
+    END;
+
+    CREATE TRIGGER project_erasure_jobs_no_delete
+    BEFORE DELETE ON project_erasure_jobs
+    BEGIN
+      SELECT RAISE(ABORT, 'project erasure receipts are append-preserving');
+    END;
+
+    CREATE TRIGGER project_deletion_requests_erasure_started
+    BEFORE UPDATE ON project_deletion_requests
+    WHEN OLD.cancelled_at IS NULL
+      AND NEW.cancelled_at IS NOT NULL
+      AND EXISTS (
+        SELECT 1 FROM project_erasure_jobs
+        WHERE project_id = OLD.project_id AND status = 'prepared'
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'project erasure has started; cancellation is no longer safe');
     END;
 
     CREATE TRIGGER project_memberships_validate_update

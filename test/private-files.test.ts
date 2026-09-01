@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { createS3PrivateFileStore } from "@alice/private-files";
+import { createS3PrivateFileStore, createS3ProjectErasureStore } from "@alice/private-files";
 
 test("S3 direct uploads bind checksum, metadata, encryption, and expiry", async () => {
   const previousAccessKey = process.env.AWS_ACCESS_KEY_ID;
@@ -54,4 +54,61 @@ test("S3 direct uploads bind checksum, metadata, encryption, and expiry", async 
     if (previousSecret === undefined) delete process.env.AWS_SECRET_ACCESS_KEY;
     else process.env.AWS_SECRET_ACCESS_KEY = previousSecret;
   }
+});
+
+test("project erasure inventories and deletes only exact immutable S3 versions", async () => {
+  const versions = new Map([
+    [
+      "objects/exact",
+      [
+        { Key: "objects/exact", VersionId: "version-2" },
+        { Key: "objects/exact", VersionId: "version-1" },
+      ],
+    ],
+    ["objects/exact-other", [{ Key: "objects/exact-other", VersionId: "foreign-version" }]],
+  ]);
+  const markers = new Map([
+    ["objects/exact", [{ Key: "objects/exact", VersionId: "delete-marker-1" }]],
+  ]);
+  const client = {
+    async send(command) {
+      if (command.constructor.name === "ListObjectVersionsCommand") {
+        const key = command.input.Prefix;
+        return {
+          Versions: [...(versions.get(key) || []), ...(versions.get(`${key}-other`) || [])],
+          DeleteMarkers: markers.get(key) || [],
+          IsTruncated: false,
+        };
+      }
+      if (command.constructor.name === "DeleteObjectsCommand") {
+        for (const item of command.input.Delete.Objects) {
+          versions.set(
+            item.Key,
+            (versions.get(item.Key) || []).filter(({ VersionId }) => VersionId !== item.VersionId),
+          );
+          markers.set(
+            item.Key,
+            (markers.get(item.Key) || []).filter(({ VersionId }) => VersionId !== item.VersionId),
+          );
+        }
+        return { Errors: [] };
+      }
+      throw new Error("unexpected command");
+    },
+  };
+  const store = createS3ProjectErasureStore({
+    bucket: "alice-private-files-test",
+    region: "eu-central-1",
+    client,
+  });
+  const inventory = await store.inventory(["objects/exact"]);
+  assert.deepEqual(inventory, [
+    { key: "objects/exact", versionId: "delete-marker-1", deleteMarker: true },
+    { key: "objects/exact", versionId: "version-1", deleteMarker: false },
+    { key: "objects/exact", versionId: "version-2", deleteMarker: false },
+  ]);
+  assert.deepEqual(await store.erase(["objects/exact"], inventory), { deletedVersions: 3 });
+  assert.deepEqual(await store.inventory(["objects/exact"]), []);
+  assert.equal(versions.get("objects/exact-other").length, 1);
+  await assert.rejects(store.inventory(["public/not-permitted"]), /invalid private object key/);
 });

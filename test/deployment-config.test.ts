@@ -13,14 +13,20 @@ const backupContainerScriptPath = new URL(
   "../scripts/verify-postgres-backup-container.mjs",
   import.meta.url,
 );
+const erasureContainerScriptPath = new URL(
+  "../scripts/erase-project-container.mjs",
+  import.meta.url,
+);
 
 test("production image pins the Lambda adapter and retains non-root portable startup", async () => {
   const dockerfile = await readFile(dockerfilePath, "utf8");
   const migrationContainerScript = await readFile(migrationContainerScriptPath, "utf8");
   const backupContainerScript = await readFile(backupContainerScriptPath, "utf8");
+  const erasureContainerScript = await readFile(erasureContainerScriptPath, "utf8");
   assert.match(dockerfile, /^# syntax=docker\/dockerfile:1$/m);
-  assert.equal(dockerfile.match(/^FROM node:24-alpine(?: AS \w+)?$/gm)?.length, 3);
+  assert.equal(dockerfile.match(/^FROM node:24-alpine(?: AS \w+)?$/gm)?.length, 4);
   assert.match(dockerfile, /^FROM node:24-alpine AS backup$/m);
+  assert.match(dockerfile, /^FROM node:24-alpine AS erasure$/m);
   assert.match(dockerfile, /apk add --no-cache postgresql17-client/);
   assert.match(dockerfile, /^RUN apk upgrade --no-cache libcrypto3 libssl3$/m);
   assert.match(
@@ -47,9 +53,10 @@ test("production image pins the Lambda adapter and retains non-root portable sta
   );
   assert.match(dockerfile, /USER node/);
   assert.match(dockerfile, /CMD \["npm", "run", "start:mcp"\]/);
+  assert.match(dockerfile, /CMD \["npm", "run", "project:erase:container"\]/);
   assert.match(
     dockerfile,
-    /COPY scripts\/migrate-postgres\.mjs scripts\/migrate-postgres-container\.mjs scripts\/verify-postgres-backup\.mjs scripts\/verify-postgres-backup-container\.mjs scripts\/alpha-invitation-operator\.mjs \.\/scripts\//,
+    /COPY scripts\/migrate-postgres\.mjs scripts\/migrate-postgres-container\.mjs scripts\/verify-postgres-backup\.mjs scripts\/verify-postgres-backup-container\.mjs scripts\/alpha-invitation-operator\.mjs scripts\/erase-project\.mjs scripts\/erase-project-container\.mjs \.\/scripts\//,
   );
   assert.match(dockerfile, /COPY --from=build --chown=node:node \/app\/scripts \.\/scripts/);
   assert.doesNotMatch(dockerfile, /AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/);
@@ -62,6 +69,8 @@ test("production image pins the Lambda adapter and retains non-root portable sta
     /PGSSLROOTCERT \|\|= "\/app\/certs\/eu-central-1-bundle\.pem"/,
   );
   assert.doesNotMatch(backupContainerScript, /console\.|rejectUnauthorized\s*:\s*false/);
+  assert.match(erasureContainerScript, /ALICE_DATABASE_SSLMODE \|\| "verify-full"/);
+  assert.doesNotMatch(erasureContainerScript, /console\.|rejectUnauthorized\s*:\s*false/);
 });
 
 test("hosted probes accept only credential-free HTTPS origins", () => {
@@ -210,6 +219,7 @@ test("private database operations are temporary, exclusive, and least-secret", a
     "false",
   );
   assert.equal(template.Parameters.RunBackupVerification.Default, "false");
+  assert.equal(template.Parameters.RunProjectErasure.Default, "false");
   assert.equal(
     template.Rules.BackupVerificationIsExclusive.Assertions[0].Assert["Fn::Equals"][1],
     "false",
@@ -217,6 +227,17 @@ test("private database operations are temporary, exclusive, and least-secret", a
   assert.equal(
     template.Rules.BackupVerificationIsExclusive.Assertions[1].Assert["Fn::Equals"][1],
     "false",
+  );
+  assert.equal(
+    template.Rules.ProjectErasureIsExclusive.Assertions.slice(0, 3).every(
+      ({ Assert }) => Assert["Fn::Equals"][1] === "false",
+    ),
+    true,
+  );
+  assert.equal(
+    template.Rules.ProjectErasureIsExclusive.Assertions[3].Assert["Fn::Not"][0]["Fn::Equals"][0]
+      .Ref,
+    "ErasureImageUri",
   );
   const temporaryResources = [
     "MigrationEndpointSecurityGroup",
@@ -242,17 +263,31 @@ test("private database operations are temporary, exclusive, and least-secret", a
   assert.equal(task.Properties.RuntimePlatform.CpuArchitecture, "ARM64");
   const container = task.Properties.ContainerDefinitions[0];
   assert.deepEqual(container.Image["Fn::If"], [
-    "BackupVerificationEnabled",
-    { Ref: "BackupImageUri" },
-    { Ref: "ImageUri" },
+    "ProjectErasureEnabled",
+    { Ref: "ErasureImageUri" },
+    {
+      "Fn::If": ["BackupVerificationEnabled", { Ref: "BackupImageUri" }, { Ref: "ImageUri" }],
+    },
   ]);
   assert.deepEqual(container.Command["Fn::If"], [
-    "BackupVerificationEnabled",
-    ["npm", "run", "db:backup:verify:container"],
-    ["npm", "run", "db:migrate:container"],
+    "ProjectErasureEnabled",
+    ["npm", "run", "project:erase:container"],
+    {
+      "Fn::If": [
+        "BackupVerificationEnabled",
+        ["npm", "run", "db:backup:verify:container"],
+        ["npm", "run", "db:migrate:container"],
+      ],
+    },
+  ]);
+  assert.deepEqual(container.TaskRoleArn, undefined);
+  assert.deepEqual(task.Properties.TaskRoleArn["Fn::If"], [
+    "ProjectErasureEnabled",
+    { "Fn::GetAtt": ["ProjectErasureTaskRole", "Arn"] },
+    { Ref: "AWS::NoValue" },
   ]);
   const [condition, backupSecrets, migrationSecrets] = container.Secrets["Fn::If"];
-  assert.equal(condition, "BackupVerificationEnabled");
+  assert.equal(condition, "PrivilegedDatabaseOperatorEnabled");
   assert.deepEqual(
     backupSecrets.map(({ Name }) => Name),
     ["ALICE_MIGRATION_DATABASE_PASSWORD"],
@@ -268,17 +303,37 @@ test("private database operations are temporary, exclusive, and least-secret", a
     ),
   );
   assert.equal(
-    container.Environment.some(({ Name }) => Name.toLowerCase().includes("password")),
+    container.Environment.some(({ Name }) => Name?.toLowerCase().includes("password")),
     false,
   );
   const secretResources =
     resources.MigrationExecutionRole.Properties.Policies[0].PolicyDocument.Statement[0].Resource[
       "Fn::If"
     ];
-  assert.equal(secretResources[0], "BackupVerificationEnabled");
+  assert.equal(secretResources[0], "PrivilegedDatabaseOperatorEnabled");
   assert.equal(secretResources[1].length, 1);
   assert.equal(secretResources[2].length, 2);
   assert.doesNotMatch(JSON.stringify(template), /AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/);
+
+  const erasureRole = resources.ProjectErasureTaskRole;
+  assert.equal(erasureRole.Condition, "ProjectErasureEnabled");
+  const erasureStatements = erasureRole.Properties.Policies[0].PolicyDocument.Statement;
+  assert.equal(erasureStatements[0].Action, "s3:ListBucketVersions");
+  assert.deepEqual(erasureStatements[0].Condition.StringLike["s3:prefix"], [
+    "objects/*",
+    "staging/*",
+  ]);
+  assert.equal(erasureStatements[1].Action, "s3:DeleteObjectVersion");
+  assert.equal(
+    container.Environment.some(({ "Fn::If": conditional }: any) =>
+      conditional?.some?.((value) => value?.Name === "ALICE_S3_BUCKET"),
+    ),
+    true,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(container.Environment),
+    /ALICE_PROJECT_ERASURE_(?:PROJECT_ID|REQUEST_ID|EXPECTED_PREVIEW)/,
+  );
 });
 
 test("the invitation operator is temporary, private, and narrowly permissioned", async () => {
