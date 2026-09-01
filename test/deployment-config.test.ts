@@ -14,6 +14,7 @@ test("production image pins the Lambda adapter and retains non-root portable sta
   const dockerfile = await readFile(dockerfilePath, "utf8");
   const migrationContainerScript = await readFile(migrationContainerScriptPath, "utf8");
   assert.match(dockerfile, /^# syntax=docker\/dockerfile:1$/m);
+  assert.equal(dockerfile.match(/^FROM node:24-alpine(?: AS \w+)?$/gm)?.length, 2);
   assert.match(
     dockerfile,
     /ADD --checksum=sha256:56a0cae044b6cc433971d964347401692a92ea0294e392753a3ebdaee54d8b84/,

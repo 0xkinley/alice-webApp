@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24-bookworm-slim AS build
+FROM node:24-alpine AS build
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ COPY scripts/migrate-postgres.mjs scripts/migrate-postgres-container.mjs scripts
 
 RUN npm ci --ignore-scripts && npm run build && npm prune --omit=dev --ignore-scripts
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:24-alpine AS runtime
 
 # Lambda Web Adapter is inert outside AWS Lambda, so the same immutable image
 # remains usable for ordinary local containers and the ECS fallback.
