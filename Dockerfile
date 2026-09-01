@@ -17,6 +17,10 @@ RUN npm ci --ignore-scripts && npm run build && npm prune --omit=dev --ignore-sc
 
 FROM node:24-alpine AS runtime
 
+# The base tag can lag Alpine security repository publication. Keep the final
+# image's TLS libraries current without adding packages or changing Node.
+RUN apk upgrade --no-cache libcrypto3 libssl3
+
 # Lambda Web Adapter is inert outside AWS Lambda, so the same immutable image
 # remains usable for ordinary local containers and the ECS fallback.
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.0.1@sha256:1e5ab4d9242167500ed8a7bed8a79b448228aaa51cf382fb51fe4bf8a5f9a811 /lambda-adapter /opt/extensions/lambda-adapter
