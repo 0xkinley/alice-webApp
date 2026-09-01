@@ -44,7 +44,11 @@ export function createS3PrivateFileStore({
           Metadata: { "alice-sha256": sha256 },
           ServerSideEncryption: "AES256",
         }),
-        { expiresIn: expiresInSeconds },
+        {
+          expiresIn: expiresInSeconds,
+          signableHeaders: new Set(["content-type"]),
+          unhoistableHeaders: new Set(["x-amz-checksum-sha256", "x-amz-meta-alice-sha256"]),
+        },
       );
       return { url, headers, expiresInSeconds };
     },

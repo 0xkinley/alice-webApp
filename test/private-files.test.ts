@@ -36,9 +36,18 @@ test("S3 direct uploads bind checksum, metadata, encryption, and expiry", async 
     );
     assert.equal(url.hostname, "alice-private-files-test.s3.eu-central-1.amazonaws.com");
     assert.equal(url.searchParams.get("X-Amz-Expires"), "600");
-    assert.equal(query["x-amz-checksum-sha256"], signed.headers["x-amz-checksum-sha256"]);
-    assert.equal(query["x-amz-meta-alice-sha256"], sha256);
-    assert.match(url.searchParams.get("X-Amz-SignedHeaders") || "", /x-amz-server-side-encryption/);
+    assert.equal(query["x-amz-checksum-sha256"], undefined);
+    assert.equal(query["x-amz-meta-alice-sha256"], undefined);
+    assert.deepEqual(
+      new Set((url.searchParams.get("X-Amz-SignedHeaders") || "").split(";")),
+      new Set([
+        "content-type",
+        "host",
+        "x-amz-checksum-sha256",
+        "x-amz-meta-alice-sha256",
+        "x-amz-server-side-encryption",
+      ]),
+    );
   } finally {
     if (previousAccessKey === undefined) delete process.env.AWS_ACCESS_KEY_ID;
     else process.env.AWS_ACCESS_KEY_ID = previousAccessKey;
