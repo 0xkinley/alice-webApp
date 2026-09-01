@@ -227,10 +227,11 @@ export async function createProjectInvitation(
           `SELECT membership.id
            FROM project_memberships membership
            JOIN users ON users.id = membership.user_id
-           WHERE membership.project_id = ? AND membership.ended_at IS NULL
+           WHERE membership.workspace_id = ? AND membership.project_id = ?
+             AND membership.ended_at IS NULL
              AND lower(users.email) = lower(?)`,
         )
-        .get(owner.project_id, email);
+        .get(owner.workspace_id, owner.project_id, email);
       if (activeMember) {
         throw new ProjectMembershipUserError("This person already has project access.");
       }
@@ -285,9 +286,10 @@ export async function acceptProjectInvitation(database, userId: string, token: u
       .prepare(
         `UPDATE project_invitations
          SET accepted_by_user_id = ?, accepted_at = ?
-         WHERE id = ? AND accepted_at IS NULL AND declined_at IS NULL AND revoked_at IS NULL`,
+         WHERE id = ? AND workspace_id = ? AND project_id = ?
+           AND accepted_at IS NULL AND declined_at IS NULL AND revoked_at IS NULL`,
       )
-      .run(userId, now, invitation.id);
+      .run(userId, now, invitation.id, invitation.workspace_id, invitation.project_id);
     if (accepted.changes !== 1) {
       throw new ProjectMembershipUserError("This invitation is no longer available.");
     }
@@ -321,9 +323,10 @@ export async function declineProjectInvitation(database, userId: string, token: 
       .prepare(
         `UPDATE project_invitations
          SET declined_by_user_id = ?, declined_at = ?
-         WHERE id = ? AND accepted_at IS NULL AND declined_at IS NULL AND revoked_at IS NULL`,
+         WHERE id = ? AND workspace_id = ? AND project_id = ?
+           AND accepted_at IS NULL AND declined_at IS NULL AND revoked_at IS NULL`,
       )
-      .run(userId, now, invitation.id);
+      .run(userId, now, invitation.id, invitation.workspace_id, invitation.project_id);
     if (declined.changes !== 1) return undefined;
     await appendAuditEvent(database, {
       workspaceId: invitation.workspace_id,
@@ -389,9 +392,9 @@ export async function resendProjectInvitation(
     await database
       .prepare(
         `UPDATE project_invitations SET revoked_by_user_id = ?, revoked_at = ?
-         WHERE id = ? AND revoked_at IS NULL`,
+         WHERE id = ? AND workspace_id = ? AND project_id = ? AND revoked_at IS NULL`,
       )
-      .run(input.userId, now, invitation.id);
+      .run(input.userId, now, invitation.id, owner.workspace_id, owner.project_id);
     await appendAuditEvent(database, {
       workspaceId: owner.workspace_id,
       projectId: owner.project_id,
@@ -431,10 +434,11 @@ export async function updateProjectMemberRole(
       const incompatibleGrant = await database
         .prepare(
           `SELECT id FROM context_access_grants
-           WHERE membership_id = ? AND ended_at IS NULL AND role <> 'viewer'
+           WHERE workspace_id = ? AND project_id = ? AND membership_id = ?
+             AND ended_at IS NULL AND role <> 'viewer'
            LIMIT 1`,
         )
-        .get(target.id);
+        .get(owner.workspace_id, owner.project_id, target.id);
       if (incompatibleGrant) {
         throw new ProjectMembershipUserError(
           "Reduce this member's restricted-context access to Viewer before changing their project role.",
@@ -443,8 +447,11 @@ export async function updateProjectMemberRole(
     }
     const now = new Date().toISOString();
     await database
-      .prepare("UPDATE project_memberships SET role = ?, updated_at = ? WHERE id = ?")
-      .run(role, now, target.id);
+      .prepare(
+        `UPDATE project_memberships SET role = ?, updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND project_id = ?`,
+      )
+      .run(role, now, target.id, owner.workspace_id, owner.project_id);
     await appendAuditEvent(database, {
       workspaceId: owner.workspace_id,
       projectId: owner.project_id,
@@ -508,17 +515,18 @@ async function endMembershipContextGrants(database, target, actorUserId: string,
   const grants = await database
     .prepare(
       `SELECT id, context_id, role FROM context_access_grants
-       WHERE membership_id = ? AND ended_at IS NULL
+       WHERE workspace_id = ? AND project_id = ? AND membership_id = ? AND ended_at IS NULL
        ORDER BY id FOR UPDATE`,
     )
-    .all(target.id);
+    .all(target.workspace_id, target.project_id, target.id);
   for (const grant of grants) {
     await database
       .prepare(
         `UPDATE context_access_grants
-         SET ended_at = ?, ended_by_user_id = ?, updated_at = ? WHERE id = ?`,
+         SET ended_at = ?, ended_by_user_id = ?, updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND project_id = ?`,
       )
-      .run(endedAt, actorUserId, endedAt, grant.id);
+      .run(endedAt, actorUserId, endedAt, grant.id, target.workspace_id, target.project_id);
     await database
       .prepare(
         `INSERT INTO context_history_events
@@ -565,9 +573,10 @@ export async function removeProjectMember(
     await database
       .prepare(
         `UPDATE project_memberships
-         SET ended_at = ?, ended_by_user_id = ?, updated_at = ? WHERE id = ?`,
+         SET ended_at = ?, ended_by_user_id = ?, updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND project_id = ?`,
       )
-      .run(now, input.userId, now, target.id);
+      .run(now, input.userId, now, target.id, target.workspace_id, target.project_id);
     await appendAuditEvent(database, {
       workspaceId: owner.workspace_id,
       projectId: owner.project_id,
@@ -605,11 +614,17 @@ export async function transferProjectOwnership(
     if (!target || target.id === owner.membership_id || target.role === "owner") return undefined;
     const now = new Date().toISOString();
     await database
-      .prepare("UPDATE project_memberships SET role = 'owner', updated_at = ? WHERE id = ?")
-      .run(now, target.id);
+      .prepare(
+        `UPDATE project_memberships SET role = 'owner', updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND project_id = ?`,
+      )
+      .run(now, target.id, owner.workspace_id, owner.project_id);
     await database
-      .prepare("UPDATE project_memberships SET role = 'editor', updated_at = ? WHERE id = ?")
-      .run(now, owner.membership_id);
+      .prepare(
+        `UPDATE project_memberships SET role = 'editor', updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND project_id = ?`,
+      )
+      .run(now, owner.membership_id, owner.workspace_id, owner.project_id);
     await appendAuditEvent(database, {
       workspaceId: owner.workspace_id,
       projectId: owner.project_id,
@@ -638,9 +653,10 @@ export async function leaveProject(database, userId: string, projectId: string) 
     const locked = await database
       .prepare(
         `SELECT id, workspace_id, project_id, user_id, role FROM project_memberships
-         WHERE id = ? AND ended_at IS NULL FOR UPDATE`,
+         WHERE id = ? AND workspace_id = ? AND project_id = ? AND user_id = ?
+           AND ended_at IS NULL FOR UPDATE`,
       )
-      .get(target.membership_id);
+      .get(target.membership_id, target.workspace_id, target.project_id, userId);
     if (!locked) return undefined;
     if (locked.role === "owner") {
       throw new ProjectMembershipUserError(
@@ -653,9 +669,10 @@ export async function leaveProject(database, userId: string, projectId: string) 
     await database
       .prepare(
         `UPDATE project_memberships
-         SET ended_at = ?, ended_by_user_id = ?, updated_at = ? WHERE id = ?`,
+         SET ended_at = ?, ended_by_user_id = ?, updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND project_id = ? AND user_id = ?`,
       )
-      .run(now, userId, now, locked.id);
+      .run(now, userId, now, locked.id, locked.workspace_id, locked.project_id, userId);
     await appendAuditEvent(database, {
       workspaceId: locked.workspace_id,
       projectId: locked.project_id,

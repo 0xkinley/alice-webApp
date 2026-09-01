@@ -3,7 +3,11 @@ import { fileURLToPath } from "node:url";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { pdfExtractionVersion } from "@alice/schemas";
 import { appendAuditEvent } from "./audit.ts";
-import { contextScopeForUser, type ContextCapability } from "./authorization.ts";
+import {
+  contextScopeForUser,
+  projectScopeForUser,
+  type ContextCapability,
+} from "./authorization.ts";
 import { listWorkContexts } from "./work-contexts.ts";
 
 export const FILE_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
@@ -421,14 +425,20 @@ export async function finalizeProjectFileUpload(
     storageVersionId: string;
   },
 ) {
+  const project = await projectScopeForUser(database, {
+    userId: input.userId,
+    projectId: input.projectId,
+    capability: "write",
+  });
+  if (!project) return undefined;
   const intent = await database
     .prepare(
       `SELECT id, workspace_id, project_id, context_id, initiated_by_user_id, display_name,
               claimed_media_type, declared_byte_size, declared_sha256, staging_storage_key,
               replaces_reference_id, expires_at, created_at
-       FROM file_upload_intents WHERE id = ? AND project_id = ?`,
+       FROM file_upload_intents WHERE id = ? AND workspace_id = ? AND project_id = ?`,
     )
-    .get(input.intentId, input.projectId);
+    .get(input.intentId, project.projectWorkspaceId, input.projectId);
   if (!intent || intent.initiated_by_user_id !== input.userId) return undefined;
   const context = await authorizedContext(
     database,
@@ -898,12 +908,18 @@ async function authorizedFileReference(
   },
   { currentCleanOnly = false, capability = "read" as ContextCapability } = {},
 ) {
+  const project = await projectScopeForUser(database, {
+    userId: input.userId,
+    projectId: input.projectId,
+    capability: capability === "read" ? "read" : "write",
+  });
+  if (!project) return undefined;
   const seed = await database
     .prepare(
       `SELECT workspace_id, context_id FROM file_context_references
-       WHERE project_id = ? AND id = ?`,
+       WHERE workspace_id = ? AND project_id = ? AND id = ?`,
     )
-    .get(input.projectId, input.referenceId);
+    .get(project.projectWorkspaceId, input.projectId, input.referenceId);
   if (!seed) return undefined;
   const access = await contextScopeForUser(database, {
     userId: input.userId,
@@ -1099,12 +1115,18 @@ async function fileReferenceAccess(
   input: { userId: string; projectId: string; referenceId: string },
   capability: ContextCapability = "read",
 ) {
+  const project = await projectScopeForUser(database, {
+    userId: input.userId,
+    projectId: input.projectId,
+    capability: capability === "read" ? "read" : "write",
+  });
+  if (!project) return undefined;
   const seed = await database
     .prepare(
       `SELECT workspace_id, context_id FROM file_context_references
-       WHERE project_id = ? AND id = ?`,
+       WHERE workspace_id = ? AND project_id = ? AND id = ?`,
     )
-    .get(input.projectId, input.referenceId);
+    .get(project.projectWorkspaceId, input.projectId, input.referenceId);
   if (!seed) return undefined;
   const access = await contextScopeForUser(database, {
     userId: input.userId,

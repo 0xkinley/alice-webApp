@@ -256,9 +256,15 @@ export async function cancelProjectDeletion(
       .prepare(
         `UPDATE project_deletion_requests
          SET cancelled_by_user_id = ?, cancelled_at = ?
-         WHERE id = ? AND cancelled_at IS NULL`,
+         WHERE id = ? AND workspace_id = ? AND project_id = ? AND cancelled_at IS NULL`,
       )
-      .run(input.userId, cancelledAt, view.deletion_request.id);
+      .run(
+        input.userId,
+        cancelledAt,
+        view.deletion_request.id,
+        view.project.workspace_id,
+        view.project.id,
+      );
     await appendAuditEvent(database, {
       workspaceId: view.project.workspace_id,
       projectId: view.project.id,

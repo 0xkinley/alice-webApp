@@ -140,9 +140,10 @@ export async function grantContextAccess(
     const existing = await database
       .prepare(
         `SELECT id FROM context_access_grants
-         WHERE context_id = ? AND user_id = ? AND ended_at IS NULL`,
+         WHERE workspace_id = ? AND project_id = ? AND context_id = ?
+           AND user_id = ? AND ended_at IS NULL`,
       )
-      .get(input.contextId, target.user_id);
+      .get(access.projectWorkspaceId, input.projectId, input.contextId, target.user_id);
     if (existing) {
       throw new ContextAccessUserError("This member already has context access.");
     }
@@ -236,8 +237,11 @@ export async function updateContextAccessRole(
     if (grant.role === role) return { id: grant.id, role, changed: false };
     const now = new Date().toISOString();
     await database
-      .prepare("UPDATE context_access_grants SET role = ?, updated_at = ? WHERE id = ?")
-      .run(role, now, grant.id);
+      .prepare(
+        `UPDATE context_access_grants SET role = ?, updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND project_id = ? AND context_id = ?`,
+      )
+      .run(role, now, grant.id, access.projectWorkspaceId, input.projectId, input.contextId);
     await appendAccessHistory(database, {
       workspaceId: access.projectWorkspaceId,
       projectId: input.projectId,
@@ -290,9 +294,18 @@ export async function endContextAccess(
     await database
       .prepare(
         `UPDATE context_access_grants
-         SET ended_at = ?, ended_by_user_id = ?, updated_at = ? WHERE id = ?`,
+         SET ended_at = ?, ended_by_user_id = ?, updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND project_id = ? AND context_id = ?`,
       )
-      .run(now, input.userId, now, grant.id);
+      .run(
+        now,
+        input.userId,
+        now,
+        grant.id,
+        access.projectWorkspaceId,
+        input.projectId,
+        input.contextId,
+      );
     await appendAccessHistory(database, {
       workspaceId: access.projectWorkspaceId,
       projectId: input.projectId,
