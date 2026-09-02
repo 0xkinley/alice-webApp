@@ -398,6 +398,7 @@ Notes:
 - The product's defensible promise is a user-governed, versioned, provenance-bearing project record that can travel across supported AI hosts. Cross-tool convenience is important, but it must not outrank visible confirmation, repairability, or honest evidence that alice. was actually used.
 - “Saved context” is product language. Internally, evidence, candidate, accepted-state version, provenance, freshness, budgeting, omissions, conflicts, and audit boundaries remain intact.
 - Keel is the single approved visual-system reference for Milestone 06. It informs hierarchy, restrained dark surfaces, product-first demonstrations, status presentation, and responsive card behavior; alice. retains its own brand, content, accessibility requirements, and interaction semantics.
+- The approved private-alpha account invitation is now recorded as a no-send manual template. It uses “Switch AI tools. Keep the plot.”, avoids em dashes, and includes only the verified private-workspace, human-review, exact-recipient, seven-day-expiry, and prohibited-data boundaries. It does not create a recipient, token, link, AWS resource, or SES delivery state; those remain separately approved operations. Milestone 06 remains at 29 completed and 4 open tasks.
 - Complete product, data, permission, deletion, deployment, and privacy decisions are recorded in `docs/private-alpha-foundations.md`.
 
 ## Milestone 07 — Private Alpha
