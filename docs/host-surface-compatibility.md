@@ -10,7 +10,7 @@ alice. records compatibility per exact host surface. A result from one client ne
 
 The matrix begins conservatively. All 70 capability cells across the ten required surfaces are explicitly `untested`, every surface is unadvertised, and every untested capability is treated as unsupported. The earlier generic hosted OAuth verifier proved alice.'s server-side PKCE, refresh rotation, revocation, and post-revocation HTTP 401 behavior, but it was not initiated by one of these exact provider surfaces and therefore does not promote any matrix cell.
 
-The retained hosted MCP runtime and local branch both report server version `0.6.2`. Hosted source commit `954cae2` is deployed as immutable ECR digest `sha256:b5f469f6d0d4961220e7da49f149291ee0c69fd909e4e3b42feb31b631e5f293`; its automatic scan returned no findings and one private task verified all 18 migrations before the runtime was restored. Native or fallback attachment-transfer results may now be recorded against that exact identity, but only through a dated run on the exact surface. Deployment eligibility does not promote any capability cell by itself.
+The retained hosted MCP runtime and local branch both report server version `0.6.2`. Hosted source commit `43febda` is deployed as immutable ECR digest `sha256:f03b9d1276b25415d59e528b15cf23c851265978c570181c9c6dbd35a00b7b60`; its automatic scan returned no findings, and the earlier private task verified all 18 migrations before runtime restoration. Native or fallback attachment-transfer results may now be recorded against that exact identity, but only through a dated run on the exact surface. Deployment eligibility does not promote any capability cell by itself.
 
 ## Required surfaces and current status
 

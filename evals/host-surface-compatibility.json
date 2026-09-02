@@ -1,13 +1,13 @@
 {
-  "version": "2026-09-02.1",
+  "version": "2026-09-02.2",
   "as_of_date": "2026-09-02",
   "matrix_contract": "alice.host-surface-compatibility.v1",
   "invocation_denominator_contract": "evals/host-invocation-denominators.json",
   "local_mcp_server_version": "0.6.2",
   "hosted_mcp_server_version": "0.6.2",
-  "hosted_runtime_commit": "954cae2",
-  "hosted_runtime_image_digest": "sha256:b5f469f6d0d4961220e7da49f149291ee0c69fd909e4e3b42feb31b631e5f293",
-  "hosted_runtime_note": "The retained hosted deployment now contains the local host-attachment transfer contract and all 18 migrations. Exact-surface live runs may begin against this identity, but no surface is advertised until its own capability cells and invocation denominator pass.",
+  "hosted_runtime_commit": "43febda",
+  "hosted_runtime_image_digest": "sha256:f03b9d1276b25415d59e528b15cf23c851265978c570181c9c6dbd35a00b7b60",
+  "hosted_runtime_note": "The retained hosted deployment contains the host-attachment transfer contract, all 18 migrations, and the invite-only sign-in simplification. Exact-surface live runs may begin against this identity, but no surface is advertised until its own capability cells and invocation denominator pass.",
   "status_definitions": {
     "pass": "A dated live run on this exact surface passed the capability against the recorded deployment.",
     "fail": "A dated live run reached the capability but did not satisfy the alice. contract.",
