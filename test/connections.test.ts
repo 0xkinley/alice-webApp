@@ -107,7 +107,7 @@ test("connection center exposes only the current user's safe connection metadata
   assert.match(html, /href="https:\/\/claude\.ai\/settings\/connectors"/);
   assert.match(html, /target="_blank" rel="noopener noreferrer"/);
   assert.match(html, /data-copy-mcp-address="https:\/\/mcp\.alice\.example\/mcp"/);
-  assert.match(html, /The address is copied—paste it and choose Connect/);
+  assert.match(html, /The address is copied\. Paste it and choose Connect/);
   assert.match(html, /Copy the address above, paste it and choose Connect/);
   assert.match(html, /Active project and work context/);
   assert.doesNotMatch(html, /Claude Desktop/);

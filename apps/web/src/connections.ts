@@ -60,7 +60,7 @@ function readEventCard(event) {
 
 function guidedConnectionScript() {
   return `<script>
-for(const link of document.querySelectorAll("[data-copy-mcp-address]")){link.addEventListener("click",()=>{const status=document.getElementById("mcp-copy-status"),address=link.dataset.copyMcpAddress;if(!navigator.clipboard?.writeText){status.textContent="Copy the address above, paste it and choose Connect.";status.className="notice warning";return}navigator.clipboard.writeText(address).then(()=>{status.textContent="The address is copied—paste it and choose Connect.";status.className="notice accepted"}).catch(()=>{status.textContent="Copy the address above, paste it and choose Connect.";status.className="notice warning"})})}
+for(const link of document.querySelectorAll("[data-copy-mcp-address]")){link.addEventListener("click",()=>{const status=document.getElementById("mcp-copy-status"),address=link.dataset.copyMcpAddress;if(!navigator.clipboard?.writeText){status.textContent="Copy the address above, paste it and choose Connect.";status.className="notice warning";return}navigator.clipboard.writeText(address).then(()=>{status.textContent="The address is copied. Paste it and choose Connect.";status.className="notice accepted"}).catch(()=>{status.textContent="Copy the address above, paste it and choose Connect.";status.className="notice warning"})})}
 </script>`;
 }
 

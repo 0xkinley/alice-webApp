@@ -446,7 +446,7 @@ test("an exact repair classifies stale context and removes it without rewriting 
   const previewHtml = await previewResponse.text();
   assert.match(previewHtml, /Repair Private project \/ General/);
   assert.match(previewHtml, /Outdated launch date/);
-  assert.match(previewHtml, /Stale — it is no longer current/);
+  assert.match(previewHtml, /Stale: it is no longer current/);
   assert.match(previewHtml, /corrected value must arrive as a new proposal/i);
   const previewVersion = previewHtml.match(/name="preview_version" value="([^"]+)"/)[1];
 
@@ -484,7 +484,7 @@ test("an exact repair classifies stale context and removes it without rewriting 
   const exclusion = created.database
     .prepare("SELECT reason FROM context_entry_exclusions WHERE accepted_state_id = ?")
     .get(accepted.acceptedStateId);
-  assert.equal(exclusion.reason, "Stale — Launch moved to October.");
+  assert.equal(exclusion.reason, "Stale: Launch moved to October.");
   const repairAudit = created.database
     .prepare(
       `SELECT safe_metadata_json FROM audit_events
@@ -513,7 +513,7 @@ test("an exact repair classifies stale context and removes it without rewriting 
   const removed = await fetch(`${baseUrl}${response.headers.get("location")}`, {
     headers: { cookie },
   });
-  assert.match(await removed.text(), /Stale — Launch moved to October/);
+  assert.match(await removed.text(), /Stale: Launch moved to October/);
 });
 
 test("history labels an older accepted value as superseded by its replacement version", async () => {

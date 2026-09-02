@@ -38,7 +38,7 @@ function optionalFileMetadata(offer) {
 function decisionSummary(status) {
   if (status === "save_file_only") return "Save file only";
   if (status === "save_and_suggest_context") return "Save file and request context suggestions";
-  if (status === "cancelled") return "Not now — no file transfer authorized";
+  if (status === "cancelled") return "Not now. No file transfer authorized.";
   return "Awaiting your decision";
 }
 

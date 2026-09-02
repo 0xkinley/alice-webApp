@@ -47,11 +47,11 @@ function statusCopy(status: string): string {
     {
       clean: "Ready",
       pending_upload: "Upload pending",
-      scan_failed: "Scan failed — file unavailable",
-      scanning: "Scanning — file unavailable",
+      scan_failed: "Scan failed: file unavailable",
+      scanning: "Scanning: file unavailable",
       storage_failed: "Upload failed",
-      threats_found: "Threat detected — file unavailable",
-      unsupported: "Scan unsupported — file unavailable",
+      threats_found: "Threat detected: file unavailable",
+      unsupported: "Scan unsupported: file unavailable",
     }[status] || "Unavailable"
   );
 }
