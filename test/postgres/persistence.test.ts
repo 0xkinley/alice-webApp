@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
-import { configureApplicationRole, ensureApplicationRole, openDatabase } from "@alice/database";
+import pg from "pg";
+import {
+  AliceDatabase,
+  configureApplicationRole,
+  ensureApplicationRole,
+  openDatabase,
+} from "@alice/database";
 import {
   acceptCandidate,
   acceptProjectInvitation,
@@ -49,6 +55,7 @@ import { createTestIdentity } from "../helpers.ts";
 
 const connectionString = process.env.ALICE_TEST_DATABASE_URL;
 assert.ok(connectionString, "ALICE_TEST_DATABASE_URL is required for PostgreSQL tests.");
+const { Pool } = pg;
 
 const schema = `test_${randomUUID().replaceAll("-", "_")}`;
 const applicationRole = `app_${randomUUID().replaceAll("-", "_")}`;
@@ -241,6 +248,69 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     18,
   );
   await reopened.close();
+});
+
+test("application-role password rotation works through a non-superuser role administrator", async () => {
+  const operatorRole = `operator_${randomUUID().replaceAll("-", "_")}`;
+  const operatorPassword = `operator_${randomUUID()}`;
+  const rotatedApplicationPassword = `rotated_${randomUUID()}`;
+  const createOperator = await migrationDatabase
+    .prepare(
+      `SELECT format(
+         'CREATE ROLE %I WITH LOGIN PASSWORD %L CREATEROLE NOSUPERUSER NOCREATEDB NOINHERIT NOREPLICATION NOBYPASSRLS',
+         CAST(? AS text),
+         CAST(? AS text)
+       ) AS statement`,
+    )
+    .get(operatorRole, operatorPassword);
+  const grantAdministration = await migrationDatabase
+    .prepare(
+      `SELECT format(
+         'GRANT %I TO %I WITH ADMIN OPTION',
+         CAST(? AS text),
+         CAST(? AS text)
+       ) AS statement`,
+    )
+    .get(applicationRole, operatorRole);
+  const dropOperator = await migrationDatabase
+    .prepare("SELECT format('DROP ROLE IF EXISTS %I', CAST(? AS text)) AS statement")
+    .get(operatorRole);
+  await migrationDatabase.exec(createOperator.statement);
+  await migrationDatabase.exec(grantAdministration.statement);
+
+  const operatorUrl = new URL(connectionString);
+  operatorUrl.username = operatorRole;
+  operatorUrl.password = operatorPassword;
+  const operatorDatabase = new AliceDatabase(
+    new Pool({ connectionString: operatorUrl.href, max: 1 }),
+    schema,
+  );
+  try {
+    await ensureApplicationRole(operatorDatabase, applicationRole, rotatedApplicationPassword);
+    assert.deepEqual(
+      await migrationDatabase
+        .prepare(
+          `SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolinherit,
+                  rolreplication, rolbypassrls
+             FROM pg_roles
+            WHERE rolname = ?`,
+        )
+        .get(applicationRole),
+      {
+        rolcanlogin: true,
+        rolsuper: false,
+        rolcreatedb: false,
+        rolcreaterole: false,
+        rolinherit: false,
+        rolreplication: false,
+        rolbypassrls: false,
+      },
+    );
+  } finally {
+    await operatorDatabase.close();
+    await ensureApplicationRole(migrationDatabase, applicationRole, applicationPassword);
+    await migrationDatabase.exec(dropOperator.statement);
+  }
 });
 
 test("concurrent project-invitation acceptance creates one protected membership", async () => {

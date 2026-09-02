@@ -268,8 +268,25 @@ export async function ensureApplicationRole(
     );
   }
   const existing = await database
-    .prepare("SELECT 1 AS present FROM pg_roles WHERE rolname = ?")
+    .prepare(
+      `SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolinherit,
+              rolreplication, rolbypassrls
+         FROM pg_roles
+        WHERE rolname = ?`,
+    )
     .get(applicationRole);
+  if (
+    existing &&
+    (!existing.rolcanlogin ||
+      existing.rolsuper ||
+      existing.rolcreatedb ||
+      existing.rolcreaterole ||
+      existing.rolinherit ||
+      existing.rolreplication ||
+      existing.rolbypassrls)
+  ) {
+    throw new Error("The existing application database role has unsafe attributes.");
+  }
   const formatted = await database
     .prepare(
       `SELECT format(
@@ -280,8 +297,8 @@ export async function ensureApplicationRole(
     )
     .get(
       existing
-        ? "ALTER ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION"
-        : "CREATE ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION",
+        ? "ALTER ROLE %I WITH LOGIN PASSWORD %L"
+        : "CREATE ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS",
       applicationRole,
       password,
     );
