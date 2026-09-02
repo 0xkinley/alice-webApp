@@ -267,6 +267,8 @@ The current hosted image was restored from source commit `954cae2` on 2026-09-02
 
 Product-owner visual feedback on 2026-09-01 established one additional interaction rule: every anchor must look clickable rather than relying on underlined text alone. Primary navigation or continuation actions use the filled green button treatment; secondary navigation, contextual actions, footer links, and inline links use the quieter bordered dark button treatment. Both retain the shared visible focus outline, hover contrast, responsive wrapping, and semantic anchor behavior.
 
+Product-owner feedback on 2026-09-02 removes the public `What alice. does` and `Privacy and security` navigation links plus the matching `About alice.` and `Privacy and security` footer links from the invite-only sign-in page only. The sign-in page remains focused on the alice. identity, workspace explanation, credentials, and invitation requirement. The public `/about` and `/privacy-security` routes and their links on registration, public, disclosure, authenticated, and status pages remain unchanged; invitees still see the required prohibited-data notice before account creation.
+
 Functional, database, authorization, file, provider-capability, and deployment foundations precede final presentation work. The product owner reviews and explicitly approves public and in-product copy before the friend-facing UI is complete. Copy must describe shipped behavior and must not position alice. as a chatbot, AI model, router, or agent orchestrator.
 
 The copy review must cover at least:

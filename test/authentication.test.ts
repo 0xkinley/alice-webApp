@@ -70,7 +70,12 @@ test("presents an honest friend-facing product entry point without authenticatio
 
   const login = await fetch(`${baseUrl}/auth/login`);
   assert.equal(login.status, 200);
-  assert.match(await login.text(), /href="\/about"/);
+  const loginHtml = await login.text();
+  assert.doesNotMatch(loginHtml, /What alice\. does/);
+  assert.doesNotMatch(loginHtml, /href="\/about"/);
+  assert.doesNotMatch(loginHtml, /href="\/privacy-security"/);
+  assert.doesNotMatch(loginHtml, /About alice\./);
+  assert.doesNotMatch(loginHtml, /<footer>/);
 });
 
 test("requires a live single-email alpha invitation", async () => {

@@ -27,7 +27,10 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-export function renderPage(title, body) {
+export function renderPage(title, body, { showFooter = true } = {}) {
+  const footer = showFooter
+    ? '<footer><a href="/about">About alice.</a><a href="/privacy-security">Privacy and security</a></footer>'
+    : "";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(title)} · alice.</title><style>
 :root{color-scheme:dark;--canvas:#0b1017;--surface:#121a25;--surface-raised:#182230;--surface-soft:#101823;--line:#2a394b;--line-strong:#40546d;--ink:#edf3fa;--ink-soft:#b4c0d0;--ink-muted:#8290a2;--brand:#a5f3c1;--brand-ink:#092214;--focus:#82b7ff;--danger:#ff9d9d;--danger-surface:#311b25;--success:#a5f3c1;--success-surface:#11281f;--shadow:0 20px 55px rgba(0,0,0,.25)}
 *{box-sizing:border-box}html{background:var(--canvas)}body{min-width:20rem;margin:0;background:radial-gradient(circle at top right,#1a2a3d 0,transparent 31rem),var(--canvas);color:var(--ink);font:400 16px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body>main{width:min(72rem,calc(100% - 2rem));margin:0 auto;padding:2.25rem 0 4rem}.skip-link{position:fixed;z-index:10;top:.75rem;left:.75rem;transform:translateY(-180%);padding:.65rem .85rem;border-radius:.5rem;background:var(--focus);color:#061321;font-weight:700;text-decoration:none}.skip-link:focus{transform:translateY(0)}
@@ -43,7 +46,7 @@ form{max-width:44rem;margin:1.25rem 0;padding:1.2rem;border:1px solid var(--line
 code{padding:.08rem .28rem;border-radius:.25rem;background:#0c141e;color:#d5e6ff;overflow-wrap:anywhere}pre{max-width:100%;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:1rem;border:1px solid var(--line);border-radius:.7rem;background:#090f17;color:#d5e6ff;font-size:.88rem}dl{display:grid;grid-template-columns:minmax(10rem,max-content) 1fr;gap:.5rem 1rem;margin:1rem 0}dt{color:var(--ink-muted);font-weight:700}dd{min-width:0;margin:0}details{margin:1rem 0;padding:.8rem;border:1px solid var(--line);border-radius:.7rem;background:var(--surface-soft)}summary{cursor:pointer;color:var(--ink);font-weight:700}progress{accent-color:var(--brand);width:100%;margin-top:.75rem}footer{display:flex;gap:.5rem 1rem;flex-wrap:wrap;margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);color:var(--ink-muted);font-size:.88rem}footer p{margin:0;color:inherit}
 @media (max-width:42rem){body>main{width:min(100% - 1.25rem,72rem);padding-top:1.35rem}nav{align-items:flex-start;gap:.5rem .8rem}nav strong{width:100%;margin-right:0}nav form{width:100%}h1{font-size:2rem}.dashboard-grid,.feature-grid,.workflow{grid-template-columns:1fr}.hero{border-radius:1rem}.public-hero{min-height:auto}article,aside,section>dl,form{padding:1rem;border-radius:.8rem}dl{grid-template-columns:1fr;gap:.15rem}dd{margin:0 0 .55rem}.actions>*{flex:1 1 auto}.actions a,.actions button{display:inline-block;width:100%;text-align:center}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important}}
-</style></head><body><a class="skip-link" href="#main-content">Skip to content</a><main id="main-content">${body}<footer><a href="/about">About alice.</a><a href="/privacy-security">Privacy and security</a></footer></main></body></html>`;
+</style></head><body><a class="skip-link" href="#main-content">Skip to content</a><main id="main-content">${body}${footer}</main></body></html>`;
 }
 
 export function renderStatusPage(title, body, tone = "warning") {
@@ -152,7 +155,8 @@ export function createAuthRouter({ database, publicUrl }) {
       .send(
         renderPage(
           "Sign in to alice.",
-          `<nav><strong>alice.</strong><a href="/about">What alice. does</a><a href="/privacy-security">Privacy and security</a></nav><header class="hero"><p class="eyebrow">Private workspace</p><h1>Continue your project with its context intact.</h1><p>Sign in to your invite-only alice. workspace. Your projects, work contexts, AI connections, files, and review decisions stay under your account and current permissions.</p></header><form method="post" action="/auth/login"><label>Email<input name="email" type="email" autocomplete="email" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><input type="hidden" name="next" value="${escapeHtml(next)}"><button type="submit">Sign in</button></form><p>New accounts require a private invitation.</p>`,
+          `<nav><strong>alice.</strong></nav><header class="hero"><p class="eyebrow">Private workspace</p><h1>Continue your project with its context intact.</h1><p>Sign in to your invite-only alice. workspace. Your projects, work contexts, AI connections, files, and review decisions stay under your account and current permissions.</p></header><form method="post" action="/auth/login"><label>Email<input name="email" type="email" autocomplete="email" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><input type="hidden" name="next" value="${escapeHtml(next)}"><button type="submit">Sign in</button></form><p>New accounts require a private invitation.</p>`,
+          { showFooter: false },
         ),
       );
   });
