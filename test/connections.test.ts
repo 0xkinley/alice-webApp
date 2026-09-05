@@ -103,7 +103,8 @@ test("connection center exposes only the current user's safe connection metadata
   assert.match(html, /https:\/\/mcp\.alice\.example\/mcp/);
   assert.match(html, /Add alice\. to ChatGPT/);
   assert.match(html, /Add alice\. to Claude/);
-  assert.match(html, /href="https:\/\/chatgpt\.com\/#settings\/Plugins"/);
+  assert.match(html, /href="https:\/\/chatgpt\.com\/plugins"/);
+  assert.match(html, /In ChatGPT Customize, open Plugins and add a custom app/);
   assert.match(
     html,
     /href="https:\/\/claude\.ai\/customize\/connectors\?modal=add-custom-connector&amp;connectorName=alice\.&amp;connectorUrl=https%3A%2F%2Fmcp\.alice\.example%2Fmcp"/,
