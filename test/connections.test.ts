@@ -103,8 +103,15 @@ test("connection center exposes only the current user's safe connection metadata
   assert.match(html, /https:\/\/mcp\.alice\.example\/mcp/);
   assert.match(html, /Add alice\. to ChatGPT/);
   assert.match(html, /Add alice\. to Claude/);
-  assert.match(html, /href="https:\/\/chatgpt\.com\/#settings\/Apps"/);
-  assert.match(html, /href="https:\/\/claude\.ai\/settings\/connectors"/);
+  assert.match(html, /href="https:\/\/chatgpt\.com\/#settings\/Plugins"/);
+  assert.match(
+    html,
+    /href="https:\/\/claude\.ai\/customize\/connectors\?modal=add-custom-connector&amp;connectorName=alice\.&amp;connectorUrl=https%3A%2F%2Fmcp\.alice\.example%2Fmcp"/,
+  );
+  assert.match(
+    html,
+    /Claude opens Add custom connector with alice\. and this MCP address filled in/,
+  );
   assert.match(html, /target="_blank" rel="noopener noreferrer"/);
   assert.match(html, /data-copy-mcp-address="https:\/\/mcp\.alice\.example\/mcp"/);
   assert.match(html, /The address is copied\. Paste it and choose Connect/);
