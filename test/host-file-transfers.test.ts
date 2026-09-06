@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
 import {
+  createWorkContext,
   createUserSession,
   finalizeHostFileSaveTransfer,
   finalizeProjectFileUpload,
@@ -64,6 +65,7 @@ let database;
 let identity;
 let mcpBaseUrl;
 let mcpServer;
+let selectedWorkContext;
 let target;
 let webBaseUrl;
 let webServer;
@@ -83,6 +85,15 @@ before(async () => {
        WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
     )
     .get(identity.project_id);
+  selectedWorkContext = await createWorkContext(database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    input: {
+      name: "Chat transfer workstream",
+      description: "The active chat context that must receive transferred attachments.",
+      visibility: "personal",
+    },
+  });
   const web = await createWebApp({ database, fileStore: store, publicUrl });
   webServer = web.app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve) => webServer.once("listening", resolve));
@@ -110,7 +121,7 @@ before(async () => {
     userId: identity.id,
     connectionId: connection.id,
     projectId: identity.project_id,
-    contextId: target.id,
+    contextId: selectedWorkContext.id,
     expectedVersions: { [connection.id]: null },
   });
   assert.equal(selected.conflict, false);
@@ -206,7 +217,7 @@ test("a confirmed native transfer preserves provenance and completes only after 
   const bytes = Buffer.from(
     "# Native transfer\nPreserve exact source and conversation provenance.\n",
   );
-  const { receipt, sha256 } = await createOffer(bytes, "native-clean", "save_and_suggest_context");
+  const { receipt, sha256 } = await createOffer(bytes, "native-clean", "save_file_only");
   const arguments_ = {
     offer_id: receipt.offer_id,
     transfer_capability: "exact_signed_put_v1",
@@ -328,8 +339,10 @@ test("a confirmed native transfer preserves provenance and completes only after 
   assert.equal(completed.status, "completed");
   assert.equal(completed.scan_status, "clean");
   assert.equal(completed.source_host, "chatgpt");
+  assert.equal(completed.context_id, selectedWorkContext.id);
+  assert.notEqual(completed.context_id, target.id);
   assert.equal(completed.conversation_provenance_preserved, true);
-  assert.equal(completed.suggestions_requested, true);
+  assert.equal(completed.suggestions_requested, false);
   assert.equal(completed.trusted_state_changed, false);
   const stored = database
     .prepare(

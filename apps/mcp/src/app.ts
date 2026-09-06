@@ -83,7 +83,7 @@ function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes 
 }
 
 function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore | undefined) {
-  const server = new McpServer({ name: "alice-mcp", version: "0.6.3" });
+  const server = new McpServer({ name: "alice-mcp", version: "0.6.4" });
 
   server.registerTool(
     "list_projects",
@@ -126,9 +126,9 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     server.registerTool(
       "offer_host_file_save",
       {
-        title: "Offer to save one host attachment to alice.",
+        title: "Prepare one requested host attachment save",
         description:
-          "Use only when the user is working with one specific ChatGPT or Claude attachment and saving it to the connection's exact active alice. target could help. Creates an immutable metadata-only preview and returns an alice.-controlled confirmation URL. It accepts no bytes, host URL, credential, cookie, prompt text, or model-generated confirmation. The user must personally choose save file only, save and request context suggestions, or cancel on the authenticated alice. page before any transfer tool may accept bytes. This tool never stores the attachment and never changes trusted project state.",
+          "Use only after the user explicitly asks to save one specific ChatGPT or Claude attachment to alice. Always targets the connection's exact active project and work context. Creates an immutable metadata-only preview and returns an alice.-controlled confirmation URL. It accepts no bytes, host URL, credential, cookie, prompt text, or model-generated confirmation. The user must personally choose Save to the named active context or Cancel on the authenticated alice. page before any transfer tool may accept bytes. This tool never queues context suggestions, stores the attachment, or changes trusted project state.",
         inputSchema: hostFileSaveOfferSchema,
         ...oauthToolSecurity("mcp:write"),
         annotations: {
@@ -160,7 +160,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
             content: [
               {
                 type: "text",
-                text: `No attachment bytes were copied. Ask the user to open this exact authenticated alice. preview and choose personally: ${result.confirmation_url} ${JSON.stringify(result)}`,
+                text: `No attachment bytes were copied. Ask the user to open this exact authenticated alice. preview and choose Save to ${result.destination.context_name} or Cancel personally: ${result.confirmation_url} ${JSON.stringify(result)}`,
               },
             ],
             structuredContent: result,
@@ -179,7 +179,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
       {
         title: "Begin one confirmed host attachment transfer",
         description:
-          "Use only after offer_host_file_save returned an offer and the user personally confirmed it on alice., and only when this exact host surface can securely expose the original attachment bytes and perform an HTTPS PUT using exact required headers. Starts one immutable, short-lived, exact-file transfer to the already confirmed project/context. Never include attachment bytes, host URLs, cookies, credentials, prompt text, or conversation history in this call. If the provider lacks this capability, send the user to the offer's alice.-controlled pre-targeted upload page instead.",
+          "Use only after offer_host_file_save returned an offer and the user personally chose Save to the named active context on alice., and only when this exact host surface can securely expose the original attachment bytes and perform an HTTPS PUT using exact required headers. Starts one immutable, short-lived, exact-file transfer to the confirmed active project/context. Never include attachment bytes, host URLs, cookies, credentials, prompt text, or conversation history in this call. If the provider lacks this capability, send the user to the offer's alice.-controlled pre-targeted upload page instead.",
         inputSchema: beginHostFileTransferSchema,
         ...oauthToolSecurity("mcp:write"),
         annotations: {

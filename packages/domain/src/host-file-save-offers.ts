@@ -14,7 +14,7 @@ import type { PrivateFileStore } from "./project-files.ts";
 
 export const HOST_FILE_SAVE_OFFER_LIFETIME_MS = 30 * 60 * 1_000;
 
-export type HostFileSaveDecision = "save_file_only" | "save_and_suggest_context" | "cancelled";
+export type HostFileSaveDecision = "save_file_only" | "cancelled";
 export type HostFileTransferPath = "host_capability" | "browser_fallback";
 
 export class HostFileSaveOfferUserError extends Error {}
@@ -290,7 +290,7 @@ export async function decideHostFileSaveOffer(
     publicUrl: string;
   },
 ) {
-  if (!["save_file_only", "save_and_suggest_context", "cancelled"].includes(input.decision)) {
+  if (!["save_file_only", "cancelled"].includes(input.decision)) {
     throw new HostFileSaveOfferUserError("Choose one of the exact file save actions shown.");
   }
   return await database.transaction(async () => {

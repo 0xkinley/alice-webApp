@@ -531,7 +531,7 @@ test("PostgreSQL persists one exact host-file offer and one human decision immut
       userId: owner.id,
       offerId: receipt.offer_id,
       previewVersion: preview.decision_version,
-      decision: "save_and_suggest_context",
+      decision: "cancelled",
       publicUrl: "https://app.alice.example",
     }),
   ]);
@@ -587,7 +587,7 @@ test("PostgreSQL consumes one confirmed host-file offer exactly once under concu
     userId: owner.id,
     offerId: receipt.offer_id,
     previewVersion: preview.decision_version,
-    decision: "save_and_suggest_context",
+    decision: "save_file_only",
     publicUrl: "https://app.alice.example",
   });
   const start = async (idempotencyKey: string) =>

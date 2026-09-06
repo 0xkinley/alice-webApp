@@ -3,7 +3,7 @@
   "as_of_date": "2026-09-06",
   "matrix_contract": "alice.host-surface-compatibility.v1",
   "invocation_denominator_contract": "evals/host-invocation-denominators.json",
-  "local_mcp_server_version": "0.6.3",
+  "local_mcp_server_version": "0.6.4",
   "hosted_mcp_server_version": "0.6.2",
   "hosted_runtime_commit": "43febda",
   "hosted_runtime_image_digest": "sha256:f03b9d1276b25415d59e528b15cf23c851265978c570181c9c6dbd35a00b7b60",

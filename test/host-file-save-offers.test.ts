@@ -42,6 +42,7 @@ let identity;
 let foreignIdentity;
 let mcpBaseUrl;
 let mcpServer;
+let selectedWorkContext;
 let target;
 let webBaseUrl;
 let webServer;
@@ -60,6 +61,15 @@ before(async () => {
        WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
     )
     .get(identity.project_id);
+  selectedWorkContext = await createWorkContext(database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    input: {
+      name: "Chat workstream",
+      description: "The active chat context that must receive attachment saves.",
+      visibility: "personal",
+    },
+  });
 
   const web = await createWebApp({
     database,
@@ -93,7 +103,7 @@ before(async () => {
     userId: identity.id,
     connectionId: connection.id,
     projectId: identity.project_id,
-    contextId: target.id,
+    contextId: selectedWorkContext.id,
     expectedVersions: { [connection.id]: null },
   });
   assert.equal(selected.conflict, false);
@@ -133,13 +143,14 @@ async function offerFile(
   });
 }
 
-test("the MCP contract creates only an exact metadata offer for the active target", async () => {
+test("the MCP contract previews an exact save to the active work context", async () => {
   const listed = await callMcp(mcpBaseUrl, accessToken, "tools/list");
   const tool = listed.payload.result.tools.find(({ name }) => name === "offer_host_file_save");
   assert.deepEqual(tool._meta.securitySchemes, [{ type: "oauth2", scopes: ["mcp:write"] }]);
   assert.equal(tool.annotations.idempotentHint, true);
   assert.match(tool.description, /accepts no bytes, host URL, credential, cookie, prompt text/i);
-  assert.match(tool.description, /user must personally choose/i);
+  assert.match(tool.description, /exact active project and work context/i);
+  assert.match(tool.description, /user must personally choose Save to the named active context/i);
 
   const before = database
     .prepare(
@@ -155,8 +166,10 @@ test("the MCP contract creates only an exact metadata offer for the active targe
   assert.equal(receipt.status, "pending");
   assert.equal(receipt.file.name, "alpha-plan.md");
   assert.equal(receipt.destination.project_name, "Private project");
-  assert.equal(receipt.destination.context_name, "General");
-  assert.equal(receipt.destination.access, "all_members");
+  assert.equal(receipt.destination.context_name, "Chat workstream");
+  assert.equal(receipt.destination.context_id, selectedWorkContext.id);
+  assert.notEqual(receipt.destination.context_id, target.id);
+  assert.equal(receipt.destination.access, "personal");
   assert.equal(receipt.source_host, "chatgpt");
   assert.equal(receipt.bytes_received, false);
   assert.equal(receipt.trusted_state_changed, false);
@@ -213,7 +226,7 @@ test("the MCP contract creates only an exact metadata offer for the active targe
   );
 });
 
-test("only the authenticated owner can make one exact save decision", async () => {
+test("only the authenticated owner can choose Save to the active context or Cancel", async () => {
   const receipt = (await offerFile("host-file-offer-002")).payload.result.structuredContent;
   const unauthenticated = await fetch(receipt.confirmation_url, { redirect: "manual" });
   assert.equal(unauthenticated.status, 303);
@@ -225,21 +238,33 @@ test("only the authenticated owner can make one exact save decision", async () =
   assert.match(html, /Save this file to alice\.\?/);
   assert.match(html, /alpha-plan\.md/);
   assert.match(html, /Private project/);
-  assert.match(html, /General/);
-  assert.match(html, /All project members/);
+  assert.match(html, /Chat workstream/);
+  assert.match(html, /Personal draft/);
   assert.match(html, /No file has been copied/);
+  assert.match(html, />Save to Chat workstream</);
   assert.match(html, /name="decision" value="save_file_only"/);
-  assert.match(html, /name="decision" value="save_and_suggest_context"/);
+  assert.doesNotMatch(html, /save_and_suggest_context|suggest context/i);
   assert.match(html, /name="decision" value="cancelled"/);
   const previewVersion = html.match(/name="preview_version" value="([0-9a-f]{64})"/)?.[1];
   assert.ok(previewVersion);
+
+  const unsupportedSuggestion = await fetch(`${receipt.confirmation_url}/decision`, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      preview_version: previewVersion,
+      decision: "save_and_suggest_context",
+    }),
+  });
+  assert.equal(unsupportedSuggestion.status, 409);
+  assert.match(await unsupportedSuggestion.text(), /choose one of the exact file save actions/i);
 
   const decided = await fetch(`${receipt.confirmation_url}/decision`, {
     method: "POST",
     headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       preview_version: previewVersion,
-      decision: "save_and_suggest_context",
+      decision: "save_file_only",
     }),
   });
   assert.equal(decided.status, 200);
@@ -250,7 +275,7 @@ test("only the authenticated owner can make one exact save decision", async () =
     database
       .prepare("SELECT decision FROM host_file_save_decisions WHERE offer_id = ?")
       .get(receipt.offer_id).decision,
-    "save_and_suggest_context",
+    "save_file_only",
   );
   assert.equal(fileStore.putCount, 0);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM file_objects").get().count, 0);
