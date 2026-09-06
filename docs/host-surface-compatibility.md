@@ -1,6 +1,6 @@
 # Host-Surface Compatibility and Private-Alpha Evaluations
 
-Status: Live alpha-surface testing ready on hosted MCP 0.6.2; no advertised surfaces
+Status: Live alpha-surface testing ready on hosted MCP 0.6.2; local file-format expansion is MCP 0.6.3; no advertised surfaces
 
 Decision date: 2026-09-06
 
@@ -10,7 +10,7 @@ alice. records compatibility per exact host surface. A result from one client ne
 
 The private-alpha matrix is intentionally limited to the two participant products: Claude and ChatGPT. All 49 capability cells across their seven required surfaces are explicitly `untested`, every surface is unadvertised, and every untested capability is treated as unsupported. Codex is outside the private-alpha product scope; internal use of alice. from Codex is development evidence only and cannot be advertised or inherited by a ChatGPT result. The earlier generic hosted OAuth verifier proved alice.'s server-side PKCE, refresh rotation, revocation, and post-revocation HTTP 401 behavior, but it was not initiated by one of these exact provider surfaces and therefore does not promote any matrix cell.
 
-The retained hosted MCP runtime and local branch both report server version `0.6.2`. Hosted source commit `43febda` is deployed as immutable ECR digest `sha256:f03b9d1276b25415d59e528b15cf23c851265978c570181c9c6dbd35a00b7b60`; its automatic scan returned no findings, and the earlier private task verified all 18 migrations before runtime restoration. Native or fallback attachment-transfer results may now be recorded against that exact identity, but only through a dated run on the exact surface. Deployment eligibility does not promote any capability cell by itself.
+The retained hosted MCP runtime reports server version `0.6.2`. Hosted source commit `43febda` is deployed as immutable ECR digest `sha256:f03b9d1276b25415d59e528b15cf23c851265978c570181c9c6dbd35a00b7b60`; its automatic scan returned no findings, and the earlier private task verified all 18 migrations before runtime restoration. Native or fallback attachment-transfer results for the previously deployed allowlist may now be recorded against that exact identity, but only through a dated run on the exact surface. The local branch reports MCP `0.6.3` and adds migration 019 for the expanded format allowlist; those formats have no hosted deployment evidence yet. Deployment eligibility does not promote any capability cell by itself.
 
 ## Required surfaces and current status
 

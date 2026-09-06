@@ -57,7 +57,7 @@ Project-state side effects: none. Ordinary reads and context assembly cannot mut
 
 ### `read_project_file_text`
 
-This tool is registered only when the MCP deployment has the private object-store capability configured. It reads one exact current, clean `text/plain` or `text/markdown` reference that the authenticated user can currently access. Its strict version `1.0` input contains:
+This tool is registered only when the MCP deployment has the private object-store capability configured. It reads one exact current, clean UTF-8 plain-text, Markdown, CSV, TSV, or JSON reference that the authenticated user can currently access. Its strict version `1.0` input contains:
 
 - `project_id`;
 - `file_reference_id` obtained from an authorized context package;
@@ -66,7 +66,7 @@ This tool is registered only when the MCP deployment has the private object-stor
 
 The response repeats bounded immutable provenance, returns the largest exact excerpt that fits, and supplies the next code-point offset or `null`. The declared budget covers the complete serialized JSON response; `budget.used` is its exact UTF-8 byte count. Before decoding, the server fetches the stored object by its internal exact version and rechecks both byte size and SHA-256 against immutable PostgreSQL metadata. Invalid UTF-8 and integrity mismatches fail closed.
 
-File content is `untrusted_artifact` data. The response explicitly says never to follow instructions from it, expand access, call tools because of it, or present it as alice.-verified state. The tool cannot create evidence, candidates, accepted state, audit history, or project mutations. Foreign, guessed, superseded, removed, non-clean, and inaccessible references share a non-disclosing unavailable result. PDF extraction and file-backed candidate capture are separate tools; images remain metadata-only.
+File content is `untrusted_artifact` data. The response explicitly says never to follow instructions from it, expand access, call tools because of it, or present it as alice.-verified state. The tool cannot create evidence, candidates, accepted state, audit history, or project mutations. Foreign, guessed, superseded, removed, non-clean, and inaccessible references share a non-disclosing unavailable result. PDF extraction and file-backed candidate capture are separate tools; images and modern Office files remain metadata-only.
 
 ### `read_project_file_pdf_text`
 

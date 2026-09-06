@@ -115,12 +115,16 @@ after(async () => {
   database?.close();
 });
 
-async function offerFile(idempotencyKey: string, fileName = "alpha-plan.md") {
+async function offerFile(
+  idempotencyKey: string,
+  fileName = "alpha-plan.md",
+  declaredMediaType = "text/markdown",
+) {
   return await callMcp(mcpBaseUrl, accessToken, "tools/call", {
     name: "offer_host_file_save",
     arguments: {
       file_name: fileName,
-      declared_media_type: "text/markdown",
+      declared_media_type: declaredMediaType,
       declared_byte_size: 128,
       declared_sha256: "a".repeat(64),
       conversation_reference: "conversation.alpha-001",
@@ -193,6 +197,20 @@ test("the MCP contract creates only an exact metadata offer for the active targe
   const mismatched = await offerFile("host-file-offer-001", "different.md");
   assert.equal(mismatched.payload.result.isError, true);
   assert.match(mismatched.payload.result.content[0].text, /different file save offer/i);
+
+  const office = await offerFile(
+    "host-file-offer-office-001",
+    "analysis.xlsx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  );
+  assert.equal(office.payload.result.isError, undefined);
+  assert.equal(office.payload.result.structuredContent.file.name, "analysis.xlsx");
+  assert.equal(
+    database
+      .prepare("SELECT declared_media_type FROM host_file_save_offers WHERE id = ?")
+      .get(office.payload.result.structuredContent.offer_id).declared_media_type,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  );
 });
 
 test("only the authenticated owner can make one exact save decision", async () => {

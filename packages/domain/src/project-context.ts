@@ -474,7 +474,14 @@ export async function getProjectContext(
         referenced_at: row.referenced_at,
         handling: "reference_only_untrusted",
         text_read_tool:
-          fileTextReadAvailable && ["text/plain", "text/markdown"].includes(row.media_type)
+          fileTextReadAvailable &&
+          [
+            "application/json",
+            "text/csv",
+            "text/markdown",
+            "text/plain",
+            "text/tab-separated-values",
+          ].includes(row.media_type)
             ? "read_project_file_text"
             : null,
         pdf_read_tool:

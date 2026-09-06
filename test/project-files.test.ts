@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
-import { createWorkContext, issueAlphaInvitation, validateProjectFile } from "@alice/domain";
+import {
+  createWorkContext,
+  issueAlphaInvitation,
+  validateProjectFile,
+  validateProjectFileUploadDeclaration,
+} from "@alice/domain";
 import { createApp } from "../apps/web/src/app.ts";
 
 class FakePrivateFileStore {
@@ -53,6 +58,39 @@ let server;
 let workContextId;
 const fileStore = new FakePrivateFileStore();
 const publicUrl = "http://127.0.0.1";
+
+function officeZipFixture(entries: string[]): Buffer {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let localOffset = 0;
+  for (const entry of entries) {
+    const name = Buffer.from(entry, "utf8");
+    const local = Buffer.alloc(30 + name.length);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(name.length, 26);
+    name.copy(local, 30);
+    localParts.push(local);
+
+    const central = Buffer.alloc(46 + name.length);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(localOffset, 42);
+    name.copy(central, 46);
+    centralParts.push(central);
+    localOffset += local.length;
+  }
+  const centralDirectory = Buffer.concat(centralParts);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(centralDirectory.length, 12);
+  eocd.writeUInt32LE(localOffset, 16);
+  return Buffer.concat([...localParts, centralDirectory, eocd]);
+}
 
 async function register(email, password) {
   const invitation = await issueAlphaInvitation(created.database, { email });
@@ -176,6 +214,108 @@ test("validates bounded content rather than trusting extensions or claimed media
   assert.equal(
     validateProjectFile({ bytes: webpBytes, fileName: "fixture.webp" }).mediaType,
     "image/webp",
+  );
+});
+
+test("accepts bounded structured text and modern Office packages only", () => {
+  for (const fixture of [
+    { name: "records.csv", type: "text/csv", bytes: Buffer.from("name,value\nalpha,1\n") },
+    {
+      name: "records.tsv",
+      type: "text/tab-separated-values",
+      bytes: Buffer.from("name\tvalue\nalpha\t1\n"),
+    },
+    {
+      name: "records.json",
+      type: "application/json",
+      bytes: Buffer.from('{"alpha":1}\n'),
+    },
+  ]) {
+    assert.equal(
+      validateProjectFile({
+        bytes: fixture.bytes,
+        fileName: fixture.name,
+        claimedMediaType: fixture.type,
+      }).mediaType,
+      fixture.type,
+    );
+  }
+
+  const officeFixtures = [
+    {
+      name: "brief.docx",
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      mainPart: "word/document.xml",
+    },
+    {
+      name: "model.xlsx",
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      mainPart: "xl/workbook.xml",
+    },
+    {
+      name: "deck.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      mainPart: "ppt/presentation.xml",
+    },
+  ];
+  for (const fixture of officeFixtures) {
+    const bytes = officeZipFixture(["[Content_Types].xml", fixture.mainPart]);
+    assert.equal(
+      validateProjectFile({
+        bytes,
+        fileName: fixture.name,
+        claimedMediaType: fixture.type,
+      }).mediaType,
+      fixture.type,
+    );
+    assert.equal(
+      validateProjectFileUploadDeclaration({
+        fileName: fixture.name,
+        claimedMediaType: fixture.type,
+        byteSize: bytes.length,
+        sha256: "a".repeat(64),
+      }).mediaType,
+      fixture.type,
+    );
+  }
+
+  assert.throws(
+    () =>
+      validateProjectFile({
+        bytes: officeZipFixture(["[Content_Types].xml", "word/document.xml"]),
+        fileName: "renamed.xlsx",
+      }),
+    /extension does not match/,
+  );
+  assert.throws(
+    () =>
+      validateProjectFile({
+        bytes: officeZipFixture([
+          "[Content_Types].xml",
+          "word/document.xml",
+          "word/vbaProject.bin",
+        ]),
+        fileName: "macro.docx",
+      }),
+    /Macro-enabled Office files are not accepted/,
+  );
+  assert.throws(
+    () =>
+      validateProjectFile({
+        bytes: officeZipFixture(["[Content_Types].xml", "custom/data.xml"]),
+        fileName: "archive.docx",
+      }),
+    /package type is missing or ambiguous/,
+  );
+  assert.throws(
+    () =>
+      validateProjectFileUploadDeclaration({
+        fileName: "legacy.doc",
+        claimedMediaType: "application/msword",
+        byteSize: 128,
+        sha256: "a".repeat(64),
+      }),
+    /Only PDF, PNG, JPEG, WebP, DOCX, XLSX, PPTX, CSV, TSV, JSON/,
   );
 });
 

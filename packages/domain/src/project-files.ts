@@ -18,11 +18,19 @@ export class ProjectFileUserError extends Error {}
 
 const MEDIA_LIMITS = {
   "application/pdf": FILE_UPLOAD_LIMIT_BYTES,
+  "application/json": 2 * 1024 * 1024,
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+    FILE_UPLOAD_LIMIT_BYTES,
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": FILE_UPLOAD_LIMIT_BYTES,
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    FILE_UPLOAD_LIMIT_BYTES,
   "image/jpeg": 10 * 1024 * 1024,
   "image/png": 10 * 1024 * 1024,
   "image/webp": 10 * 1024 * 1024,
+  "text/csv": 2 * 1024 * 1024,
   "text/markdown": 2 * 1024 * 1024,
   "text/plain": 2 * 1024 * 1024,
+  "text/tab-separated-values": 2 * 1024 * 1024,
 } as const;
 
 export type VerifiedFileMediaType = keyof typeof MEDIA_LIMITS;
@@ -99,6 +107,124 @@ function hasPrefix(bytes: Buffer, signature: number[]): boolean {
   return signature.every((byte, index) => bytes[index] === byte);
 }
 
+const OFFICE_MEDIA_TYPES = {
+  "ppt/presentation.xml":
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "word/document.xml": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "xl/workbook.xml": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+} as const;
+
+function officeZipEntryNames(bytes: Buffer): Set<string> {
+  if (bytes.length < 22) {
+    throw new ProjectFileUserError("The Office file is incomplete or malformed.");
+  }
+  const minimumEocdOffset = Math.max(0, bytes.length - 65_557);
+  let eocdOffset = -1;
+  for (let offset = bytes.length - 22; offset >= minimumEocdOffset; offset -= 1) {
+    if (bytes.readUInt32LE(offset) === 0x06054b50) {
+      eocdOffset = offset;
+      break;
+    }
+  }
+  if (eocdOffset < 0) {
+    throw new ProjectFileUserError("The Office file is incomplete or malformed.");
+  }
+  const diskNumber = bytes.readUInt16LE(eocdOffset + 4);
+  const centralDirectoryDisk = bytes.readUInt16LE(eocdOffset + 6);
+  const entriesOnDisk = bytes.readUInt16LE(eocdOffset + 8);
+  const entryCount = bytes.readUInt16LE(eocdOffset + 10);
+  const centralDirectorySize = bytes.readUInt32LE(eocdOffset + 12);
+  const centralDirectoryOffset = bytes.readUInt32LE(eocdOffset + 16);
+  const commentLength = bytes.readUInt16LE(eocdOffset + 20);
+  if (
+    diskNumber !== 0 ||
+    centralDirectoryDisk !== 0 ||
+    entriesOnDisk !== entryCount ||
+    entryCount < 2 ||
+    entryCount > 10_000 ||
+    centralDirectorySize === 0xffffffff ||
+    centralDirectoryOffset === 0xffffffff ||
+    eocdOffset + 22 + commentLength !== bytes.length ||
+    centralDirectoryOffset + centralDirectorySize > eocdOffset
+  ) {
+    throw new ProjectFileUserError("The Office file uses an unsupported ZIP structure.");
+  }
+
+  const names = new Set<string>();
+  let offset = centralDirectoryOffset;
+  const centralDirectoryEnd = centralDirectoryOffset + centralDirectorySize;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (offset + 46 > centralDirectoryEnd || bytes.readUInt32LE(offset) !== 0x02014b50) {
+      throw new ProjectFileUserError("The Office file ZIP directory is malformed.");
+    }
+    const flags = bytes.readUInt16LE(offset + 8);
+    const compression = bytes.readUInt16LE(offset + 10);
+    const nameLength = bytes.readUInt16LE(offset + 28);
+    const extraLength = bytes.readUInt16LE(offset + 30);
+    const entryCommentLength = bytes.readUInt16LE(offset + 32);
+    const entryDisk = bytes.readUInt16LE(offset + 34);
+    const localHeaderOffset = bytes.readUInt32LE(offset + 42);
+    const nextOffset = offset + 46 + nameLength + extraLength + entryCommentLength;
+    if (
+      flags & 0x1 ||
+      ![0, 8].includes(compression) ||
+      entryDisk !== 0 ||
+      localHeaderOffset === 0xffffffff ||
+      nextOffset > centralDirectoryEnd ||
+      localHeaderOffset + 30 > centralDirectoryOffset ||
+      bytes.readUInt32LE(localHeaderOffset) !== 0x04034b50
+    ) {
+      throw new ProjectFileUserError("The Office file contains an unsupported ZIP entry.");
+    }
+    const name = bytes.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
+    const localNameLength = bytes.readUInt16LE(localHeaderOffset + 26);
+    const localExtraLength = bytes.readUInt16LE(localHeaderOffset + 28);
+    const localFlags = bytes.readUInt16LE(localHeaderOffset + 6);
+    const localCompression = bytes.readUInt16LE(localHeaderOffset + 8);
+    const localNameEnd = localHeaderOffset + 30 + localNameLength;
+    if (
+      !name ||
+      names.has(name) ||
+      name.includes("\\") ||
+      name.startsWith("/") ||
+      name.split("/").includes("..") ||
+      localFlags !== flags ||
+      localCompression !== compression ||
+      localNameEnd + localExtraLength > centralDirectoryOffset ||
+      bytes.subarray(localHeaderOffset + 30, localNameEnd).toString("utf8") !== name
+    ) {
+      throw new ProjectFileUserError("The Office file contains an invalid ZIP path.");
+    }
+    names.add(name);
+    offset = nextOffset;
+  }
+  if (offset !== centralDirectoryEnd || !names.has("[Content_Types].xml")) {
+    throw new ProjectFileUserError("The Office file package is incomplete or malformed.");
+  }
+  if ([...names].some((name) => /(?:^|\/)vbaProject\.bin$/i.test(name))) {
+    throw new ProjectFileUserError("Macro-enabled Office files are not accepted.");
+  }
+  return names;
+}
+
+function detectOfficeMediaType(bytes: Buffer): VerifiedFileMediaType {
+  const entries = officeZipEntryNames(bytes);
+  const matches = Object.entries(OFFICE_MEDIA_TYPES).filter(([entry]) => entries.has(entry));
+  if (matches.length !== 1) {
+    throw new ProjectFileUserError("The Office file package type is missing or ambiguous.");
+  }
+  return matches[0]![1];
+}
+
+function validateUtf8Text(bytes: Buffer): void {
+  if (bytes.includes(0)) throw new ProjectFileUserError("Text files cannot contain null bytes.");
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new ProjectFileUserError("Text files must contain valid UTF-8.");
+  }
+}
+
 function detectMediaType(bytes: Buffer, name: string): VerifiedFileMediaType {
   if (hasPrefix(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d])) {
     const tail = bytes.subarray(Math.max(0, bytes.length - 1024)).toString("latin1");
@@ -132,29 +258,41 @@ function detectMediaType(bytes: Buffer, name: string): VerifiedFileMediaType {
     return "image/webp";
   }
 
+  if (hasPrefix(bytes, [0x50, 0x4b, 0x03, 0x04])) {
+    return detectOfficeMediaType(bytes);
+  }
+
   const extension = extensionFor(name);
-  if (![".md", ".txt"].includes(extension)) {
+  const textTypes: Partial<Record<string, VerifiedFileMediaType>> = {
+    ".csv": "text/csv",
+    ".json": "application/json",
+    ".md": "text/markdown",
+    ".tsv": "text/tab-separated-values",
+    ".txt": "text/plain",
+  };
+  if (!textTypes[extension]) {
     throw new ProjectFileUserError(
-      "Only PDF, PNG, JPEG, WebP, plain-text, and Markdown files are accepted.",
+      "Only PDF, PNG, JPEG, WebP, DOCX, XLSX, PPTX, CSV, TSV, JSON, plain-text, and Markdown files are accepted.",
     );
   }
-  if (bytes.includes(0)) throw new ProjectFileUserError("Text files cannot contain null bytes.");
-  try {
-    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    throw new ProjectFileUserError("Text files must contain valid UTF-8.");
-  }
-  return extension === ".md" ? "text/markdown" : "text/plain";
+  validateUtf8Text(bytes);
+  return textTypes[extension]!;
 }
 
 function allowedExtensions(mediaType: VerifiedFileMediaType): string[] {
   return {
     "application/pdf": [".pdf"],
+    "application/json": [".json"],
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"],
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
     "image/jpeg": [".jpg", ".jpeg"],
     "image/png": [".png"],
     "image/webp": [".webp"],
+    "text/csv": [".csv"],
     "text/markdown": [".md"],
     "text/plain": [".txt"],
+    "text/tab-separated-values": [".tsv"],
   }[mediaType];
 }
 
@@ -166,18 +304,24 @@ function normalizeClaimedMediaType(value: string): string {
 function declaredMediaType(fileName: string, claimedMediaType: string): VerifiedFileMediaType {
   const extension = extensionFor(fileName);
   const byExtension: Record<string, VerifiedFileMediaType> = {
+    ".csv": "text/csv",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".jpeg": "image/jpeg",
+    ".json": "application/json",
     ".jpg": "image/jpeg",
     ".md": "text/markdown",
     ".pdf": "application/pdf",
     ".png": "image/png",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".tsv": "text/tab-separated-values",
     ".txt": "text/plain",
     ".webp": "image/webp",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   };
   const expected = byExtension[extension];
   if (!expected) {
     throw new ProjectFileUserError(
-      "Only PDF, PNG, JPEG, WebP, plain-text, and Markdown files are accepted.",
+      "Only PDF, PNG, JPEG, WebP, DOCX, XLSX, PPTX, CSV, TSV, JSON, plain-text, and Markdown files are accepted.",
     );
   }
   const claimed = normalizeClaimedMediaType(claimedMediaType);
@@ -185,7 +329,11 @@ function declaredMediaType(fileName: string, claimedMediaType: string): Verified
     claimed &&
     claimed !== "application/octet-stream" &&
     claimed !== expected &&
-    !(expected === "text/markdown" && claimed === "text/plain")
+    !(
+      ["application/json", "text/csv", "text/markdown", "text/tab-separated-values"].includes(
+        expected,
+      ) && ["text/plain", "text/tsv"].includes(claimed)
+    )
   ) {
     throw new ProjectFileUserError("The supplied media type does not match the file extension.");
   }
@@ -239,8 +387,15 @@ export function validateProjectFile(input: {
     );
   }
   const claimed = normalizeClaimedMediaType(input.claimedMediaType || "");
-  const permittedClaims =
-    mediaType === "text/markdown" ? ["text/markdown", "text/plain"] : [mediaType];
+  const permittedClaims: string[] = [mediaType];
+  if (
+    ["application/json", "text/csv", "text/markdown", "text/tab-separated-values"].includes(
+      mediaType,
+    )
+  ) {
+    permittedClaims.push("text/plain");
+  }
+  if (mediaType === "text/tab-separated-values") permittedClaims.push("text/tsv");
   if (claimed && claimed !== "application/octet-stream" && !permittedClaims.includes(claimed)) {
     throw new ProjectFileUserError(
       "The supplied media type does not match the verified file type.",
@@ -1425,7 +1580,10 @@ export async function getProjectFilePreview(
   if (reference.scan_status !== "clean" || !reference.storage_version_id) {
     return { available: false as const, scan_status: reference.scan_status as FileScanStatus };
   }
-  if (reference.media_type === "application/pdf") {
+  if (
+    reference.media_type === "application/pdf" ||
+    reference.media_type.startsWith("application/vnd.openxmlformats-officedocument.")
+  ) {
     return { available: true as const, kind: "metadata_only" as const };
   }
   const bytes = await store.getObject({
@@ -1438,7 +1596,15 @@ export async function getProjectFilePreview(
   ) {
     throw new Error("Private object bytes do not match their immutable metadata.");
   }
-  if (["text/plain", "text/markdown"].includes(reference.media_type)) {
+  if (
+    [
+      "application/json",
+      "text/csv",
+      "text/markdown",
+      "text/plain",
+      "text/tab-separated-values",
+    ].includes(reference.media_type)
+  ) {
     return {
       available: true as const,
       kind: "text" as const,
@@ -1626,9 +1792,17 @@ export async function readProjectFileText(
   if (!reference || reference.scan_status !== "clean" || !reference.storage_version_id) {
     return undefined;
   }
-  if (!["text/plain", "text/markdown"].includes(reference.media_type)) {
+  if (
+    ![
+      "application/json",
+      "text/csv",
+      "text/markdown",
+      "text/plain",
+      "text/tab-separated-values",
+    ].includes(reference.media_type)
+  ) {
     throw new ProjectFileUserError(
-      "This clean artifact is reference-only; bounded text retrieval supports UTF-8 text and Markdown.",
+      "This clean artifact is reference-only; bounded text retrieval supports UTF-8 text, Markdown, CSV, TSV, and JSON.",
     );
   }
   const startCharacter = input.startCharacter ?? 0;

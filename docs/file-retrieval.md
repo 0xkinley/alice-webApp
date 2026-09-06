@@ -1,20 +1,20 @@
 # Bounded Untrusted File Retrieval and PDF Suggestions
 
-Status: Implemented locally for clean UTF-8 text, Markdown, PDF embedded text, host attachment save offers, capability-gated transfer, and pre-targeted upload fallback in Milestone 06
+Status: Implemented locally for modern Office uploads, clean UTF-8 text/Markdown/CSV/TSV/JSON reads, PDF embedded text, host attachment save offers, capability-gated transfer, and pre-targeted upload fallback in Milestone 06
 
-Decision date: 2026-08-31
+Decision date: 2026-08-31; format expansion: 2026-09-06
 
 ## Reference boundary
 
 Consumption contract `2.2` may advertise current clean file references that the authenticated user can read in project-wide or selected-context scope. It never embeds file bytes. Selection excludes removed references, every superseded logical-file version, non-clean objects, other work contexts, and contexts the user cannot currently access. Returned metadata is bounded to the immutable reference, logical file/version, display name, verified media type, byte size, SHA-256, context scope, source host, and reference time. Storage keys, object version identifiers, credentials, signed URLs, and scanner tags remain server-side.
 
-File references are always labelled `reference_only_untrusted`. Clean `text/plain` and `text/markdown` references advertise `read_project_file_text`; clean PDFs advertise `read_project_file_pdf_text`. Each capability field is nullable and is populated only when the MCP process has the shared private-file adapter configured. Images remain metadata-only through MCP.
+File references are always labelled `reference_only_untrusted`. Clean `text/plain`, `text/markdown`, `text/csv`, `text/tab-separated-values`, and `application/json` references advertise `read_project_file_text`; clean PDFs advertise `read_project_file_pdf_text`. Each capability field is nullable and is populated only when the MCP process has the shared private-file adapter configured. Images and modern Office files remain metadata-only through MCP.
 
-## Exact text and Markdown reads
+## Exact structured-text reads
 
 `read_project_file_text` reauthorizes the exact project, context, active membership, and required context-read capability. It re-resolves the current clean logical-file version and append-only removal state. Foreign, guessed, superseded, removed, non-clean, inaccessible, and versionless references return the same unavailable response.
 
-The object store is called with the immutable internal key and exact object version. Before fatal UTF-8 decoding, alice. requires both the downloaded byte size and SHA-256 to match PostgreSQL metadata. The caller supplies a 2,000–32,000 UTF-8 byte budget, defaulting to 8,000, and an optional zero-based Unicode code-point offset. alice. returns the largest exact excerpt whose complete serialized JSON response fits that budget. Concatenating successful continuation pages reconstructs the exact decoded source.
+The object store is called with the immutable internal key and exact object version. Before fatal UTF-8 decoding, alice. requires both the downloaded byte size and SHA-256 to match PostgreSQL metadata. Plain text, Markdown, CSV, TSV, and JSON are treated as opaque text; alice. does not execute formulas, follow links, evaluate JSON values, or infer a schema. The caller supplies a 2,000–32,000 UTF-8 byte budget, defaulting to 8,000, and an optional zero-based Unicode code-point offset. alice. returns the largest exact excerpt whose complete serialized JSON response fits that budget. Concatenating successful continuation pages reconstructs the exact decoded source.
 
 ## Deterministic bounded PDF extraction
 
@@ -37,6 +37,14 @@ The existing atomic capture path stores the evidence, relational file source, pe
 ## Trust and mutation rules
 
 All retrieved or extracted content is `untrusted_artifact` data. Malware-clean, successfully parsed, host-generated, or user-uploaded does not mean alice.-verified. Content cannot become an instruction source, expand access, select another file or context, trigger tools, or activate its own statements. Ordinary file reads create no evidence, candidates, accepted state, file lifecycle changes, or project/audit mutations. A file-suggestion call is a separately authorized explicit capture and creates pending evidence-backed candidates only.
+
+## Modern Office upload boundary
+
+Migration `019_popular_file_formats.sql` expands upload, host-offer, immutable-object, and context-package media-type constraints to DOCX, XLSX, and PPTX, plus CSV, TSV, and JSON. Modern Office files retain the 25 MiB file limit; structured-text files retain the 2 MiB limit. Browser upload and replacement inputs expose the same explicit allowlist.
+
+DOCX, XLSX, and PPTX are accepted only when the bytes are a bounded single-disk, non-Zip64 ZIP package with a valid central directory, `[Content_Types].xml`, exactly one matching primary Office part, and no `vbaProject.bin` entry. A renamed generic ZIP, mismatched Office extension, ambiguous package, encrypted entry, unsupported compression, malformed path, or macro-enabled package fails before immutable storage. This package inspection does not make document content trusted or safe; the existing malware scan remains mandatory.
+
+Office files are scan-gated references with authorized download and metadata-only preview in this alpha. alice. does not yet extract DOCX paragraphs, XLSX cells or formulas, or PPTX slide text. Legacy binary `.doc`, `.xls`, and `.ppt`, arbitrary `.zip`, cloud-native Google Docs links, and non-PDF binary extraction remain unsupported. A Google document must first be exported to a supported file type; a future Google Drive integration would be a separate permission and provenance boundary.
 
 ## Metadata-only host attachment save offer
 

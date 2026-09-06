@@ -247,6 +247,84 @@ test("capability-gated MCP retrieval is exact, paginated, bounded, and read-only
   );
 });
 
+test("structured-text artifacts advertise and return exact bounded UTF-8 reads", async () => {
+  const fixtures = [
+    { fileName: "metrics.csv", mediaType: "text/csv", text: "metric,value\nvisits,588\n" },
+    {
+      fileName: "metrics.tsv",
+      mediaType: "text/tab-separated-values",
+      text: "metric\tvalue\nvisits\t588\n",
+    },
+    {
+      fileName: "metrics.json",
+      mediaType: "application/json",
+      text: '{"metric":"visits","value":588}\n',
+    },
+  ];
+  const references = [];
+  for (const fixture of fixtures) {
+    const createdReference = await uploadProjectFile(database, fileStore, {
+      userId: identity.id,
+      projectId: identity.project_id,
+      contextId: generalContext.id,
+      fileName: fixture.fileName,
+      claimedMediaType: fixture.mediaType,
+      bytes: Buffer.from(fixture.text),
+      sourceHost: "alice_web",
+    });
+    await refreshProjectFileScan(database, fileStore, {
+      userId: identity.id,
+      projectId: identity.project_id,
+      referenceId: createdReference.id,
+    });
+    references.push({ ...fixture, reference: createdReference });
+  }
+
+  const contextRead = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "get_project_context",
+    arguments: {
+      project_id: identity.project_id,
+      context_id: generalContext.id,
+      task: "Review structured metrics",
+      context_budget: 8_000,
+    },
+  });
+  const structuredArtifacts = contextRead.payload.result.structuredContent.file_artifacts.filter(
+    ({ display_name: displayName }) => displayName.startsWith("metrics."),
+  );
+  assert.equal(structuredArtifacts.length, 3);
+  assert.ok(
+    structuredArtifacts.every(({ text_read_tool: tool }) => tool === "read_project_file_text"),
+  );
+
+  for (const fixture of references) {
+    const read = await callMcp(baseUrl, accessToken, "tools/call", {
+      name: "read_project_file_text",
+      arguments: {
+        project_id: identity.project_id,
+        file_reference_id: fixture.reference.id,
+        context_budget: 2_000,
+      },
+    });
+    assert.equal(read.payload.result.isError, undefined, JSON.stringify(read.payload.result));
+    assert.equal(read.payload.result.structuredContent.excerpt.text, fixture.text);
+    assert.equal(read.payload.result.structuredContent.excerpt.next_start_character, null);
+
+    const preview = await getProjectFileRemovalPreview(database, {
+      userId: identity.id,
+      projectId: identity.project_id,
+      referenceId: fixture.reference.id,
+    });
+    await removeProjectFileReference(database, {
+      userId: identity.id,
+      projectId: identity.project_id,
+      referenceId: fixture.reference.id,
+      expectedPreviewVersion: preview.preview_version,
+      reason: "Remove structured-text retrieval fixture",
+    });
+  }
+});
+
 test("foreign, guessed, and removed references share one non-disclosing read failure", async () => {
   const read = async (token, referenceId) =>
     await callMcp(baseUrl, token, "tools/call", {

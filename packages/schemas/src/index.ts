@@ -299,19 +299,25 @@ export const suggestProjectUpdatesFromFileSchema = z
     });
   });
 
+export const projectFileMediaTypes = [
+  "application/json",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "text/csv",
+  "text/markdown",
+  "text/plain",
+  "text/tab-separated-values",
+] as const;
+
 export const hostFileSaveOfferSchema = z
   .object({
     file_name: z.string().min(1).max(180),
-    declared_media_type: z
-      .enum([
-        "application/pdf",
-        "image/jpeg",
-        "image/png",
-        "image/webp",
-        "text/markdown",
-        "text/plain",
-      ])
-      .optional(),
+    declared_media_type: z.enum(projectFileMediaTypes).optional(),
     declared_byte_size: z
       .number()
       .int()
@@ -346,14 +352,7 @@ export const beginHostFileTransferSchema = z
     offer_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
     transfer_capability: z.literal("exact_signed_put_v1"),
     file_name: z.string().min(1).max(180),
-    claimed_media_type: z.enum([
-      "application/pdf",
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "text/markdown",
-      "text/plain",
-    ]),
+    claimed_media_type: z.enum(projectFileMediaTypes),
     byte_size: z
       .number()
       .int()
@@ -450,14 +449,7 @@ const fileArtifactSchema = z
     logical_file_id: z.string(),
     version: z.number().int().positive(),
     display_name: z.string(),
-    media_type: z.enum([
-      "application/pdf",
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "text/markdown",
-      "text/plain",
-    ]),
+    media_type: z.enum(projectFileMediaTypes),
     byte_size: z.number().int().positive(),
     content_sha256: z.string(),
     context_id: z.string(),

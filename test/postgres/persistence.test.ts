@@ -240,12 +240,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 16, filename: "016_project_erasure_jobs.sql" },
     { version: 17, filename: "017_host_file_save_offers.sql" },
     { version: 18, filename: "018_host_file_transfers.sql" },
+    { version: 19, filename: "019_popular_file_formats.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    18,
+    19,
   );
   await reopened.close();
 });

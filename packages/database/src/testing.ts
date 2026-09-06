@@ -543,8 +543,12 @@ function createSchema(database: DatabaseSync) {
       content_sha256 TEXT NOT NULL CHECK (length(content_sha256) = 64),
       byte_size INTEGER NOT NULL CHECK (byte_size BETWEEN 1 AND 26214400),
       verified_media_type TEXT NOT NULL CHECK (verified_media_type IN (
-        'application/pdf', 'image/png', 'image/jpeg', 'image/webp',
-        'text/plain', 'text/markdown'
+        'application/json', 'application/pdf',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/png', 'image/jpeg', 'image/webp',
+        'text/csv', 'text/plain', 'text/markdown', 'text/tab-separated-values'
       )),
       storage_key TEXT NOT NULL UNIQUE,
       storage_version_id TEXT,
@@ -607,8 +611,12 @@ function createSchema(database: DatabaseSync) {
       initiated_by_user_id TEXT NOT NULL,
       display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 180),
       claimed_media_type TEXT NOT NULL CHECK (claimed_media_type IN (
-        'application/pdf', 'image/png', 'image/jpeg', 'image/webp',
-        'text/plain', 'text/markdown'
+        'application/json', 'application/pdf',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/png', 'image/jpeg', 'image/webp',
+        'text/csv', 'text/plain', 'text/markdown', 'text/tab-separated-values'
       )),
       declared_byte_size INTEGER NOT NULL CHECK (declared_byte_size BETWEEN 1 AND 26214400),
       declared_sha256 TEXT NOT NULL CHECK (length(declared_sha256) = 64),
@@ -658,8 +666,12 @@ function createSchema(database: DatabaseSync) {
       ),
       display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 180),
       declared_media_type TEXT CHECK (declared_media_type IS NULL OR declared_media_type IN (
-        'application/pdf', 'image/png', 'image/jpeg', 'image/webp',
-        'text/plain', 'text/markdown'
+        'application/json', 'application/pdf',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/png', 'image/jpeg', 'image/webp',
+        'text/csv', 'text/plain', 'text/markdown', 'text/tab-separated-values'
       )),
       declared_byte_size INTEGER CHECK (
         declared_byte_size IS NULL OR declared_byte_size BETWEEN 1 AND 26214400
