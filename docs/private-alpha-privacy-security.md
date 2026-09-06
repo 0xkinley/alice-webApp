@@ -46,7 +46,7 @@ Project members see only the projects and contexts allowed by their current proj
 
 ### User-selected AI providers
 
-When a user's own authorized ChatGPT-, Claude-, or Codex-classified host calls alice., it receives only the permission-filtered and budgeted project context or exact file excerpt required by that call. alice. does not receive the user's ChatGPT or Claude password, host cookies, unrelated host content, or complete conversation history. A bounded opaque conversation reference is retained only when the user explicitly confirms a host-file save offer.
+When a user's own authorized ChatGPT or Claude host calls alice., it receives only the permission-filtered and budgeted project context or exact file excerpt required by that call. alice. does not receive the user's ChatGPT or Claude password, host cookies, unrelated host content, or complete conversation history. A bounded opaque conversation reference is retained only when the user explicitly confirms a host-file save offer. Codex is not a participant product in the private alpha.
 
 OpenAI and Anthropic are user-selected recipients through the user's own host account, not alice.-operated model subprocessors. After permitted context crosses that boundary, the provider's product, account type, region, settings, terms, retention, and model-improvement choices apply. alice. cannot promise that a provider does not train on the data or that the provider retains, locates, or deletes it in a particular way. Testers must review the provider's current policies and settings:
 

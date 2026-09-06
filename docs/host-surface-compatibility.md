@@ -1,14 +1,14 @@
 # Host-Surface Compatibility and Private-Alpha Evaluations
 
-Status: Live surface testing ready on hosted MCP 0.6.2; no advertised surfaces
+Status: Live alpha-surface testing ready on hosted MCP 0.6.2; no advertised surfaces
 
-Decision date: 2026-09-02
+Decision date: 2026-09-06
 
 ## Purpose
 
 alice. records compatibility per exact host surface. A result from one client never applies to another client, even when both clients belong to the same provider or use the same account. The machine-readable capability source of truth is `evals/host-surface-compatibility.json`; its linked invocation source is `evals/host-invocation-denominators.json`. This document explains how both are maintained and how their results may be used.
 
-The matrix begins conservatively. All 70 capability cells across the ten required surfaces are explicitly `untested`, every surface is unadvertised, and every untested capability is treated as unsupported. The earlier generic hosted OAuth verifier proved alice.'s server-side PKCE, refresh rotation, revocation, and post-revocation HTTP 401 behavior, but it was not initiated by one of these exact provider surfaces and therefore does not promote any matrix cell.
+The private-alpha matrix is intentionally limited to the two participant products: Claude and ChatGPT. All 49 capability cells across their seven required surfaces are explicitly `untested`, every surface is unadvertised, and every untested capability is treated as unsupported. Codex is outside the private-alpha product scope; internal use of alice. from Codex is development evidence only and cannot be advertised or inherited by a ChatGPT result. The earlier generic hosted OAuth verifier proved alice.'s server-side PKCE, refresh rotation, revocation, and post-revocation HTTP 401 behavior, but it was not initiated by one of these exact provider surfaces and therefore does not promote any matrix cell.
 
 The retained hosted MCP runtime and local branch both report server version `0.6.2`. Hosted source commit `43febda` is deployed as immutable ECR digest `sha256:f03b9d1276b25415d59e528b15cf23c851265978c570181c9c6dbd35a00b7b60`; its automatic scan returned no findings, and the earlier private task verified all 18 migrations before runtime restoration. Native or fallback attachment-transfer results may now be recorded against that exact identity, but only through a dated run on the exact surface. Deployment eligibility does not promote any capability cell by itself.
 
@@ -23,9 +23,6 @@ The retained hosted MCP runtime and local branch both report server version `0.6
 | Anthropic | Claude Code | Not tested — unsupported | No |
 | OpenAI | ChatGPT web | Not tested — unsupported | No |
 | OpenAI | ChatGPT desktop | Not tested — unsupported | No |
-| OpenAI | Codex desktop | Not tested — unsupported | No |
-| OpenAI | Codex CLI | Not tested — unsupported | No |
-| OpenAI | Codex IDE extension | Not tested — unsupported | No |
 
 ChatGPT mobile is outside the initial advertised set. It must not inherit ChatGPT web or desktop results.
 
@@ -76,6 +73,6 @@ npm run eval:private-alpha
 npm run eval:invocation
 ```
 
-The scripts print only aggregate pass/fail evidence. They validate exactly ten surfaces, seven explicit capability cells per surface, live-run references for any non-untested result, the consented synthetic denominator formula and retention allowlist, and the rule that no incomplete or unmeasured surface is advertised. They perform no network request, provider login, database write, AWS action, model call, or paid operation.
+The scripts print only aggregate pass/fail evidence. They validate exactly seven private-alpha surfaces, seven explicit capability cells per surface, live-run references for any non-untested result, the consented synthetic denominator formula and retention allowlist, and the rule that no incomplete or unmeasured surface is advertised. They perform no network request, provider login, database write, AWS action, model call, or paid operation.
 
 This deterministic harness verifies the repository policy and its test coverage. It does not claim that any current provider client invokes alice. correctly. Live, dated surface runs remain required before the compatibility-matrix milestone task can close.

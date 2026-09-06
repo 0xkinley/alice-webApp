@@ -221,11 +221,10 @@ The versioned machine-readable source of truth is `evals/host-surface-compatibil
 | Anthropic | Claude Code | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
 | OpenAI | ChatGPT web | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
 | OpenAI | ChatGPT desktop | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
-| OpenAI | Codex desktop | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
-| OpenAI | Codex CLI | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
-| OpenAI | Codex IDE extension | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
 
 Each result records the date, provider/client version, account type, region, transport, authorization scopes, tool exposure, observed confirmation behavior, and durable evidence location. `Pass`, `Fail`, `Provider-blocked`, and `Not tested` are distinct states. Only passing capabilities may appear in onboarding or marketing copy. Provider-blocked or failed native save and file-transfer paths use an alice.-controlled confirmation or pre-targeted upload fallback; they are not reported as native support.
+
+The private alpha is intentionally limited to the ChatGPT and Claude products. Codex is outside participant onboarding, support claims, interactive save-card work, invocation denominators, and completion gates. A Codex connection may remain available for internal development or testing, but its behavior is not private-alpha evidence and cannot be inherited by a ChatGPT surface.
 
 The local deterministic private-alpha harness covers all required product capabilities and cross-host invariants, validates runtime-test evidence paths, and prevents incomplete matrix records from being advertised. It is deliberately not live-host evidence. The generic hosted OAuth/MCP verifier is also server-side deployment evidence rather than a result for any exact provider surface.
 
@@ -233,7 +232,6 @@ ChatGPT mobile is outside the initial advertised matrix because current support 
 
 Official capability references must be revalidated at implementation time because provider behavior changes:
 
-- OpenAI, [Model Context Protocol for ChatGPT and Codex](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
 - OpenAI, [Connect and test a plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt)
 - Anthropic, [When to use desktop and web connectors](https://support.claude.com/en/articles/11725091-when-to-use-desktop-and-web-connectors)
 - Anthropic, [Get started with custom connectors using remote MCP](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
@@ -323,7 +321,7 @@ Milestone 06 is not complete on local happy paths alone. Verification must cover
 
 - a clean PostgreSQL migration and restored backup;
 - hosted web and MCP OAuth/read/write/revocation flows from both target hosts;
-- dated surface-by-surface OAuth, project selection, accepted-context read, save/confirm/cancel, file reference/transfer fallback, and permission-denial runs for Claude web, Desktop, iOS, Android, and Claude Code; ChatGPT web and desktop; and Codex desktop, CLI, and IDE;
+- dated surface-by-surface OAuth, project selection, accepted-context read, save/confirm/cancel, file reference/transfer fallback, and permission-denial runs for Claude web, Desktop, iOS, Android, and Claude Code, plus ChatGPT web and desktop;
 - a visible deterministic package preview plus last-read receipts and skipped/failed-invocation states that do not mutate project state;
 - project and context selection across multiple projects and concurrent sessions;
 - exact-preview save confirmation and cancel behavior;

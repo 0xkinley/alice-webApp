@@ -110,7 +110,7 @@ Because provider capabilities change, repository claims about current plan behav
 
 ## Milestone 06 surface-evaluation contract
 
-The planned support target is a matrix, not a blanket provider label. Live evaluation covers Claude web, Claude Desktop, Claude iOS, Claude Android, Claude Code, ChatGPT web, ChatGPT desktop, Codex desktop, Codex CLI, and the Codex IDE extension.
+The planned private-alpha support target is a matrix, not a blanket provider label. Live evaluation covers Claude web, Claude Desktop, Claude iOS, Claude Android, Claude Code, ChatGPT web, and ChatGPT desktop. Codex is outside the private-alpha product scope; any Codex connection is for internal development or testing and does not establish participant support.
 
 Every surface receives the same minimum evaluation categories:
 

@@ -14,9 +14,6 @@ const exactSurfaces = new Set([
   "claude_code",
   "chatgpt_web",
   "chatgpt_desktop",
-  "codex_desktop",
-  "codex_cli",
-  "codex_ide_extension",
 ]);
 const outcomes = ["successful_read", "failed_read", "no_call"];
 const allowedTrialFields = new Set(["trial_id", "outcome"]);

@@ -1,6 +1,6 @@
 {
-  "version": "2026-09-01.1",
-  "as_of_date": "2026-09-01",
+  "version": "2026-09-06.1",
+  "as_of_date": "2026-09-06",
   "contract": "alice.host-invocation-denominator.v1",
   "method": {
     "id": "consented_synthetic_trials_v1",
@@ -40,10 +40,7 @@
     { "surface_id": "claude_android", "status": "untested", "live_run_id": null },
     { "surface_id": "claude_code", "status": "untested", "live_run_id": null },
     { "surface_id": "chatgpt_web", "status": "untested", "live_run_id": null },
-    { "surface_id": "chatgpt_desktop", "status": "untested", "live_run_id": null },
-    { "surface_id": "codex_desktop", "status": "untested", "live_run_id": null },
-    { "surface_id": "codex_cli", "status": "untested", "live_run_id": null },
-    { "surface_id": "codex_ide_extension", "status": "untested", "live_run_id": null }
+    { "surface_id": "chatgpt_desktop", "status": "untested", "live_run_id": null }
   ],
   "live_runs": [],
   "policy_cases": [
@@ -52,7 +49,7 @@
       "expected_policy_result": "pass",
       "candidate": {
         "method": "consented_synthetic_trials_v1",
-        "surface_id": "codex_desktop",
+        "surface_id": "claude_desktop",
         "user_consent": true,
         "synthetic_fixture": true,
         "eligibility_declared_before_turn": true,
@@ -104,7 +101,7 @@
       "expected_policy_result": "fail",
       "candidate": {
         "method": "ordinary_host_turns",
-        "surface_id": "codex_desktop",
+        "surface_id": "chatgpt_web",
         "user_consent": true,
         "synthetic_fixture": false,
         "eligibility_declared_before_turn": false,
@@ -126,7 +123,7 @@
       "expected_policy_result": "fail",
       "candidate": {
         "method": "consented_synthetic_trials_v1",
-        "surface_id": "codex_desktop",
+        "surface_id": "claude_web",
         "user_consent": true,
         "synthetic_fixture": true,
         "eligibility_declared_before_turn": true,
@@ -220,7 +217,7 @@
       "expected_policy_result": "fail",
       "candidate": {
         "method": "consented_synthetic_trials_v1",
-        "surface_id": "codex_cli",
+        "surface_id": "claude_code",
         "user_consent": false,
         "synthetic_fixture": true,
         "eligibility_declared_before_turn": true,
@@ -242,7 +239,7 @@
       "expected_policy_result": "fail",
       "candidate": {
         "method": "consented_synthetic_trials_v1",
-        "surface_id": "codex_ide_extension",
+        "surface_id": "claude_android",
         "user_consent": true,
         "synthetic_fixture": false,
         "eligibility_declared_before_turn": true,

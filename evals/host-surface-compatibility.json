@@ -1,6 +1,6 @@
 {
-  "version": "2026-09-02.2",
-  "as_of_date": "2026-09-02",
+  "version": "2026-09-06.1",
+  "as_of_date": "2026-09-06",
   "matrix_contract": "alice.host-surface-compatibility.v1",
   "invocation_denominator_contract": "evals/host-invocation-denominators.json",
   "local_mcp_server_version": "0.6.2",
@@ -134,54 +134,6 @@
       "id": "chatgpt_desktop",
       "provider": "OpenAI",
       "surface": "ChatGPT desktop",
-      "overall_status": "untested",
-      "advertised": false,
-      "results": {
-        "oauth_connect_reconnect_revoke": "untested",
-        "project_discovery_selection": "untested",
-        "accepted_context_read": "untested",
-        "candidate_save_confirm_cancel": "untested",
-        "file_reference_attachment_fallback": "untested",
-        "permission_non_disclosure": "untested",
-        "cross_host_reuse": "untested"
-      }
-    },
-    {
-      "id": "codex_desktop",
-      "provider": "OpenAI",
-      "surface": "Codex desktop",
-      "overall_status": "untested",
-      "advertised": false,
-      "results": {
-        "oauth_connect_reconnect_revoke": "untested",
-        "project_discovery_selection": "untested",
-        "accepted_context_read": "untested",
-        "candidate_save_confirm_cancel": "untested",
-        "file_reference_attachment_fallback": "untested",
-        "permission_non_disclosure": "untested",
-        "cross_host_reuse": "untested"
-      }
-    },
-    {
-      "id": "codex_cli",
-      "provider": "OpenAI",
-      "surface": "Codex CLI",
-      "overall_status": "untested",
-      "advertised": false,
-      "results": {
-        "oauth_connect_reconnect_revoke": "untested",
-        "project_discovery_selection": "untested",
-        "accepted_context_read": "untested",
-        "candidate_save_confirm_cancel": "untested",
-        "file_reference_attachment_fallback": "untested",
-        "permission_non_disclosure": "untested",
-        "cross_host_reuse": "untested"
-      }
-    },
-    {
-      "id": "codex_ide_extension",
-      "provider": "OpenAI",
-      "surface": "Codex IDE extension",
       "overall_status": "untested",
       "advertised": false,
       "results": {

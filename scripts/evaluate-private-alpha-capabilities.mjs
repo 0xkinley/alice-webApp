@@ -14,9 +14,6 @@ const exactSurfaces = new Set([
   "claude_code",
   "chatgpt_web",
   "chatgpt_desktop",
-  "codex_desktop",
-  "codex_cli",
-  "codex_ide_extension",
 ]);
 const matrixStatuses = new Set(["pass", "fail", "provider_blocked", "untested"]);
 const forbiddenHostAuthority =

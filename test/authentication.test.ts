@@ -62,7 +62,8 @@ test("presents an honest friend-facing product entry point without authenticatio
   assert.match(html, /AI can propose\. Only you can save/);
   assert.match(html, /Choose the destination/);
   assert.match(html, /Your providers, your accounts/);
-  assert.match(html, /No Claude, ChatGPT, or Codex client surface is advertised as supported/);
+  assert.match(html, /No Claude or ChatGPT client surface is advertised as supported/);
+  assert.match(html, /Codex is not part of the private alpha/);
   assert.match(html, /Do not enter sensitive, regulated, or client-confidential information/);
   assert.match(html, /href="\/auth\/login"/);
   assert.match(html, /href="\/privacy-security"/);

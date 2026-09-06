@@ -22,7 +22,7 @@ test("private-alpha evaluation covers every required capability and exact host s
     new Set(fixture.cases.map(({ host }) => host)),
     new Set(["chatgpt", "claude", "provider-neutral", "cross-host"]),
   );
-  assert.equal(matrix.surfaces.length, 10);
+  assert.equal(matrix.surfaces.length, 7);
   assert.equal(matrix.invocation_denominator_contract, "evals/host-invocation-denominators.json");
   assert.equal(
     matrix.surfaces.every(
@@ -41,5 +41,5 @@ test("private-alpha evaluation covers every required capability and exact host s
   );
   assert.match(output, /27\/27 expected outcomes/);
   assert.match(output, /22 compliant traces, 5 correctly rejected traces/);
-  assert.match(output, /10 surfaces, 70 explicit capability results, 0 advertised surfaces/);
+  assert.match(output, /7 surfaces, 49 explicit capability results, 0 advertised surfaces/);
 });

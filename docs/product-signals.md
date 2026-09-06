@@ -34,4 +34,4 @@ The implemented denominator contract is limited to a controlled compatibility co
 
 The machine-readable contract is `evals/host-invocation-denominators.json`. `npm run eval:invocation` validates the formula, explicit outcomes, content-free allowlist, exact-surface registry, and compatibility-matrix gate. A surface cannot be advertised until it has its own dated `measurable` denominator record. A `provider_blocked` or `untested` surface remains unsupported.
 
-This contract makes future controlled compatibility rates defensible; it does not create or claim a population-wide rate for ordinary private-alpha use. The current registry has no live denominator run, so all ten exact surfaces remain untested and no current invocation percentage is published.
+This contract makes future controlled compatibility rates defensible; it does not create or claim a population-wide rate for ordinary private-alpha use. The current registry has no live denominator run, so all seven exact Claude and ChatGPT surfaces remain untested and no current invocation percentage is published. Codex is outside the private-alpha denominator and participant product scope.
