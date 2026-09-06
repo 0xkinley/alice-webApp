@@ -8,7 +8,7 @@ Decision date: 2026-09-06
 
 This document records three planned product changes without implementing them:
 
-1. a conversation-aware alice. project and context picker inside ChatGPT and Claude;
+1. a conversation-aware alice. project and context workspace inside ChatGPT and Claude, including creation, provider availability, and file selection;
 2. a single-action `Save` card with no `Cancel` control; and
 3. an explicitly consented way to bring an existing ChatGPT or Claude project into alice.
 
@@ -20,9 +20,13 @@ The intended experience is:
 
 1. The connected integration is presented as `alice.`.
 2. An alice.-controlled MCP App lists only projects and work contexts the authenticated user may access.
-3. The user chooses one project and one context.
-4. The card clearly shows `Working in <project> → <context>`.
-5. The user continues in the normal host composer. The host retrieves that context without requiring a discovery prompt such as “can you see the project?”.
+3. The user chooses an existing project or creates a project through an explicit authenticated control.
+4. The user chooses an existing work context or creates one, including its human access policy.
+5. The user explicitly chooses whether the context is available to that user's separately authenticated ChatGPT connection, Claude connection, both, or neither.
+6. The user selects existing scan-clean project files to reference from the context or uploads new supported files through the verified alice. file path.
+7. One exact review names the project, context, human access, provider availability, and file references before the control-plane changes are applied.
+8. The card clearly shows `Working in <project> → <context>` when the current connection is allowed to use that context.
+9. The user continues in the normal host composer. The host retrieves that context without requiring a discovery prompt such as “can you see the project?”.
 
 ChatGPT and Claude own their native connector menus and sidebars. alice. cannot turn those host-owned menus into its own nested project browser. The picker must therefore be an MCP App rendered in the conversation or a clearly linked alice.-controlled fallback.
 
@@ -30,7 +34,11 @@ The current implementation stores one active target per user and integration con
 
 If a host does not expose a safe conversation binding, alice. must not pretend that two simultaneous conversations can hold different destinations. The fallback remains one visible connection-wide target, with an explicit warning that changing it affects future alice. calls from other conversations on that connection.
 
-Selecting a destination changes routing only. It does not accept AI output, expand access, or change trusted project context.
+Human access and AI-provider availability are separate authorization dimensions. `Available to ChatGPT`, `Available to Claude`, both, or neither means that alice. may answer authenticated calls from the selected connection class; it does not proactively send or synchronize the context to a provider. The implementation must enforce the choice on discovery, context reads, explicit fallback reads, file-reference disclosure, file reads, captures, and attachment saves. A routing target cannot broaden a provider grant, and denied connections must not learn the context or file names, counts, identifiers, or freshness.
+
+For the private alpha, each selected or newly uploaded file inherits the context's human access and provider availability. Per-file provider overrides are deliberately excluded: a file that needs different provider availability belongs in a different context. One immutable scan-clean object may still be referenced from multiple authorized contexts without duplicating bytes or silently broadening access. Uploading or selecting a file creates only an authorized source reference; its contents remain untrusted and do not become accepted context.
+
+Creating a project or context, setting its access, choosing provider availability, attaching source-file references, and selecting a routing destination are explicit human control-plane actions. They do not accept AI output or change trusted project assertions. Content proposed by a host continues to require the separate exact `Save` authority described below.
 
 Official implementation references must be revalidated before coding:
 
@@ -94,7 +102,7 @@ The importer must reuse the existing private-file defenses where applicable: bou
 
 ## Roadmap placement
 
-- Milestone 06 owns the conversation-aware picker and the replacement single-action Save card.
+- Milestone 06 owns the conversation-aware project/context workspace, including authenticated creation, separate human-access and ChatGPT/Claude-availability choices, inherited context-file selection/upload, conversation-aware routing, and the replacement single-action Save card.
 - The exhaustive seven-surface live compatibility matrix is not a Milestone 06 completion gate.
 - Milestone 07 validates only the exact ChatGPT or Claude surfaces used by participants and keeps untested capabilities unadvertised.
 - Milestone 07 may test demand and export feasibility for existing-project import with synthetic or non-sensitive user-supplied data.
