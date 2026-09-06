@@ -1,18 +1,18 @@
 # Host-Surface Compatibility and Private-Alpha Evaluations
 
-Status: Live alpha-surface testing ready on hosted MCP 0.6.2; local simplified attachment flow is MCP 0.6.4; no advertised surfaces
+Status: Optional evidence registry ready; just-in-time participant-surface validation planned for Milestone 07; no advertised surfaces
 
 Decision date: 2026-09-06
 
 ## Purpose
 
-alice. records compatibility per exact host surface. A result from one client never applies to another client, even when both clients belong to the same provider or use the same account. The machine-readable capability source of truth is `evals/host-surface-compatibility.json`; its linked invocation source is `evals/host-invocation-denominators.json`. This document explains how both are maintained and how their results may be used.
+alice. records compatibility per exact host surface. A result from one client never applies to another client, even when both clients belong to the same provider or use the same account. The machine-readable evidence registry is `evals/host-surface-compatibility.json`; its linked invocation source is `evals/host-invocation-denominators.json`. This document explains how both are maintained and how their results may be used. Completing the full registry is not a Milestone 06 requirement.
 
-The private-alpha matrix is intentionally limited to the two participant products: Claude and ChatGPT. All 49 capability cells across their seven required surfaces are explicitly `untested`, every surface is unadvertised, and every untested capability is treated as unsupported. Codex is outside the private-alpha product scope; internal use of alice. from Codex is development evidence only and cannot be advertised or inherited by a ChatGPT result. The earlier generic hosted OAuth verifier proved alice.'s server-side PKCE, refresh rotation, revocation, and post-revocation HTTP 401 behavior, but it was not initiated by one of these exact provider surfaces and therefore does not promote any matrix cell.
+The registry is intentionally limited to the two participant products: Claude and ChatGPT. All 49 capability cells across its seven enumerated surfaces are explicitly `untested`, every surface is unadvertised, and every untested capability is treated as unsupported. Milestone 07 needs to validate only an exact surface that will actually be used by a participant; it does not need to complete unrelated rows. Codex is outside the private-alpha product scope; internal use of alice. from Codex is development evidence only and cannot be advertised or inherited by a ChatGPT result. The earlier generic hosted OAuth verifier proved alice.'s server-side PKCE, refresh rotation, revocation, and post-revocation HTTP 401 behavior, but it was not initiated by one of these exact provider surfaces and therefore does not promote any matrix cell.
 
 The retained hosted MCP runtime reports server version `0.6.2`. Hosted source commit `43febda` is deployed as immutable ECR digest `sha256:f03b9d1276b25415d59e528b15cf23c851265978c570181c9c6dbd35a00b7b60`; its automatic scan returned no findings, and the earlier private task verified all 18 migrations before runtime restoration. Native or fallback attachment-transfer results for the previously deployed allowlist may now be recorded against that exact identity, but only through a dated run on the exact surface. The local branch reports MCP `0.6.4`, includes migration 019 for the expanded format allowlist, and routes new ChatGPT/Claude attachment saves to the connection's exact active work context with no suggestion or Needs attention branch. Those changes have no hosted deployment evidence yet. Deployment eligibility does not promote any capability cell by itself.
 
-## Required surfaces and current status
+## Enumerated surfaces and current status
 
 | Provider | Exact surface | Current status | Advertised |
 | --- | --- | --- | --- |
@@ -31,12 +31,14 @@ Each exact surface has explicit entries for:
 - OAuth connect, reconnect, refresh, revoke, and post-revocation denial;
 - permitted project discovery and alice.-controlled active project/context selection;
 - accepted-context retrieval without manual restatement;
-- candidate save followed by exact authenticated human confirmation or cancellation;
+- candidate save followed by exact authenticated human confirmation and no activation when the user takes no Save action;
 - permission-filtered file references and native attachment transfer or the alice.-controlled fallback;
 - permission denial with no restricted metadata or mutation; and
 - cross-host reuse of only human-confirmed state.
 
-The allowed cell statuses are `pass`, `fail`, `provider_blocked`, and `untested`. A surface may be advertised only when every capability cell is `pass` and its exact denominator record is `measurable`. `Fail`, `provider_blocked`, and `untested` remain unsupported and use the exact fallback recorded in the matrix.
+The allowed cell statuses are `pass`, `fail`, `provider_blocked`, and `untested`. A surface may be advertised only for capabilities with current `pass` evidence and the required measurable denominator. `Fail`, `provider_blocked`, and `untested` remain unsupported and use the exact fallback recorded in the registry. An untested surface does not block Milestone 06 or an independently verified surface.
+
+The current version-1 registry and deterministic harness still describe the implemented Save/Cancel flow. The planned single-action Save card will require a versioned schema and fixture update when it is implemented; planning text does not rewrite current runtime evidence.
 
 ## Recording a live run
 
@@ -75,4 +77,4 @@ npm run eval:invocation
 
 The scripts print only aggregate pass/fail evidence. They validate exactly seven private-alpha surfaces, seven explicit capability cells per surface, live-run references for any non-untested result, the consented synthetic denominator formula and retention allowlist, and the rule that no incomplete or unmeasured surface is advertised. They perform no network request, provider login, database write, AWS action, model call, or paid operation.
 
-This deterministic harness verifies the repository policy and its test coverage. It does not claim that any current provider client invokes alice. correctly. Live, dated surface runs remain required before the compatibility-matrix milestone task can close.
+This deterministic harness verifies the repository policy and its test coverage. It does not claim that any current provider client invokes alice. correctly. A live, dated run remains required before an exact surface or capability can be used with a participant or advertised, but completion of the exhaustive registry is not a Milestone 06 gate.

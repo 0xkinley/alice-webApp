@@ -1,0 +1,101 @@
+# Planned ChatGPT and Claude Host Experience
+
+Status: Product-owner direction recorded; not implemented or deployed
+
+Decision date: 2026-09-06
+
+## Scope
+
+This document records three planned product changes without implementing them:
+
+1. a conversation-aware alice. project and context picker inside ChatGPT and Claude;
+2. a single-action `Save` card with no `Cancel` control; and
+3. an explicitly consented way to bring an existing ChatGPT or Claude project into alice.
+
+The private-alpha participant products remain ChatGPT and Claude. Codex remains internal development and testing infrastructure rather than a participant surface.
+
+## Conversation-aware project and context selection
+
+The intended experience is:
+
+1. The connected integration is presented as `alice.`.
+2. An alice.-controlled MCP App lists only projects and work contexts the authenticated user may access.
+3. The user chooses one project and one context.
+4. The card clearly shows `Working in <project> → <context>`.
+5. The user continues in the normal host composer. The host retrieves that context without requiring a discovery prompt such as “can you see the project?”.
+
+ChatGPT and Claude own their native connector menus and sidebars. alice. cannot turn those host-owned menus into its own nested project browser. The picker must therefore be an MCP App rendered in the conversation or a clearly linked alice.-controlled fallback.
+
+The current implementation stores one active target per user and integration connection. That is independent between ChatGPT and Claude but shared by multiple conversations using the same connection. The planned design binds a selection to the exact conversation when the host supplies safe, stable conversation state. A host-supplied identifier is never accepted as authorization by itself; the authenticated alice. user, connection, project membership, context permission, and current selection version remain authoritative.
+
+If a host does not expose a safe conversation binding, alice. must not pretend that two simultaneous conversations can hold different destinations. The fallback remains one visible connection-wide target, with an explicit warning that changing it affects future alice. calls from other conversations on that connection.
+
+Selecting a destination changes routing only. It does not accept AI output, expand access, or change trusted project context.
+
+Official implementation references must be revalidated before coding:
+
+- OpenAI, [Add UI to your MCP server](https://developers.openai.com/plugins/build/chatgpt-ui)
+- Anthropic, [Connectors overview](https://claude.com/docs/connectors/overview)
+- Anthropic, [MCP Apps design guidelines](https://claude.com/docs/connectors/building/mcp-apps/design-guidelines)
+
+## Single-action Save card
+
+When the user explicitly asks to save conversation content, a decision, a handoff, or a host attachment, alice. should render one exact preview in the same conversation. The preview names:
+
+- the destination project and context;
+- the content or filename that will be saved;
+- the access inherited from the destination;
+- the source host and available provenance; and
+- any current saved value that would be superseded.
+
+The card has one decision control: `Save`. It has no `Cancel`, cross, `Not now`, or suggestion action. Closing the card, ignoring it, navigating away, or allowing it to expire means that the user did not save it.
+
+Before the authenticated Save action, the implementation may hold only the minimum short-lived preview state needed to render and validate the exact card. It must not create a durable candidate, Needs attention item, accepted-state version, file reference, or saved-context entry. Expired preview content is removed according to a documented short retention period; content-free security telemetry may be retained only if separately disclosed.
+
+The authenticated Save click is the human authority boundary. It may atomically persist immutable evidence, provenance, any internal candidate representation required by the data model, and the accepted version or file reference authorized by that exact preview. A model statement, tool call, generated field, or host confirmation cannot substitute for the user's click.
+
+If a host cannot render the MCP App safely, the fallback is an authenticated alice.-controlled web preview with the same single `Save` action and the same no-action behavior. The current Save/Cancel web flow and pending queue remain implemented until this replacement is built and verified; this document does not claim that the new behavior is live.
+
+## Bringing an existing host project into alice.
+
+### Feasibility boundary
+
+This feature is feasible as an explicit import, but it cannot currently be promised as automatic MCP access to every pre-existing host project, conversation, and file.
+
+alice.'s MCP server exposes alice. tools and data to the host. Connecting it does not, by itself, give alice. an API for enumerating the user's ChatGPT or Claude account, historical projects, complete chat history, or all project files. Current MCP App interfaces support UI, tool calls, and user-selected file handling; they are not blanket account-export permissions.
+
+A user-supplied export produced by a provider's own account controls, when available for that account and workspace, is the safest initial ingestion source. The exact contents and restrictions of each provider export must be verified before alice. accepts it. Project files that are absent from an export must be selected and uploaded separately. alice. must not scrape a provider UI, request session cookies, automate an undocumented endpoint, or claim continuous synchronization without a documented provider API and a separate permission grant.
+
+Official references to revalidate during discovery:
+
+- OpenAI, [Add UI to your MCP server](https://developers.openai.com/plugins/build/chatgpt-ui)
+- Anthropic, [Export your Claude data](https://support.claude.com/en/articles/9450526-export-your-claude-data)
+- Anthropic, [Manage Claude projects](https://support.claude.com/en/articles/9519177-how-can-i-create-and-manage-projects)
+
+### Proposed consent flow
+
+1. The user chooses `Import an existing project` in alice.
+2. alice. explains that this is a one-time copy, not automatic synchronization, and identifies the provider and destination.
+3. The user uploads a provider-generated export and any separately selected project files.
+4. alice. validates and scans the archive, then shows an inventory containing only safe metadata: detected projects, conversation titles and dates, filenames, counts, and sizes.
+5. The user selects the exact projects, chats, and files to import. `Select all` may be offered, but it cannot be preselected.
+6. A final confirmation names the destination alice. project/context, selected counts, access, storage consequences, and deletion controls.
+7. alice. imports only the confirmed items and returns an exact receipt. Re-import uses stable hashes and source identifiers where available to detect duplicates rather than silently creating copies.
+
+Consent to one import does not authorize background synchronization, future exports, another provider, another project, or content outside the final inventory. Any future official provider API integration requires separate least-privilege authorization and revocation.
+
+### Trust and provenance
+
+Imported conversations and files are immutable, untrusted source artifacts. Importing them does not convert assistant output into alice.-verified decisions and does not make their contents active context.
+
+Every imported item should preserve available provider, project, conversation, file, timestamp, source-export, and content-hash provenance. alice. may later propose bounded context entries from selected imported material, but those proposals require the same exact human Save authority as new host-generated material.
+
+The importer must reuse the existing private-file defenses where applicable: bounded size and count limits, safe archive paths, supported compression, encryption rejection, file-signature validation, malware scanning, private object storage, permission checks, short-lived access, removal, export, and verified deletion behavior. The alpha's prohibition on sensitive, regulated, or client-confidential test data continues to apply.
+
+## Roadmap placement
+
+- Milestone 06 owns the conversation-aware picker and the replacement single-action Save card.
+- The exhaustive seven-surface live compatibility matrix is not a Milestone 06 completion gate.
+- Milestone 07 validates only the exact ChatGPT or Claude surfaces used by participants and keeps untested capabilities unadvertised.
+- Milestone 07 may test demand and export feasibility for existing-project import with synthetic or non-sensitive user-supplied data.
+- Full existing-project import remains unscheduled until export contents, parsing limits, granular consent, provenance, deduplication, collaboration boundaries, and deletion behavior are verified.

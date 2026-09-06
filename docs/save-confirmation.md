@@ -23,3 +23,9 @@ One `× Not now` action marks every still-pending candidate in that exact captur
 The form carries an opaque SHA-256 preview version over the immutable evidence hash, destination, every candidate's exact content/status, and current accepted versions. Missing, changed, previously decided, stale, or concurrently submitted previews fail closed. PostgreSQL candidate row locks ensure that two simultaneous confirmations produce one complete winner and one conflict rather than a partial or duplicate activation.
 
 The authenticated Needs attention queue links every candidate back to its exact capture preview, so the flow does not depend on a host rendering a native interactive component. Foreign and guessed evidence identifiers return the same not-found response, reveal no project/context/candidate metadata, and cannot confirm or cancel anything.
+
+## Planned MCP App replacement
+
+The 2026-09-06 product-owner direction replaces this current Save/Not now interaction on supported ChatGPT and Claude surfaces with an exact alice.-controlled MCP App card containing only `Save`. Closing, ignoring, navigating away, or expiry means no save and must create no durable candidate, Needs attention item, accepted state, or file reference. The authenticated Save click remains the human authority boundary and preserves immutable evidence and provenance atomically with activation. A matching alice.-controlled web card is the fallback when a host cannot render the component.
+
+This replacement is planned, not implemented or deployed. Until it is verified, the authority boundary and current behavior above remain the source of runtime truth. The complete planned host interaction is recorded in `docs/planned-host-experience.md`.

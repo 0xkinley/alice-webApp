@@ -108,17 +108,17 @@ These constraints follow Chrome's documented guidance that `activeTab` grants te
 
 Because provider capabilities change, repository claims about current plan behavior must include a verification date and should be rechecked before release or cohort expansion.
 
-## Milestone 06 surface-evaluation contract
+## Just-in-time participant-surface evaluation
 
-The planned private-alpha support target is a matrix, not a blanket provider label. Live evaluation covers Claude web, Claude Desktop, Claude iOS, Claude Android, Claude Code, ChatGPT web, and ChatGPT desktop. Codex is outside the private-alpha product scope; any Codex connection is for internal development or testing and does not establish participant support.
+The repository retains a versioned surface registry rather than making a blanket provider claim, but completing every enumerated Claude and ChatGPT row is not a Milestone 06 gate. Milestone 07 evaluates the exact client before it is used with a participant or advertised. Codex is outside the private-alpha product scope; any Codex connection is for internal development or testing and does not establish participant support.
 
 Every surface receives the same minimum evaluation categories:
 
 1. OAuth discovery, scoped authorization, reconnect, and revoke.
 2. Permitted project discovery and explicit active project/context selection.
 3. Side-effect-free accepted-context retrieval with provenance, freshness, budget, and omission reporting.
-4. Candidate capture followed by an exact authenticated human confirmation, plus cancellation that performs no activation.
+4. An exact authenticated human Save action, plus closing, ignoring, or expiry that performs no activation or durable project-state write.
 5. Authorized file-reference retrieval and either verified host attachment transfer or an honest pre-targeted alice. upload fallback.
 6. Cross-tenant, non-member, insufficient-role, restricted-context, guessed-identifier, and revoked-connection denial without content or metadata disclosure and without mutation.
 
-Results are recorded separately as `Pass`, `Fail`, `Provider-blocked`, or `Not tested`, together with date, client version, account type, region, transport, scopes, and evidence. No result may be copied from another surface. ChatGPT mobile remains outside the initial advertised set until its custom remote integration path is documented and independently live-tested.
+Results are recorded separately as `Pass`, `Fail`, `Provider-blocked`, or `Not tested`, together with date, client version, account type, region, transport, scopes, and evidence. No result may be copied from another surface. Untested rows do not block Milestone 06, but they remain unadvertised. ChatGPT mobile remains outside the initial advertised set until its custom remote integration path is documented and independently live-tested.

@@ -39,7 +39,7 @@ Context similarity begins with deterministic normalized fields and full-text sig
 
 ### Consumption
 
-After connection and target selection, supported hosts should retrieve the active project/context without requiring the user to repeat “use alice.” in every prompt. Tool contracts and host instructions may make normal retrieval discoverable, but host capabilities differ. The product must expose a capability matrix and retain an explicit fallback when a host cannot bind a conversation reliably to the active target.
+After connection and target selection, supported hosts should retrieve the active project/context without requiring the user to repeat “use alice.” in every prompt. Tool contracts and host instructions may make normal retrieval discoverable, but host capabilities differ. The product must retain an honest per-surface support record and an explicit fallback when a host cannot bind a conversation reliably to the active target. Completing an exhaustive provider-surface matrix is not a Milestone 06 gate.
 
 Read/fetch operations remain side-effect free. They cannot alter active selection, freshness, evidence, candidates, accepted state, membership, or permissions.
 
@@ -212,9 +212,9 @@ Current hosted state on 2026-09-02: the remediated private migration task verifi
 
 Remote MCP is the integration architecture, but capability claims are made per host surface rather than per provider brand. A successful result on one client does not establish support on another client, even when they use the same account or server URL.
 
-The versioned machine-readable source of truth is `evals/host-surface-compatibility.json`; its maintenance and bounded evaluation procedure are documented in `docs/host-surface-compatibility.md`. Milestone 06 records live, dated results for this matrix:
+The versioned machine-readable evidence registry is `evals/host-surface-compatibility.json`; its maintenance and bounded evaluation procedure are documented in `docs/host-surface-compatibility.md`. The registry remains available, but completing every row is not a Milestone 06 gate. Milestone 07 records a dated result only for an exact ChatGPT or Claude surface before that surface is used with a participant or advertised:
 
-| Provider | Surface | OAuth connect, reconnect, revoke | Project list and active selection | Accepted-context read | Candidate save, exact confirm, cancel | File reference and attachment fallback | Permission denial/non-disclosure | Milestone 06 status |
+| Provider | Surface | OAuth connect, reconnect, revoke | Project list and active selection | Accepted-context read | Candidate save and exact confirmation | File reference and attachment fallback | Permission denial/non-disclosure | Current evidence state |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Anthropic | Claude web | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
 | Anthropic | Claude Desktop | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
@@ -224,13 +224,13 @@ The versioned machine-readable source of truth is `evals/host-surface-compatibil
 | OpenAI | ChatGPT web | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
 | OpenAI | ChatGPT desktop | Not tested | Not tested | Not tested | Not tested | Not tested | Not tested | Unsupported |
 
-Each result records the date, provider/client version, account type, region, transport, authorization scopes, tool exposure, observed confirmation behavior, and durable evidence location. `Pass`, `Fail`, `Provider-blocked`, and `Not tested` are distinct states. Only passing capabilities may appear in onboarding or marketing copy. Provider-blocked or failed native save and file-transfer paths use an alice.-controlled confirmation or pre-targeted upload fallback; they are not reported as native support.
+Each result records the date, provider/client version, account type, region, transport, authorization scopes, tool exposure, observed confirmation behavior, and durable evidence location. `Pass`, `Fail`, `Provider-blocked`, and `Not tested` are distinct states. Only passing capabilities may appear in onboarding or marketing copy. Provider-blocked or failed native save and file-transfer paths use an alice.-controlled confirmation or pre-targeted upload fallback; they are not reported as native support. This just-in-time validation rule does not require unrelated clients to be tested before the alpha can proceed.
 
 The private alpha is intentionally limited to the ChatGPT and Claude products. Codex is outside participant onboarding, support claims, interactive save-card work, invocation denominators, and completion gates. A Codex connection may remain available for internal development or testing, but its behavior is not private-alpha evidence and cannot be inherited by a ChatGPT surface.
 
 The local deterministic private-alpha harness covers all required product capabilities and cross-host invariants, validates runtime-test evidence paths, and prevents incomplete matrix records from being advertised. It is deliberately not live-host evidence. The generic hosted OAuth/MCP verifier is also server-side deployment evidence rather than a result for any exact provider surface.
 
-ChatGPT mobile is outside the initial advertised matrix because current support has not been established for alice.'s custom remote integration path. It may be added only through a dated documentation review and separate live run; generic “ChatGPT support” must not imply mobile support.
+ChatGPT mobile remains unadvertised because current support has not been established for alice.'s custom remote integration path. It may be added only through a dated documentation review and separate live run; generic “ChatGPT support” must not imply mobile support.
 
 Official capability references must be revalidated at implementation time because provider behavior changes:
 
@@ -263,7 +263,7 @@ alice. will not copy Keel source, assets, screenshots, identity, claims, or depl
 
 The friend-facing entry point is the unauthenticated `/about` route. Its hero uses direct participant language—keep the decisions, questions, and files the user chooses to save in one place so the same project can continue across AI tools—rather than leading with internal governance or project-intelligence terminology. The rest of the page explains the human-only save boundary, project/context loop, private-file and collaboration scopes, visible read receipts, provider boundary, invitation requirement, and prohibited-data rule without advertising an untested provider surface. Invited registration, the privacy/security notice, and the remaining public, authenticated, disclosure, and status pages link back into this small public information architecture; sign-in deliberately shows only the alice. identity and invite-only credential flow.
 
-The current hosted image was replaced in place from source commit `eebbf7b` on 2026-09-06 after its automatic ECR scan returned no findings; the preceding private migration task had verified all 18 hosted migrations. Both web and MCP functions resolve immutable digest `sha256:be127a68ac5f3adb3412f4a4d6274439cfc12c4cb1ee92cc32b42dcb39c6cbd1`. Their health routes return HTTP 200 with PostgreSQL reachable, logged-out web `/` returns HTTP 303 to its own sign-in route, and `/about` plus `/privacy-security` return HTTP 200. The image includes the current ChatGPT Customize > Plugins destination and Claude connector-prefill destination, but deployment is not provider-surface compatibility evidence. Every surface remains `untested` and unadvertised until its own dated live run. The complete friend-facing task also remains dependent on the still-open live surface matrix and permanent file-erasure controls and must not be used to advertise an unverified provider surface or deletion promise.
+The current hosted image was replaced in place from source commit `eebbf7b` on 2026-09-06 after its automatic ECR scan returned no findings; the preceding private migration task had verified all 18 hosted migrations. Both web and MCP functions resolve immutable digest `sha256:be127a68ac5f3adb3412f4a4d6274439cfc12c4cb1ee92cc32b42dcb39c6cbd1`. Their health routes return HTTP 200 with PostgreSQL reachable, logged-out web `/` returns HTTP 303 to its own sign-in route, and `/about` plus `/privacy-security` return HTTP 200. The image includes the current ChatGPT Customize > Plugins destination and Claude connector-prefill destination, but deployment is not provider-surface compatibility evidence. Every surface remains `untested` and unadvertised until its own dated live run. The complete friend-facing task remains dependent on the permanent file-erasure controls and must not be used to advertise an unverified provider surface or deletion promise.
 
 Product-owner visual feedback on 2026-09-01 established one additional interaction rule: every anchor must look clickable rather than relying on underlined text alone. Primary navigation or continuation actions use the filled green button treatment; secondary navigation, contextual actions, footer links, and inline links use the quieter bordered dark button treatment. Both retain the shared visible focus outline, hover contrast, responsive wrapping, and semantic anchor behavior.
 
@@ -323,12 +323,12 @@ Milestone 06 is not complete on local happy paths alone. Verification must cover
 
 - a clean PostgreSQL migration and restored backup;
 - hosted web and MCP OAuth/read/write/revocation flows from both target hosts;
-- dated surface-by-surface OAuth, project selection, accepted-context read, save/confirm/cancel, file reference/transfer fallback, and permission-denial runs for Claude web, Desktop, iOS, Android, and Claude Code, plus ChatGPT web and desktop;
+- standards-level and local MCP App verification for the ChatGPT and Claude project/context picker, conversation binding or disclosed connection-wide fallback, single-action Save card, and alice.-controlled web fallback; live exact-surface results are recorded just in time in Milestone 07 rather than gating Milestone 06 on every provider client;
 - a visible deterministic package preview plus last-read receipts and skipped/failed-invocation states that do not mutate project state;
 - project and context selection across multiple projects and concurrent sessions;
-- exact-preview save confirmation and cancel behavior;
+- exact-preview Save confirmation plus closing, ignoring, and expiry behavior that creates no durable project state;
 - direct file upload, validation, scanning, preview, versioning, authorized download, removal, export, erasure, and backup-expiry behavior;
-- ChatGPT and Claude attachment-save offers, confirmed transfer where supported, file-only and extraction choices, cancellation, duplicates, failures, generated files, and the pre-targeted alice. upload fallback;
+- ChatGPT and Claude attachment-save offers, confirmed transfer where supported, file-only and extraction choices, no-action expiry, duplicates, failures, generated files, and the pre-targeted alice. upload fallback;
 - malicious file content and prompt-injection attempts that cannot call tools, broaden access, activate context, or mutate evidence/accepted state;
 - removal from active consumption without provenance loss;
 - invitations, role changes, context restrictions, ownership edge cases, and per-user connections;
@@ -337,4 +337,4 @@ Milestone 06 is not complete on local happy paths alone. Verification must cover
 - Keel-directed visual consistency, desktop/mobile accessibility, copy approval, and first-time-user comprehension; and
 - agreement between participant-facing privacy statements and actual system behavior.
 
-Private-alpha recruitment begins only after these checks and the full repository verification contract pass.
+Private-alpha recruitment begins only after these checks and the full repository verification contract pass. Before a participant uses a specific ChatGPT or Claude client, Milestone 07 separately records a dated result for the exact surface and capabilities that participant needs.
