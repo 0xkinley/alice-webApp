@@ -4,6 +4,7 @@ import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { pdfExtractionVersion } from "@alice/schemas";
 import { appendAuditEvent } from "./audit.ts";
 import {
+  contextScopeForConnection,
   contextScopeForUser,
   projectScopeForUser,
   type ContextCapability,
@@ -464,6 +465,7 @@ export async function createProjectFileUploadIntent(
   store: PrivateFileStore,
   input: {
     userId: string;
+    connectionId?: string;
     projectId: string;
     contextId: string;
     fileName: string;
@@ -575,6 +577,7 @@ export async function finalizeProjectFileUpload(
   store: PrivateFileStore,
   input: {
     userId: string;
+    connectionId?: string;
     projectId: string;
     intentId: string;
     storageVersionId: string;
@@ -1073,6 +1076,7 @@ async function authorizedFileReference(
     userId: string;
     projectId: string;
     referenceId: string;
+    connectionId?: string;
   },
   { currentCleanOnly = false, capability = "read" as ContextCapability } = {},
 ) {
@@ -1089,12 +1093,20 @@ async function authorizedFileReference(
     )
     .get(project.projectWorkspaceId, input.projectId, input.referenceId);
   if (!seed) return undefined;
-  const access = await contextScopeForUser(database, {
-    userId: input.userId,
-    projectId: input.projectId,
-    contextId: seed.context_id,
-    capability,
-  });
+  const access = input.connectionId
+    ? await contextScopeForConnection(database, {
+        userId: input.userId,
+        connectionId: input.connectionId,
+        projectId: input.projectId,
+        contextId: seed.context_id,
+        capability,
+      })
+    : await contextScopeForUser(database, {
+        userId: input.userId,
+        projectId: input.projectId,
+        contextId: seed.context_id,
+        capability,
+      });
   if (!access || seed.workspace_id !== access.projectWorkspaceId) return undefined;
   const reference = await database
     .prepare(
@@ -1782,6 +1794,7 @@ export async function readProjectFileText(
   store: PrivateFileStore,
   input: {
     userId: string;
+    connectionId?: string;
     projectId: string;
     referenceId: string;
     startCharacter?: number;
@@ -1919,7 +1932,7 @@ function buildPdfTextRead(reference, extraction, startCharacter, endCharacter, c
 async function authorizedPdfExtraction(
   database,
   store: PrivateFileStore,
-  input: { userId: string; projectId: string; referenceId: string },
+  input: { userId: string; connectionId?: string; projectId: string; referenceId: string },
   capability: ContextCapability = "read",
 ) {
   const reference = await authorizedFileReference(database, input, {
@@ -1942,6 +1955,7 @@ export async function readProjectFilePdfText(
   store: PrivateFileStore,
   input: {
     userId: string;
+    connectionId?: string;
     projectId: string;
     referenceId: string;
     startCharacter?: number;
@@ -2003,7 +2017,7 @@ export async function readProjectFilePdfText(
 export async function getProjectPdfExtractionForSuggestion(
   database,
   store: PrivateFileStore,
-  input: { userId: string; projectId: string; referenceId: string },
+  input: { userId: string; connectionId?: string; projectId: string; referenceId: string },
 ) {
   return authorizedPdfExtraction(database, store, input, "write");
 }

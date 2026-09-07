@@ -1,4 +1,5 @@
 import express from "express";
+import { readFile } from "node:fs/promises";
 import {
   createMcpExpressApp,
   getOAuthProtectedResourceMetadataUrl,
@@ -10,29 +11,44 @@ import {
   McpServer,
   verifyBearerToken,
 } from "@modelcontextprotocol/server";
+import { registerAppResource, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { openDatabase } from "@alice/database";
 import {
   beginHostFileSaveTransfer,
   ContextBudgetError,
   activeTargetForConnection,
+  contextScopeForConnection,
+  createProject,
+  createWorkContext,
   createHostFileSaveOffer,
   finalizeHostFileSaveTransfer,
+  getContextProviderAvailability,
+  getProjectFileReferencePreview,
   getProjectContext,
   HostFileSaveOfferUserError,
   listProjects,
+  listProjectFiles,
+  referenceProjectFileInContext,
   listSelectableProjectContexts,
+  listSelectableProjectContextsForConnection,
   ProjectFileUserError,
   readProjectFilePdfText,
   readProjectFileText,
   recordContextReadFailure,
   recordContextReadSuccess,
   saveCandidateUpdate,
+  setActiveConnectionTarget,
+  setContextProviderAvailability,
   suggestProjectUpdatesFromFile,
+  tenantScopeForConnection,
 } from "@alice/domain";
 import type { PrivateFileStore } from "@alice/domain";
 import {
   beginHostFileTransferSchema,
+  attachAliceWorkspaceFileSchema,
   consumptionContractVersion,
+  createAliceWorkspaceContextSchema,
+  createAliceWorkspaceProjectSchema,
   finalizeHostFileTransferSchema,
   getActiveContextSchema,
   getProjectContextOutputSchema,
@@ -40,12 +56,15 @@ import {
   hostFileSaveOfferSchema,
   listProjectsOutputSchema,
   listProjectsSchema,
+  openAliceWorkspaceSchema,
   readProjectFileTextOutputSchema,
   readProjectFileTextSchema,
   readProjectFilePdfTextOutputSchema,
   readProjectFilePdfTextSchema,
   saveProjectUpdateSchema,
+  selectAliceWorkspaceContextSchema,
   suggestProjectUpdatesFromFileSchema,
+  updateContextProviderAvailabilitySchema,
 } from "@alice/schemas";
 import { createOAuth } from "./oauth.ts";
 
@@ -60,6 +79,104 @@ function authenticatedConnectionId(context) {
 function oauthToolSecurity(scope) {
   return {
     _meta: { securitySchemes: [{ type: "oauth2", scopes: [scope] }] },
+  };
+}
+
+const WORKSPACE_APP_URI = "ui://alice/workspace/v1.html";
+
+function oauthAppToolMeta(scope, visibility: Array<"model" | "app">) {
+  return {
+    securitySchemes: [{ type: "oauth2", scopes: [scope] }],
+    ui: { resourceUri: WORKSPACE_APP_URI, visibility },
+    "openai/outputTemplate": WORKSPACE_APP_URI,
+  };
+}
+
+async function workspaceAppHtml() {
+  const bundleUrl = new URL("./workspace-app.js", import.meta.url);
+  let script: string;
+  try {
+    script = await readFile(bundleUrl, "utf8");
+  } catch {
+    const sourceBuildUrl = new URL("../dist/workspace-app.js", import.meta.url);
+    script = await readFile(sourceBuildUrl, "utf8");
+  }
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>alice. workspace</title></head><body><main id="app"><p role="status">Loading alice. workspace…</p></main><script type="module">${script.replaceAll("</script", "<\\/script")}</script></body></html>`;
+}
+
+async function inChatWorkspaceSnapshot(database, { userId, connectionId, publicUrl }) {
+  const connection = await tenantScopeForConnection(database, { userId, connectionId });
+  if (!connection || !connection.provider) return undefined;
+  const [projects, activeTarget] = await Promise.all([
+    listSelectableProjectContexts(database, userId),
+    activeTargetForConnection(database, { userId, connectionId }),
+  ]);
+  const visibleProjects: any[] = [];
+  for (const project of projects) {
+    const contexts: any[] = [];
+    const fileLibrary = new Map<string, any>();
+    for (const context of project.contexts) {
+      const availability = await getContextProviderAvailability(database, {
+        userId,
+        projectId: project.id,
+        contextId: context.id,
+      });
+      const filesView = await listProjectFiles(database, {
+        userId,
+        projectId: project.id,
+        contextId: context.id,
+      });
+      const files = (filesView?.files || [])
+        .filter((file) => file.scan_status === "clean")
+        .map((file) => ({
+          id: file.id,
+          display_name: file.display_name,
+          media_type: file.media_type,
+          byte_size: Number(file.byte_size),
+          source_context_id: context.id,
+        }));
+      const sourceProviderAccess = await contextScopeForConnection(database, {
+        userId,
+        connectionId,
+        projectId: project.id,
+        contextId: context.id,
+      });
+      if (sourceProviderAccess) {
+        for (const file of files) {
+          const preview = await getProjectFileReferencePreview(database, {
+            userId,
+            projectId: project.id,
+            referenceId: file.id,
+          });
+          fileLibrary.set(file.id, {
+            ...file,
+            destinations: preview?.destinations || [],
+          });
+        }
+      }
+      contexts.push({
+        ...context,
+        provider_availability: availability,
+        current_files: files,
+        upload_url: new URL(
+          `/projects/${encodeURIComponent(project.id)}/files?context_id=${encodeURIComponent(context.id)}`,
+          publicUrl,
+        ).href,
+      });
+    }
+    visibleProjects.push({ ...project, contexts, file_library: [...fileLibrary.values()] });
+  }
+  return {
+    contract_version: "alice_workspace_app_v1",
+    provider: connection.provider,
+    routing: {
+      scope: "connection",
+      conversation_binding: "unavailable",
+      warning:
+        "This host does not expose a stable, server-verifiable conversation identifier. Changing the destination affects every conversation using this alice. connection.",
+    },
+    active_target: activeTarget || null,
+    projects: visibleProjects,
   };
 }
 
@@ -83,7 +200,299 @@ function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes 
 }
 
 function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore | undefined) {
-  const server = new McpServer({ name: "alice-mcp", version: "0.6.4" });
+  const server = new McpServer({ name: "alice-mcp", version: "0.7.0" });
+
+  registerAppResource(
+    server as unknown as Parameters<typeof registerAppResource>[0],
+    "alice. workspace",
+    WORKSPACE_APP_URI,
+    {
+      title: "alice. workspace",
+      description: "Portable authenticated project, context, provider, and file controls.",
+      _meta: { ui: { prefersBorder: true } },
+    },
+    async () => ({
+      contents: [
+        {
+          uri: WORKSPACE_APP_URI,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: await workspaceAppHtml(),
+          _meta: { ui: { prefersBorder: true } },
+        },
+      ],
+    }),
+  );
+
+  server.registerTool(
+    "open_alice_workspace",
+    {
+      title: "Open alice. workspace",
+      description:
+        "Open the authenticated alice. workspace picker when the user wants to choose or change a project, work context, provider availability, or context files. The interactive alice. App performs all control-plane changes; this opening call changes nothing.",
+      inputSchema: openAliceWorkspaceSchema,
+      _meta: oauthAppToolMeta("mcp:read", ["model"]),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async (_input, context) => {
+      const userId = authenticatedUserId(context);
+      const connectionId = authenticatedConnectionId(context);
+      const connection = await tenantScopeForConnection(database, { userId, connectionId });
+      const activeTarget = await activeTargetForConnection(database, { userId, connectionId });
+      if (!connection?.provider) {
+        return {
+          content: [
+            { type: "text", text: "This alice. App supports ChatGPT and Claude connections only." },
+          ],
+          isError: true,
+        };
+      }
+      const output = {
+        contract_version: "alice_workspace_app_v1",
+        provider: connection.provider,
+        active_target: activeTarget || null,
+        routing_scope: "connection",
+        warning:
+          "This host does not expose a stable, server-verifiable conversation identifier. Changes affect every conversation using this alice. connection.",
+      };
+      return {
+        content: [
+          { type: "text", text: "Use the alice. workspace card to review and apply changes." },
+        ],
+        structuredContent: output,
+      };
+    },
+  );
+
+  server.registerTool(
+    "alice_workspace_snapshot",
+    {
+      title: "Refresh alice. workspace",
+      description: "Refresh the authenticated human management view used by the alice. App.",
+      inputSchema: openAliceWorkspaceSchema,
+      _meta: oauthAppToolMeta("mcp:read", ["app"]),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async (_input, context) => {
+      const output = await inChatWorkspaceSnapshot(database, {
+        userId: authenticatedUserId(context),
+        connectionId: authenticatedConnectionId(context),
+        publicUrl,
+      });
+      if (!output) {
+        return { content: [{ type: "text", text: "Workspace unavailable." }], isError: true };
+      }
+      return { content: [], structuredContent: output };
+    },
+  );
+
+  server.registerTool(
+    "alice_update_context_providers",
+    {
+      title: "Update provider availability",
+      description: "Apply the authenticated user's explicit provider choices for one context.",
+      inputSchema: updateContextProviderAvailabilitySchema,
+      _meta: oauthAppToolMeta("mcp:write", ["app"]),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
+        return { content: [{ type: "text", text: "Write access is unavailable." }], isError: true };
+      }
+      const result = await setContextProviderAvailability(database, {
+        userId: authenticatedUserId(context),
+        projectId: input.project_id,
+        contextId: input.context_id,
+        chatgpt: input.chatgpt,
+        claude: input.claude,
+        expectedVersions: input.expected_versions,
+      });
+      if (!result || result.conflict) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: result?.conflict
+                ? "The provider choices changed. Refresh and review again."
+                : "Context unavailable.",
+            },
+          ],
+          isError: true,
+        };
+      }
+      return { content: [], structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "alice_select_workspace_context",
+    {
+      title: "Select alice. destination",
+      description: "Select one provider-authorized project and work context for this connection.",
+      inputSchema: selectAliceWorkspaceContextSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["app"]),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
+        return { content: [{ type: "text", text: "Write access is unavailable." }], isError: true };
+      }
+      const connectionId = authenticatedConnectionId(context);
+      const result = await setActiveConnectionTarget(database, {
+        userId: authenticatedUserId(context),
+        connectionId,
+        projectId: input.project_id,
+        contextId: input.context_id,
+        expectedVersions: { [connectionId]: input.expected_selection_version },
+      });
+      if (!result || result.conflict) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: result?.conflict
+                ? "The destination changed. Refresh and review again."
+                : "Destination unavailable for this provider.",
+            },
+          ],
+          isError: true,
+        };
+      }
+      return { content: [], structuredContent: result };
+    },
+  );
+
+  server.registerTool(
+    "alice_create_workspace_project",
+    {
+      title: "Create alice. project",
+      description:
+        "Create a project and its initial work context from exact human-entered settings.",
+      inputSchema: createAliceWorkspaceProjectSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["app"]),
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
+        return { content: [{ type: "text", text: "Write access is unavailable." }], isError: true };
+      }
+      const project = await createProject(
+        database,
+        authenticatedUserId(context),
+        { name: input.name, brief: input.brief },
+        {
+          providerAvailability: { chatgpt: input.chatgpt, claude: input.claude },
+          initialWorkContextVisibility: input.context_visibility,
+        },
+      );
+      if (!project) {
+        return { content: [{ type: "text", text: "Project unavailable." }], isError: true };
+      }
+      return { content: [], structuredContent: project };
+    },
+  );
+
+  server.registerTool(
+    "alice_create_workspace_context",
+    {
+      title: "Create alice. work context",
+      description: "Create one work context with exact human and provider access settings.",
+      inputSchema: createAliceWorkspaceContextSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["app"]),
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
+        return { content: [{ type: "text", text: "Write access is unavailable." }], isError: true };
+      }
+      const created = await createWorkContext(database, {
+        userId: authenticatedUserId(context),
+        projectId: input.project_id,
+        input: {
+          name: input.name,
+          description: input.description,
+          visibility: input.visibility,
+        },
+        providerAvailability: { chatgpt: input.chatgpt, claude: input.claude },
+      });
+      if (!created) {
+        return { content: [{ type: "text", text: "Project unavailable." }], isError: true };
+      }
+      return { content: [], structuredContent: created };
+    },
+  );
+
+  server.registerTool(
+    "alice_attach_workspace_file",
+    {
+      title: "Add existing file to context",
+      description:
+        "Add an exact scan-clean object reference to another authorized context without copying bytes.",
+      inputSchema: attachAliceWorkspaceFileSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["app"]),
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
+        return { content: [{ type: "text", text: "Write access is unavailable." }], isError: true };
+      }
+      const userId = authenticatedUserId(context);
+      const connectionId = authenticatedConnectionId(context);
+      const preview = await getProjectFileReferencePreview(database, {
+        userId,
+        projectId: input.project_id,
+        referenceId: input.source_reference_id,
+      });
+      const destination = preview?.destinations.find(
+        (item) =>
+          item.id === input.target_context_id &&
+          item.preview_version === input.expected_preview_version,
+      );
+      const [sourceAccess, targetAccess] = preview
+        ? await Promise.all([
+            contextScopeForConnection(database, {
+              userId,
+              connectionId,
+              projectId: input.project_id,
+              contextId: preview.reference.context_id,
+            }),
+            contextScopeForConnection(database, {
+              userId,
+              connectionId,
+              projectId: input.project_id,
+              contextId: input.target_context_id,
+              capability: "write",
+            }),
+          ])
+        : [];
+      if (!destination || !sourceAccess || !targetAccess) {
+        return { content: [{ type: "text", text: "File or context unavailable." }], isError: true };
+      }
+      const result = await referenceProjectFileInContext(database, {
+        userId,
+        projectId: input.project_id,
+        referenceId: input.source_reference_id,
+        targetContextId: input.target_context_id,
+        expectedPreviewVersion: input.expected_preview_version,
+      });
+      if (!result || result.conflict) {
+        return {
+          content: [{ type: "text", text: "The file choices changed. Refresh and review again." }],
+          isError: true,
+        };
+      }
+      return { content: [], structuredContent: result };
+    },
+  );
 
   server.registerTool(
     "list_projects",
@@ -101,18 +510,21 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
       const connectionId = authenticatedConnectionId(context);
       const [projects, selectable, activeTarget] = await Promise.all([
         listProjects(database, userId),
-        listSelectableProjectContexts(database, userId),
+        listSelectableProjectContextsForConnection(database, { userId, connectionId }),
         activeTargetForConnection(database, { userId, connectionId }),
       ]);
       const contextsByProject = new Map(
         selectable.map((project) => [project.id, project.contexts]),
       );
+      const permittedProjectIds = new Set(selectable.map((project) => project.id));
       const output = {
         contract_version: consumptionContractVersion,
-        projects: projects.map((project) => ({
-          ...project,
-          contexts: contextsByProject.get(project.id) || [],
-        })),
+        projects: projects
+          .filter((project) => permittedProjectIds.has(project.id))
+          .map((project) => ({
+            ...project,
+            contexts: contextsByProject.get(project.id) || [],
+          })),
         active_target: activeTarget || null,
       };
       return {
@@ -324,6 +736,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         try {
           const result = await readProjectFileText(database, fileStore, {
             userId: authenticatedUserId(context),
+            connectionId: authenticatedConnectionId(context),
             projectId,
             referenceId,
             startCharacter,
@@ -376,6 +789,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         try {
           const result = await readProjectFilePdfText(database, fileStore, {
             userId: authenticatedUserId(context),
+            connectionId: authenticatedConnectionId(context),
             projectId,
             referenceId,
             startCharacter,
@@ -493,6 +907,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
       try {
         const activeContext = await getProjectContext(database, {
           userId,
+          connectionId,
           projectId: target.project_id,
           contextId: target.context_id,
           task,
@@ -572,6 +987,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
       try {
         projectContext = await getProjectContext(database, {
           userId,
+          connectionId,
           projectId,
           contextId,
           task,

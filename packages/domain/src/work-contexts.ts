@@ -64,9 +64,50 @@ async function appendContextHistory(
     );
 }
 
+async function initializeProviderAvailability(
+  database,
+  {
+    userId,
+    workspaceId,
+    projectId,
+    contextId,
+    createdAt,
+    providerAvailability = { chatgpt: false, claude: false },
+  },
+) {
+  for (const provider of ["chatgpt", "claude"] as const) {
+    await database
+      .prepare(
+        `INSERT INTO context_provider_authorizations
+         (id, workspace_id, project_id, context_id, user_id, provider, enabled,
+          version, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        `provider_auth_${randomUUID()}`,
+        workspaceId,
+        projectId,
+        contextId,
+        userId,
+        provider,
+        providerAvailability[provider] ? 1 : 0,
+        `provider_auth_version_${randomUUID()}`,
+        createdAt,
+        createdAt,
+      );
+  }
+}
+
 export async function provisionInitialWorkContexts(
   database,
-  { userId, workspaceId, projectId, createdAt },
+  {
+    userId,
+    workspaceId,
+    projectId,
+    createdAt,
+    providerAvailability = { chatgpt: false, claude: false },
+    initialWorkContextVisibility = "all_members",
+  },
 ) {
   const contexts = [
     {
@@ -88,7 +129,7 @@ export async function provisionInitialWorkContexts(
         `INSERT INTO work_contexts
           (id, workspace_id, project_id, name, description, context_kind, visibility,
            created_by_user_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'all_members', ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         context.id,
@@ -97,10 +138,19 @@ export async function provisionInitialWorkContexts(
         context.name,
         context.description,
         context.context_kind,
+        context.context_kind === "project_wide" ? "all_members" : initialWorkContextVisibility,
         userId,
         createdAt,
         createdAt,
       );
+    await initializeProviderAvailability(database, {
+      userId,
+      workspaceId,
+      projectId,
+      contextId: context.id,
+      createdAt,
+      providerAvailability,
+    });
     await appendContextHistory(database, {
       workspaceId,
       projectId,
@@ -162,7 +212,10 @@ export async function suggestSimilarWorkContexts(database, { userId, projectId, 
     );
 }
 
-export async function createWorkContext(database, { userId, projectId, input }) {
+export async function createWorkContext(
+  database,
+  { userId, projectId, input, providerAvailability = { chatgpt: false, claude: false } },
+) {
   const access = await projectForUser(database, userId, projectId, "write");
   if (!access) return undefined;
   const parsed = createWorkContextSchema.parse(input);
@@ -188,6 +241,14 @@ export async function createWorkContext(database, { userId, projectId, input }) 
           createdAt,
           createdAt,
         );
+      await initializeProviderAvailability(database, {
+        userId,
+        workspaceId: access.projectWorkspaceId,
+        projectId,
+        contextId,
+        createdAt,
+        providerAvailability,
+      });
       await appendContextHistory(database, {
         workspaceId: access.projectWorkspaceId,
         projectId,

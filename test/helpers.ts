@@ -33,6 +33,7 @@ export async function createTestIdentity(
     workspaceId: user.workspace_id,
     projectId,
     createdAt: now,
+    providerAvailability: { chatgpt: true, claude: true },
   });
   return { ...user, project_id: projectId };
 }
@@ -41,7 +42,7 @@ export async function createTestIdentity(
 
 export async function authorize(
   baseUrl,
-  { email = TEST_EMAIL, password = TEST_PASSWORD, clientName = "MCP integration test" } = {},
+  { email = TEST_EMAIL, password = TEST_PASSWORD, clientName = "ChatGPT integration test" } = {},
 ) {
   const redirectUri = "http://127.0.0.1/callback";
   const registrationResponse = await fetch(`${baseUrl}/register`, {

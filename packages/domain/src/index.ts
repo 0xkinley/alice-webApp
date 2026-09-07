@@ -3,8 +3,14 @@ export { suggestProjectUpdatesFromFile } from "./file-candidate-suggestions.ts";
 export {
   activeTargetForConnection,
   listSelectableProjectContexts,
+  listSelectableProjectContextsForConnection,
   setActiveConnectionTarget,
 } from "./active-targets.ts";
+export {
+  getContextProviderAvailability,
+  setContextProviderAvailability,
+} from "./context-provider-authorizations.ts";
+export type { AliceProvider } from "./context-provider-authorizations.ts";
 export { listIntegrationConnections, revokeIntegrationConnection } from "./connections.ts";
 export {
   ContextAccessUserError,

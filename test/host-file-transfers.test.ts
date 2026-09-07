@@ -93,6 +93,7 @@ before(async () => {
       description: "The active chat context that must receive transferred attachments.",
       visibility: "personal",
     },
+    providerAvailability: { chatgpt: true, claude: false },
   });
   const web = await createWebApp({ database, fileStore: store, publicUrl });
   webServer = web.app.listen(0, "127.0.0.1");

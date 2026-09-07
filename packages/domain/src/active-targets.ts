@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { appendAuditEvent } from "./audit.ts";
 import {
+  contextScopeForConnection,
   contextScopeForUser,
   tenantScopeForConnection,
   tenantScopeForUser,
@@ -40,6 +41,28 @@ export async function listSelectableProjectContexts(database, userId) {
   return selectable;
 }
 
+export async function listSelectableProjectContextsForConnection(
+  database,
+  { userId, connectionId },
+) {
+  const projects = await listSelectableProjectContexts(database, userId);
+  const selectable: any[] = [];
+  for (const project of projects) {
+    const contexts: any[] = [];
+    for (const context of project.contexts) {
+      const access = await contextScopeForConnection(database, {
+        userId,
+        connectionId,
+        projectId: project.id,
+        contextId: context.id,
+      });
+      if (access) contexts.push(context);
+    }
+    if (contexts.length > 0) selectable.push({ ...project, contexts });
+  }
+  return selectable;
+}
+
 export async function activeTargetForConnection(database, { userId, connectionId }) {
   const connection = await tenantScopeForConnection(database, { userId, connectionId });
   if (!connection) return undefined;
@@ -64,8 +87,9 @@ export async function activeTargetForConnection(database, { userId, connectionId
     .get(connection.connectionId, connection.userId, connection.workspaceId);
   if (
     !target ||
-    !(await contextScopeForUser(database, {
+    !(await contextScopeForConnection(database, {
       userId,
+      connectionId,
       projectId: target.project_id,
       contextId: target.context_id,
     }))
@@ -116,6 +140,18 @@ export async function setActiveConnectionTarget(
       if (!connections.some(({ id }) => id === connectionId)) return undefined;
       const context = await contextScopeForUser(database, { userId, projectId, contextId });
       if (!context || context.contextKind !== "work") return undefined;
+      for (const connection of connections) {
+        if (
+          !(await contextScopeForConnection(database, {
+            userId,
+            connectionId: connection.id,
+            projectId,
+            contextId,
+          }))
+        ) {
+          return undefined;
+        }
+      }
       const current = await database
         .prepare(
           `SELECT connection_id, selection_version FROM active_connection_targets

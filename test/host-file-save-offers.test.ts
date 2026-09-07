@@ -8,6 +8,7 @@ import {
   createUserSession,
   createWorkContext,
   setActiveConnectionTarget,
+  setContextProviderAvailability,
 } from "@alice/domain";
 import { createApp as createMcpApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
@@ -69,6 +70,7 @@ before(async () => {
       description: "The active chat context that must receive attachment saves.",
       visibility: "personal",
     },
+    providerAvailability: { chatgpt: true, claude: false },
   });
 
   const web = await createWebApp({
@@ -403,6 +405,14 @@ test("a collaborator offer keeps connection and project workspaces distinct", as
        WHERE user_id = ? AND client_classification = 'claude' ORDER BY first_connected_at DESC`,
     )
     .get(foreignIdentity.id);
+  await setContextProviderAvailability(database, {
+    userId: foreignIdentity.id,
+    projectId: identity.project_id,
+    contextId: target.id,
+    chatgpt: false,
+    claude: true,
+    expectedVersions: { chatgpt: null, claude: null },
+  });
   const selected = await setActiveConnectionTarget(database, {
     userId: foreignIdentity.id,
     connectionId: collaboratorConnection.id,
@@ -467,6 +477,7 @@ test("a tampered or stale preview cannot authorize transfer", async () => {
       description: "Makes the earlier host file preview stale.",
       visibility: "personal",
     },
+    providerAvailability: { chatgpt: true, claude: false },
   });
   const current = database
     .prepare("SELECT selection_version FROM active_connection_targets WHERE connection_id = ?")
@@ -522,5 +533,39 @@ test("cancel records no transfer authority and no file or trusted-state mutation
   assert.equal(
     database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
     0,
+  );
+});
+
+test("provider denial blocks an attachment offer before preview state is written", async () => {
+  const active = database
+    .prepare(
+      `SELECT project_id, context_id FROM active_connection_targets
+       WHERE connection_id = ?`,
+    )
+    .get(connection.id);
+  const currentRows = database
+    .prepare(
+      `SELECT provider, version FROM context_provider_authorizations
+       WHERE user_id = ? AND context_id = ? ORDER BY provider`,
+    )
+    .all(identity.id, active.context_id);
+  const versions = Object.fromEntries(
+    currentRows.map(({ provider, version }) => [provider, version]),
+  );
+  const disabled = await setContextProviderAvailability(database, {
+    userId: identity.id,
+    projectId: active.project_id,
+    contextId: active.context_id,
+    chatgpt: false,
+    claude: false,
+    expectedVersions: versions,
+  });
+  assert.equal(disabled.conflict, false);
+  const before = database.prepare("SELECT COUNT(*) AS count FROM host_file_save_offers").get();
+  const denied = await offerFile("host-file-offer-provider-denied-001");
+  assert.equal(denied.payload.result.isError, true);
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM host_file_save_offers").get().count,
+    before.count,
   );
 });

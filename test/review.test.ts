@@ -110,7 +110,7 @@ test("an explicit authenticated review accepts a candidate into versioned truste
   assert.match(reviewHtml, /The user explicitly chose the launch price/);
   assert.match(reviewHtml, /Launch plan excerpt: charge USD 24 per month/);
   assert.match(reviewHtml, /Payload hash/);
-  assert.match(reviewHtml, /Other MCP client/);
+  assert.match(reviewHtml, /ChatGPT/);
 
   const userId = created.database
     .prepare("SELECT id FROM users WHERE email = ?")
@@ -771,9 +771,16 @@ test("MCP exposes no trusted-state review action", async () => {
   const { payload } = await callMcp(baseUrl, accessToken, "tools/list");
   const tools = payload.result.tools.map(({ name }) => name);
   assert.deepEqual(tools.sort(), [
+    "alice_attach_workspace_file",
+    "alice_create_workspace_context",
+    "alice_create_workspace_project",
+    "alice_select_workspace_context",
+    "alice_update_context_providers",
+    "alice_workspace_snapshot",
     "get_active_context",
     "get_project_context",
     "list_projects",
+    "open_alice_workspace",
     "save_project_update",
   ]);
 });

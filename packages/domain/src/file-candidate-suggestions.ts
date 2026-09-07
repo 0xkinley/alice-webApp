@@ -35,6 +35,7 @@ export async function suggestProjectUpdatesFromFile(
 
   const extracted = await getProjectPdfExtractionForSuggestion(database, store, {
     userId,
+    connectionId,
     projectId: request.project_id,
     referenceId: request.file_reference_id,
   });

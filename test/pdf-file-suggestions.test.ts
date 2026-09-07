@@ -84,7 +84,7 @@ before(async () => {
   } = await authorize(baseUrl, {
     email: identity.email,
     password: "pdf suggestion private password",
-    clientName: "PDF suggestion integration",
+    clientName: "ChatGPT PDF suggestion integration",
   }));
 });
 
@@ -222,6 +222,7 @@ test("an active connection cannot source a PDF from an unrelated selected contex
       description: "A different selected work context.",
       visibility: "all_members",
     },
+    providerAvailability: { chatgpt: true, claude: false },
   });
   const otherReference = await uploadProjectFile(database, fileStore, {
     userId: identity.id,

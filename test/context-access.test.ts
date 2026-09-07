@@ -21,6 +21,7 @@ import {
   removeProjectMember,
   saveCandidateUpdate,
   setActiveConnectionTarget,
+  setContextProviderAvailability,
   transferProjectOwnership,
   confirmCapturedUpdate,
   updateContextAccessRole,
@@ -435,10 +436,18 @@ test("a collaborator connection captures into the project workspace and loses it
       `INSERT INTO integration_connections
         (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
          first_connected_at, last_used_at)
-       VALUES ('collaborator-connection', ?, ?, 'collaborator-client', 'test',
+       VALUES ('collaborator-connection', ?, ?, 'collaborator-client', 'chatgpt',
                'mcp:read mcp:write', ?, ?)`,
     )
     .run(editor.id, editor.workspace_id, now, now);
+  await setContextProviderAvailability(database, {
+    userId: editor.id,
+    projectId: owner.project_id,
+    contextId: restricted.id,
+    chatgpt: true,
+    claude: false,
+    expectedVersions: { chatgpt: null, claude: null },
+  });
   const selected = await setActiveConnectionTarget(database, {
     userId: editor.id,
     connectionId: "collaborator-connection",

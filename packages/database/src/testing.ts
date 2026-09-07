@@ -359,6 +359,26 @@ function createSchema(database: DatabaseSync) {
     CREATE INDEX context_access_grants_context_lookup
       ON context_access_grants (workspace_id, project_id, context_id, ended_at, role, user_id);
 
+    CREATE TABLE context_provider_authorizations (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      provider TEXT NOT NULL CHECK (provider IN ('chatgpt', 'claude')),
+      enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+      version TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, context_id, user_id, provider)
+    ) STRICT;
+
+    CREATE INDEX context_provider_authorizations_user_lookup
+      ON context_provider_authorizations
+      (user_id, provider, enabled, project_id, context_id);
+
     CREATE TABLE context_read_events (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,

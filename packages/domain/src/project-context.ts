@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { consumptionContractVersion } from "@alice/schemas";
-import { contextScopeForUser, projectScopeForUser, tenantScopeForUser } from "./authorization.ts";
+import {
+  contextScopeForConnection,
+  contextScopeForUser,
+  projectScopeForUser,
+  tenantScopeForUser,
+} from "./authorization.ts";
 import { listWorkContexts } from "./work-contexts.ts";
 
 // Trusted context is assembled only from human-accepted state.
@@ -229,7 +234,15 @@ function latestEffectiveAcceptedRows(acceptedRows, projectWideId, selectedContex
 
 export async function getProjectContext(
   database,
-  { userId, projectId, contextId, task, contextBudget, fileTextReadAvailable = false },
+  {
+    userId,
+    connectionId = undefined,
+    projectId,
+    contextId,
+    task,
+    contextBudget,
+    fileTextReadAvailable = false,
+  },
 ) {
   const scope = await projectScopeForUser(database, { userId, projectId });
   if (!scope) return undefined;
@@ -256,16 +269,26 @@ export async function getProjectContext(
     : undefined;
   if (!projectWide || (contextId && !selectedContext)) return undefined;
   const selectedForAuthorization = selectedContext || projectWide;
-  if (
-    !(await contextScopeForUser(database, {
-      userId,
-      projectId,
-      contextId: selectedForAuthorization.id,
-    }))
-  ) {
+  const authorizeContext = (authorizedContextId) =>
+    connectionId
+      ? contextScopeForConnection(database, {
+          userId,
+          connectionId,
+          projectId,
+          contextId: authorizedContextId,
+        })
+      : contextScopeForUser(database, {
+          userId,
+          projectId,
+          contextId: authorizedContextId,
+        });
+  if (!(await authorizeContext(selectedForAuthorization.id))) {
     return undefined;
   }
-  const allowedContextIds = new Set([projectWide.id, selectedContext?.id].filter(Boolean));
+  const projectWideAuthorized = Boolean(await authorizeContext(projectWide.id));
+  const allowedContextIds = new Set(
+    [projectWideAuthorized ? projectWide.id : undefined, selectedContext?.id].filter(Boolean),
+  );
   const selectedContextRow = selectedContext || projectWide;
   const context = {
     id: selectedContextRow.id,
@@ -273,7 +296,7 @@ export async function getProjectContext(
     description: selectedContextRow.description,
     visibility: selectedContextRow.visibility,
     updated_at: selectedContextRow.updated_at,
-    includes_project_wide: true,
+    includes_project_wide: projectWideAuthorized,
   };
 
   const acceptedRows = await database

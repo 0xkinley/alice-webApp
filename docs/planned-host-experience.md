@@ -1,12 +1,12 @@
 # Planned ChatGPT and Claude Host Experience
 
-Status: Product-owner direction recorded; not implemented or deployed
+Status: Conversation workspace implemented locally; single-action Save and import remain unimplemented; nothing in this document is newly deployed
 
 Decision date: 2026-09-06
 
 ## Scope
 
-This document records three planned product changes without implementing them:
+This document records three product directions. The first is now implemented in local source; the others remain planned:
 
 1. a conversation-aware alice. project and context workspace inside ChatGPT and Claude, including creation, provider availability, and file selection;
 2. a single-action `Save` card with no `Cancel` control; and
@@ -40,11 +40,24 @@ For the private alpha, each selected or newly uploaded file inherits the context
 
 Creating a project or context, setting its access, choosing provider availability, attaching source-file references, and selecting a routing destination are explicit human control-plane actions. They do not accept AI output or change trusted project assertions. Content proposed by a host continues to require the separate exact `Save` authority described below.
 
-Official implementation references must be revalidated before coding:
+The implementation was revalidated on 2026-09-07 against the current official contracts:
 
 - OpenAI, [Add UI to your MCP server](https://developers.openai.com/plugins/build/chatgpt-ui)
-- Anthropic, [Connectors overview](https://claude.com/docs/connectors/overview)
 - Anthropic, [MCP Apps design guidelines](https://claude.com/docs/connectors/building/mcp-apps/design-guidelines)
+- Anthropic, [Build cross-platform MCP Apps](https://claude.com/docs/connectors/building/mcp-apps/cross-compatibility)
+- MCP, [MCP Apps overview](https://modelcontextprotocol.io/extensions/apps/overview)
+
+### Implemented local contract
+
+Migration `020_context_provider_authorizations.sql` stores a separate per-user, per-context, per-provider decision for `chatgpt` and `claude`. Missing rows and disabled rows deny provider access. The constrained application role can change only the enablement flag, decision version, and update time; it cannot rewrite identity or delete history. The migration backfills only contexts each existing active member could already read so the new boundary does not silently expose a restricted context.
+
+MCP server `0.7.0` exposes one `ui://alice/workspace/v1.html` resource with the standard `text/html;profile=mcp-app` media type. `open_alice_workspace` is model-visible and read-only. Refresh, provider changes, project/context creation, destination selection, and exact scan-clean file linking are app-only tools. OpenAI's `openai/outputTemplate` alias is emitted alongside the standard `ui.resourceUri`; the browser app uses the official `@modelcontextprotocol/ext-apps` `1.1.2` bridge and no `window.openai` dependency.
+
+The app-only human management snapshot may show contexts the signed-in human can access so that they can change provider availability. Model-visible discovery, active and explicit context reads, capture, file-reference inclusion, exact text/PDF reads, file-backed proposals, attachment paths, and cross-context file linking all reauthorize the actual ChatGPT or Claude connection against the separate provider record. Unknown MCP client classifications are not participant providers and fail closed.
+
+Neither current standard host contract exposes a stable conversation identifier that alice. can verify server-side. The shipped local interface therefore labels routing `connection` and prominently warns that a destination change affects every conversation using that connection. Caller-supplied conversation text or identifiers are not upgraded into routing authority. A future exact-conversation mode remains capability-gated on a stable authenticated host primitive.
+
+Project and context creation default to neither provider unless the creating surface passes the user's explicit choices. Existing pre-migration readable contexts are backfilled to preserve their already-shipped behavior. Files inherit the provider decision of every context reference: the same immutable object can be linked without copying bytes, while disclosure and reads still require both human and provider authorization for the exact reference context. The upload control opens the existing authenticated, pre-targeted, scan-gated alice. file path; it does not imply that a host exposed attachment bytes.
 
 ## Single-action Save card
 
@@ -62,7 +75,7 @@ Before the authenticated Save action, the implementation may hold only the minim
 
 The authenticated Save click is the human authority boundary. It may atomically persist immutable evidence, provenance, any internal candidate representation required by the data model, and the accepted version or file reference authorized by that exact preview. A model statement, tool call, generated field, or host confirmation cannot substitute for the user's click.
 
-If a host cannot render the MCP App safely, the fallback is an authenticated alice.-controlled web preview with the same single `Save` action and the same no-action behavior. The current Save/Cancel web flow and pending queue remain implemented until this replacement is built and verified; this document does not claim that the new behavior is live.
+If a host cannot render the MCP App safely, the fallback is an authenticated alice.-controlled web preview with the same single `Save` action and the same no-action behavior. The current Save/Cancel web flow and pending queue remain implemented until this replacement is built and verified; the completed workspace app does not make the new Save behavior live.
 
 ## Bringing an existing host project into alice.
 

@@ -44,6 +44,7 @@ import {
   requestProjectDeletion,
   saveCandidateUpdate,
   setActiveConnectionTarget,
+  setContextProviderAvailability,
   restoreProject,
   decideHostFileSaveOffer,
   supersedeAcceptedState,
@@ -241,14 +242,59 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 17, filename: "017_host_file_save_offers.sql" },
     { version: 18, filename: "018_host_file_transfers.sql" },
     { version: 19, filename: "019_popular_file_formats.sql" },
+    { version: 20, filename: "020_context_provider_authorizations.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    19,
+    20,
   );
   await reopened.close();
+});
+
+test("provider availability is separately constrained under the application role", async () => {
+  const context = await database
+    .prepare(
+      `SELECT id FROM work_contexts
+       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'work'
+       ORDER BY name, id LIMIT 1`,
+    )
+    .get(owner.workspace_id, owner.project_id);
+  const rows = await database
+    .prepare(
+      `SELECT provider, version FROM context_provider_authorizations
+       WHERE user_id = ? AND context_id = ? ORDER BY provider`,
+    )
+    .all(owner.id, context.id);
+  const versions = Object.fromEntries(rows.map((row) => [row.provider, row.version]));
+  const changed = await setContextProviderAvailability(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    contextId: context.id,
+    chatgpt: true,
+    claude: false,
+    expectedVersions: versions,
+  });
+  assert.equal(changed.conflict, false);
+  await assert.rejects(
+    database
+      .prepare(
+        `UPDATE context_provider_authorizations SET context_id = ?
+         WHERE user_id = ? AND context_id = ?`,
+      )
+      .run("context_guessed", owner.id, context.id),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database
+      .prepare(
+        `DELETE FROM context_provider_authorizations
+         WHERE user_id = ? AND context_id = ?`,
+      )
+      .run(owner.id, context.id),
+    /permission denied|immutable/i,
+  );
 });
 
 test("application-role password rotation works through a non-superuser role administrator", async () => {

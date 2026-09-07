@@ -7,6 +7,7 @@ import {
   readProjectFileText,
   refreshProjectFileScan,
   removeProjectFileReference,
+  setContextProviderAvailability,
   uploadProjectFile,
 } from "@alice/domain";
 import { createApp } from "../apps/mcp/src/app.ts";
@@ -108,14 +109,14 @@ before(async () => {
   } = await authorize(baseUrl, {
     email: identity.email,
     password: "file reader private password",
-    clientName: "File retrieval owner",
+    clientName: "ChatGPT file retrieval owner",
   }));
   ({
     tokens: { access_token: foreignAccessToken },
   } = await authorize(baseUrl, {
     email: foreign.email,
     password: "foreign file reader private password",
-    clientName: "File retrieval foreign user",
+    clientName: "ChatGPT file retrieval foreign user",
   }));
 });
 
@@ -323,6 +324,57 @@ test("structured-text artifacts advertise and return exact bounded UTF-8 reads",
       reason: "Remove structured-text retrieval fixture",
     });
   }
+});
+
+test("provider denial blocks exact MCP file reads without disclosing the file", async () => {
+  const currentRows = database
+    .prepare(
+      `SELECT provider, version FROM context_provider_authorizations
+       WHERE user_id = ? AND context_id = ? ORDER BY provider`,
+    )
+    .all(identity.id, generalContext.id);
+  const currentVersions = Object.fromEntries(
+    currentRows.map(({ provider, version }) => [provider, version]),
+  );
+  const disabled = await setContextProviderAvailability(database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    contextId: generalContext.id,
+    chatgpt: false,
+    claude: true,
+    expectedVersions: currentVersions,
+  });
+  assert.equal(disabled.conflict, false);
+
+  const denied = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "read_project_file_text",
+    arguments: {
+      project_id: identity.project_id,
+      file_reference_id: reference.id,
+      context_budget: 2_000,
+    },
+  });
+  const guessed = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "read_project_file_text",
+    arguments: {
+      project_id: identity.project_id,
+      file_reference_id: "file_ref_provider_denial_guess",
+      context_budget: 2_000,
+    },
+  });
+  assert.equal(denied.payload.result.isError, true);
+  assert.equal(denied.payload.result.content[0].text, guessed.payload.result.content[0].text);
+  assert.doesNotMatch(JSON.stringify(denied.payload), /untrusted-roadmap|launch notes/);
+
+  const restored = await setContextProviderAvailability(database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    contextId: generalContext.id,
+    chatgpt: true,
+    claude: true,
+    expectedVersions: disabled.versions,
+  });
+  assert.equal(restored.conflict, false);
 });
 
 test("foreign, guessed, and removed references share one non-disclosing read failure", async () => {

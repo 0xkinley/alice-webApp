@@ -88,6 +88,61 @@ export const createWorkContextSchema = z
   })
   .strict();
 
+export const openAliceWorkspaceSchema = z.object({}).strict();
+
+export const updateContextProviderAvailabilitySchema = z
+  .object({
+    project_id: projectIdSchema,
+    context_id: contextIdSchema,
+    chatgpt: z.boolean(),
+    claude: z.boolean(),
+    expected_versions: z
+      .object({
+        chatgpt: z.string().nullable(),
+        claude: z.string().nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const selectAliceWorkspaceContextSchema = z
+  .object({
+    project_id: projectIdSchema,
+    context_id: contextIdSchema,
+    expected_selection_version: z.string().nullable(),
+  })
+  .strict();
+
+export const createAliceWorkspaceProjectSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    brief: z.string().trim().min(1).max(4_000),
+    context_visibility: z.enum(["all_members", "selected_members", "personal"]),
+    chatgpt: z.boolean(),
+    claude: z.boolean(),
+  })
+  .strict();
+
+export const createAliceWorkspaceContextSchema = z
+  .object({
+    project_id: projectIdSchema,
+    name: z.string().trim().min(1).max(120),
+    description: z.string().trim().min(1).max(2_000),
+    visibility: z.enum(["all_members", "selected_members", "personal"]),
+    chatgpt: z.boolean(),
+    claude: z.boolean(),
+  })
+  .strict();
+
+export const attachAliceWorkspaceFileSchema = z
+  .object({
+    project_id: projectIdSchema,
+    source_reference_id: z.string().trim().min(1).max(200).regex(boundedIdentifierPattern),
+    target_context_id: contextIdSchema,
+    expected_preview_version: z.string().trim().min(1).max(200),
+  })
+  .strict();
+
 export const candidateClaimSchema = z
   .object({
     state_key: z

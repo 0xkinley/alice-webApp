@@ -7,6 +7,7 @@ export type ConnectionScope = TenantScope &
   Readonly<{
     connectionId: string;
     clientId: string;
+    provider: "chatgpt" | "claude" | undefined;
   }>;
 
 export type ProjectRole = "owner" | "editor" | "viewer";
@@ -77,7 +78,7 @@ export async function tenantScopeForConnection(
   if (!tenant) return undefined;
   const row = await database
     .prepare(
-      `SELECT id, client_id
+      `SELECT id, client_id, client_classification
        FROM integration_connections
        WHERE id = ? AND user_id = ? AND workspace_id = ? AND revoked_at IS NULL`,
     )
@@ -87,6 +88,10 @@ export async function tenantScopeForConnection(
     ...tenant,
     connectionId: row.id,
     clientId: row.client_id,
+    provider:
+      row.client_classification === "chatgpt" || row.client_classification === "claude"
+        ? row.client_classification
+        : undefined,
   });
 }
 
@@ -213,12 +218,28 @@ export async function contextScopeForConnection(
   },
 ) {
   const connection = await tenantScopeForConnection(database, input);
-  if (!connection) return undefined;
+  if (!connection || !connection.provider) return undefined;
   const context = await contextScopeForUser(database, input);
   if (!context) return undefined;
+  const providerAuthorization = await database
+    .prepare(
+      `SELECT enabled
+       FROM context_provider_authorizations
+       WHERE workspace_id = ? AND project_id = ? AND context_id = ?
+         AND user_id = ? AND provider = ?`,
+    )
+    .get(
+      context.projectWorkspaceId,
+      context.projectId,
+      context.contextId,
+      context.userId,
+      connection.provider,
+    );
+  if (!providerAuthorization || !providerAuthorization.enabled) return undefined;
   return Object.freeze({
     ...context,
     connectionId: connection.connectionId,
     clientId: connection.clientId,
+    provider: connection.provider,
   });
 }

@@ -96,11 +96,13 @@ test("candidate and accepted entries retain an immutable context destination", a
     userId: owner.id,
     projectId: owner.project_id,
     input: { name: "Launch", description: "Launch decisions." },
+    providerAvailability: { chatgpt: true, claude: false },
   });
   const pricing = await createWorkContext(database, {
     userId: owner.id,
     projectId: owner.project_id,
     input: { name: "Pricing", description: "Pricing decisions." },
+    providerAvailability: { chatgpt: true, claude: false },
   });
   const now = new Date().toISOString();
   database
@@ -115,7 +117,7 @@ test("candidate and accepted entries retain an immutable context destination", a
       `INSERT INTO integration_connections
         (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
          first_connected_at, last_used_at)
-       VALUES ('context-connection', ?, ?, 'context-client', 'test',
+       VALUES ('context-connection', ?, ?, 'context-client', 'chatgpt',
                'mcp:read mcp:write', ?, ?)`,
     )
     .run(owner.id, owner.workspace_id, now, now);

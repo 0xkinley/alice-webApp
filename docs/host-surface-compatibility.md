@@ -38,7 +38,7 @@ Each exact surface has explicit entries for:
 
 The allowed cell statuses are `pass`, `fail`, `provider_blocked`, and `untested`. A surface may be advertised only for capabilities with current `pass` evidence and the required measurable denominator. `Fail`, `provider_blocked`, and `untested` remain unsupported and use the exact fallback recorded in the registry. An untested surface does not block Milestone 06 or an independently verified surface.
 
-The current version-1 registry and deterministic harness still describe the implemented Save/Cancel flow. The planned single-action Save card will require a versioned schema and fixture update when it is implemented; planning text does not rewrite current runtime evidence.
+The current version-1 registry and deterministic harness still describe the implemented Save/Cancel flow. Local MCP `0.7.0` now contains the portable workspace app and migration `020` provider boundary, but no live provider capability cell changes from that source-only work. The planned single-action Save card will require a versioned schema and fixture update when it is implemented; source or planning text does not rewrite current runtime evidence.
 
 ## Recording a live run
 

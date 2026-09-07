@@ -290,7 +290,7 @@ before(async () => {
     const { tokens } = await authorize(mcpBaseUrl, {
       email: identity.email,
       password: identity.password,
-      clientName: `${key} tenant MCP client`,
+      clientName: `ChatGPT ${key} tenant MCP client`,
     });
     identity.accessToken = tokens.access_token;
     await captureFixture(key);

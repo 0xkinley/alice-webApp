@@ -20,6 +20,7 @@ const DELETE_TRIGGER_TABLES = [
   "context_access_grants",
   "context_entry_exclusions",
   "context_history_events",
+  "context_provider_authorizations",
   "context_read_events",
   "evidence_events",
   "evidence_file_sources",
@@ -374,6 +375,10 @@ async function deleteProjectRows(database, input, plan) {
   );
   await remove(
     "DELETE FROM context_history_events WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove(
+    "DELETE FROM context_provider_authorizations WHERE workspace_id = ? AND project_id = ?",
     ...scoped,
   );
   await remove("DELETE FROM work_contexts WHERE workspace_id = ? AND project_id = ?", ...scoped);

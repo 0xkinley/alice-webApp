@@ -4,7 +4,15 @@ import { appendAuditEvent } from "./audit.ts";
 import { projectScopeForUser, tenantScopeForUser } from "./authorization.ts";
 import { provisionInitialWorkContexts } from "./work-contexts.ts";
 
-export async function createProject(database, userId, input) {
+export async function createProject(
+  database,
+  userId,
+  input,
+  {
+    providerAvailability = { chatgpt: false, claude: false },
+    initialWorkContextVisibility = "all_members",
+  } = {},
+) {
   const tenant = await tenantScopeForUser(database, userId);
   if (!tenant) return undefined;
   const project = createProjectSchema.parse(input);
@@ -23,6 +31,8 @@ export async function createProject(database, userId, input) {
         workspaceId: tenant.workspaceId,
         projectId,
         createdAt,
+        providerAvailability,
+        initialWorkContextVisibility,
       });
       await appendAuditEvent(database, {
         workspaceId: tenant.workspaceId,

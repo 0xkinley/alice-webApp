@@ -41,6 +41,7 @@ async function seedCase(evaluationCase) {
     workspaceId: identity.workspace_id,
     projectId: fixture.project.id,
     createdAt: timestamp,
+    providerAvailability: { chatgpt: true, claude: true },
   });
   database
     .prepare(
