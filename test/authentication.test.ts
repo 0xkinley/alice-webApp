@@ -61,6 +61,11 @@ test("presents an honest friend-facing product entry point without authenticatio
   assert.match(html, /decisions, questions, and files you choose to save/);
   assert.match(html, /AI can propose\. Only you can save/);
   assert.match(html, /Choose the destination/);
+  assert.match(html, /only your authenticated Save action activates it/);
+  assert.match(html, /Closing, ignoring, navigating away, or expiry saves nothing/);
+  assert.match(html, /Choose Save, or leave it without saving/);
+  assert.doesNotMatch(html, /authenticated check|cross saves nothing/i);
+  assert.doesNotMatch(html, /cancel it, or leave it in Needs attention/i);
   assert.match(html, /Your providers, your accounts/);
   assert.match(html, /No Claude or ChatGPT client surface is advertised as supported/);
   assert.match(html, /Codex is not part of the private alpha/);
