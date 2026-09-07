@@ -4,5 +4,5 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "noEmit": true
   },
-  "include": ["workspace-app.ts"]
+  "include": ["workspace-app.ts", "save-app.ts"]
 }

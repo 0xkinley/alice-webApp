@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
-import { createProjectInvitation, createWorkContext } from "@alice/domain";
+import { createProjectInvitation, createWorkContext, saveCandidateUpdate } from "@alice/domain";
 import { createApp as createMcpApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
 import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
@@ -48,9 +49,18 @@ async function login(identity) {
 
 async function captureFixture(key) {
   const identity = tenants[key];
-  const { payload } = await callMcp(mcpBaseUrl, identity.accessToken, "tools/call", {
-    name: "save_project_update",
-    arguments: {
+  const subject = database
+    .prepare(
+      `SELECT user_id, connection_id, client_id FROM oauth_access_tokens
+       WHERE token_hash = ?`,
+    )
+    .get(createHash("sha256").update(identity.accessToken).digest("hex"));
+  const captured = await saveCandidateUpdate(database, {
+    userId: subject.user_id,
+    connectionId: subject.connection_id,
+    clientId: subject.client_id,
+    publicUrl: "http://127.0.0.1",
+    payload: {
       project_id: identity.projectId,
       summary: `${key} tenant fixture`,
       candidate_claims: [
@@ -68,9 +78,8 @@ async function captureFixture(key) {
       idempotency_key: `tenant-${key}-fixture`,
     },
   });
-  identity.evidenceId = payload.result.structuredContent.evidence_id;
-  [identity.acceptedCandidateId, identity.pendingCandidateId] =
-    payload.result.structuredContent.candidate_ids;
+  identity.evidenceId = captured.evidence_id;
+  [identity.acceptedCandidateId, identity.pendingCandidateId] = captured.candidate_ids;
 }
 
 const authorizationTables = [

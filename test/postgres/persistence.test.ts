@@ -15,7 +15,9 @@ import {
   beginHostFileSaveTransfer,
   cancelProjectDeletion,
   confirmCapturedUpdate,
+  commitCaptureSavePreview,
   createHostFileSaveOffer,
+  createCaptureSavePreview,
   createProject,
   createWorkContext,
   createProjectInvitation,
@@ -243,14 +245,85 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 18, filename: "018_host_file_transfers.sql" },
     { version: 19, filename: "019_popular_file_formats.sql" },
     { version: 20, filename: "020_context_provider_authorizations.sql" },
+    { version: 21, filename: "021_single_action_save_previews.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    20,
+    21,
   );
   await reopened.close();
+});
+
+test("single-action Save is preview-only until exact PostgreSQL confirmation", async () => {
+  const before = await database
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM evidence_events) AS evidence,
+        (SELECT COUNT(*) FROM candidate_claims) AS candidates,
+        (SELECT COUNT(*) FROM accepted_project_state) AS accepted`,
+    )
+    .get();
+  const prepared: any = await createCaptureSavePreview(database, {
+    userId: owner.id,
+    connectionId,
+    clientId,
+    publicUrl: "https://app.alice.example",
+    payload: {
+      project_id: owner.project_id,
+      summary: "PostgreSQL single-action Save",
+      candidate_claims: [
+        {
+          state_key: "postgres.single_action_save",
+          value: "accepted only after Save",
+          summary: "Single action boundary",
+        },
+      ],
+      idempotency_key: "postgres-single-action-save-001",
+    },
+  });
+  assert.deepEqual(
+    await database
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM evidence_events) AS evidence,
+          (SELECT COUNT(*) FROM candidate_claims) AS candidates,
+          (SELECT COUNT(*) FROM accepted_project_state) AS accepted`,
+      )
+      .get(),
+    before,
+  );
+  await assert.rejects(
+    () =>
+      commitCaptureSavePreview(database, {
+        previewId: prepared.preview.preview_id,
+        previewVersion: prepared.preview.preview_version,
+        authorityToken: `alice_save_${"A".repeat(43)}`,
+        authority: "mcp_app",
+        publicUrl: "https://app.alice.example",
+        userId: owner.id,
+      }),
+    /authority is unavailable/i,
+  );
+  const saved: any = await commitCaptureSavePreview(database, {
+    previewId: prepared.preview.preview_id,
+    previewVersion: prepared.preview.preview_version,
+    authorityToken: prepared.authorityToken,
+    authority: "mcp_app",
+    publicUrl: "https://app.alice.example",
+    userId: owner.id,
+  });
+  assert.equal(saved.status, "saved");
+  assert.equal(saved.accepted.length, 1);
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM capture_save_previews WHERE id = ?")
+        .get(prepared.preview.preview_id)
+    ).count,
+    0,
+  );
 });
 
 test("provider availability is separately constrained under the application role", async () => {
@@ -571,13 +644,15 @@ test("PostgreSQL persists one exact host-file offer and one human decision immut
       offerId: receipt.offer_id,
       previewVersion: preview.decision_version,
       decision: "save_file_only",
+      authority: "web_session",
       publicUrl: "https://app.alice.example",
     }),
     decideHostFileSaveOffer(database, {
       userId: owner.id,
       offerId: receipt.offer_id,
       previewVersion: preview.decision_version,
-      decision: "cancelled",
+      decision: "save_file_only",
+      authority: "web_session",
       publicUrl: "https://app.alice.example",
     }),
   ]);
@@ -607,6 +682,11 @@ test("PostgreSQL persists one exact host-file offer and one human decision immut
 
 test("PostgreSQL consumes one confirmed host-file offer exactly once under concurrent finalization", async () => {
   const store = new PostgresHostTransferStore();
+  const candidatesBefore = (
+    await database
+      .prepare("SELECT COUNT(*) AS count FROM candidate_claims WHERE project_id = ?")
+      .get(owner.project_id)
+  ).count;
   const bytes = Buffer.from(
     "# PostgreSQL host transfer\nConcurrent finalization must create one saved reference.\n",
   );
@@ -634,6 +714,7 @@ test("PostgreSQL consumes one confirmed host-file offer exactly once under concu
     offerId: receipt.offer_id,
     previewVersion: preview.decision_version,
     decision: "save_file_only",
+    authority: "web_session",
     publicUrl: "https://app.alice.example",
   });
   const start = async (idempotencyKey: string) =>
@@ -703,7 +784,7 @@ test("PostgreSQL consumes one confirmed host-file offer exactly once under concu
         .prepare("SELECT COUNT(*) AS count FROM candidate_claims WHERE project_id = ?")
         .get(owner.project_id)
     ).count,
-    0,
+    candidatesBefore,
   );
   await assert.rejects(
     database
@@ -754,6 +835,7 @@ test("one concurrent exact-preview confirmation wins and accepts the whole captu
   ]);
   assert.equal(attempts.filter(({ conflict }) => conflict === false).length, 1);
   assert.equal(attempts.filter(({ conflict }) => conflict === true).length, 1);
+  const successfulAttempt = attempts.find(({ conflict }) => conflict === false);
   assert.equal(
     (
       await database
@@ -765,8 +847,10 @@ test("one concurrent exact-preview confirmation wins and accepts the whole captu
   assert.equal(
     (
       await database
-        .prepare("SELECT COUNT(*) AS count FROM audit_events WHERE action = ?")
-        .get("candidate_update_confirmed")
+        .prepare(
+          "SELECT COUNT(*) AS count FROM audit_events WHERE action = ? AND correlation_id = ?",
+        )
+        .get("candidate_update_confirmed", successfulAttempt.correlationId)
     ).count,
     1,
   );

@@ -1,6 +1,6 @@
 # Planned ChatGPT and Claude Host Experience
 
-Status: Conversation workspace implemented locally; single-action Save and import remain unimplemented; nothing in this document is newly deployed
+Status: Conversation workspace and single-action Save implemented locally; import remains unimplemented; nothing in this document is newly deployed
 
 Decision date: 2026-09-06
 
@@ -75,7 +75,15 @@ Before the authenticated Save action, the implementation may hold only the minim
 
 The authenticated Save click is the human authority boundary. It may atomically persist immutable evidence, provenance, any internal candidate representation required by the data model, and the accepted version or file reference authorized by that exact preview. A model statement, tool call, generated field, or host confirmation cannot substitute for the user's click.
 
-If a host cannot render the MCP App safely, the fallback is an authenticated alice.-controlled web preview with the same single `Save` action and the same no-action behavior. The current Save/Cancel web flow and pending queue remain implemented until this replacement is built and verified; the completed workspace app does not make the new Save behavior live.
+If a host cannot render the MCP App safely, the fallback is an authenticated alice.-controlled web preview with the same single `Save` action and the same no-action behavior.
+
+### Implemented local contract
+
+Migration `021_single_action_save_previews.sql` stores only an exact, immutable, 30-minute preview plus a SHA-256 digest of the app authority. The raw authority is returned only in tool-result `_meta` for the MCP App; it is absent from model-visible content and structured content. The initial `save_project_update` call creates no evidence event, candidate claim, Needs attention entry, accepted state, or audit event. A forged token, wrong user, expired preview, changed provider permission, changed active destination, or changed replacement value fails before project state is written. Expired preview content is deleted, and successful Save deletes its preview after the accepted receipt is committed.
+
+MCP server `0.8.0` serves `ui://alice/save/v1.html` through the portable MCP Apps bridge. The app renders the exact destination, access, claims, source material, and current saved values that would be replaced. Its only decision control is `Save`; there is no Cancel, cross, Not now, or suggestion control. The app-only `alice_commit_capture_save` tool consumes the exact unexpired authority and atomically creates immutable evidence, internal candidate provenance, and accepted state. An authenticated alice. web route provides the same one-button fallback when the host cannot render the app.
+
+Host attachments use the same card and no-action rule. The initial offer stores only short-lived metadata and no audit, bytes, transfer authority, file reference, candidate, Needs attention entry, or accepted state. The app-only Save action creates the immutable transfer authorization; the existing exact-byte transfer and two scan-clean gates must still complete before a file reference exists. Closing, ignoring, or expiry leaves no file reference and expired undecided offers are purged. Historical decided offers and historical candidate reviews remain available for provenance, but they are not the routine ChatGPT/Claude Save path.
 
 ## Bringing an existing host project into alice.
 

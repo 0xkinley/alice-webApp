@@ -152,7 +152,8 @@ test("the MCP contract previews an exact save to the active work context", async
   assert.equal(tool.annotations.idempotentHint, true);
   assert.match(tool.description, /accepts no bytes, host URL, credential, cookie, prompt text/i);
   assert.match(tool.description, /exact active project and work context/i);
-  assert.match(tool.description, /user must personally choose Save to the named active context/i);
+  assert.match(tool.description, /Only the user's Save action can authorize/i);
+  assert.equal(tool._meta.ui.resourceUri, "ui://alice/save/v1.html");
 
   const before = database
     .prepare(
@@ -165,7 +166,8 @@ test("the MCP contract previews an exact save to the active work context", async
   const created = await offerFile("host-file-offer-001");
   assert.equal(created.payload.result.isError, undefined);
   const receipt = created.payload.result.structuredContent;
-  assert.equal(receipt.status, "pending");
+  assert.equal(receipt.status, "awaiting_save");
+  assert.equal(receipt.pre_save_state, "preview_only");
   assert.equal(receipt.file.name, "alpha-plan.md");
   assert.equal(receipt.destination.project_name, "Private project");
   assert.equal(receipt.destination.context_name, "Chat workstream");
@@ -175,6 +177,8 @@ test("the MCP contract previews an exact save to the active work context", async
   assert.equal(receipt.source_host, "chatgpt");
   assert.equal(receipt.bytes_received, false);
   assert.equal(receipt.trusted_state_changed, false);
+  assert.equal("authorityToken" in receipt, false);
+  assert.match(created.payload.result._meta["alice/saveAuthority"].token, /^alice_file_save_/);
   assert.equal(fileStore.putCount, 0);
   assert.deepEqual(
     database
@@ -228,7 +232,7 @@ test("the MCP contract previews an exact save to the active work context", async
   );
 });
 
-test("only the authenticated owner can choose Save to the active context or Cancel", async () => {
+test("only the authenticated owner can choose the single Save action", async () => {
   const receipt = (await offerFile("host-file-offer-002")).payload.result.structuredContent;
   const unauthenticated = await fetch(receipt.confirmation_url, { redirect: "manual" });
   assert.equal(unauthenticated.status, 303);
@@ -243,10 +247,10 @@ test("only the authenticated owner can choose Save to the active context or Canc
   assert.match(html, /Chat workstream/);
   assert.match(html, /Personal draft/);
   assert.match(html, /No file has been copied/);
-  assert.match(html, />Save to Chat workstream</);
+  assert.match(html, />Save</);
   assert.match(html, /name="decision" value="save_file_only"/);
   assert.doesNotMatch(html, /save_and_suggest_context|suggest context/i);
-  assert.match(html, /name="decision" value="cancelled"/);
+  assert.doesNotMatch(html, /value="cancelled"|>Cancel</i);
   const previewVersion = html.match(/name="preview_version" value="([0-9a-f]{64})"/)?.[1];
   assert.ok(previewVersion);
 
@@ -259,7 +263,7 @@ test("only the authenticated owner can choose Save to the active context or Canc
     }),
   });
   assert.equal(unsupportedSuggestion.status, 409);
-  assert.match(await unsupportedSuggestion.text(), /choose one of the exact file save actions/i);
+  assert.match(await unsupportedSuggestion.text(), /only available decision is Save/i);
 
   const decided = await fetch(`${receipt.confirmation_url}/decision`, {
     method: "POST",
@@ -286,10 +290,17 @@ test("only the authenticated owner can choose Save to the active context or Canc
     0,
   );
 
+  const toolRetry = await offerFile("host-file-offer-002");
+  assert.equal(toolRetry.payload.result.structuredContent.offer_id, receipt.offer_id);
+  assert.equal(toolRetry.payload.result.structuredContent.status, "save_file_only");
+  assert.equal(toolRetry.payload.result._meta["alice/saveAuthority"], undefined);
+  assert.equal(toolRetry.payload.result._meta["alice/saveState"].status, "save_file_only");
+  assert.match(toolRetry.payload.result.content[0].text, /already authorized/i);
+
   const replay = await fetch(`${receipt.confirmation_url}/decision`, {
     method: "POST",
     headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ preview_version: previewVersion, decision: "cancelled" }),
+    body: new URLSearchParams({ preview_version: previewVersion, decision: "save_file_only" }),
   });
   assert.equal(replay.status, 409);
   assert.match(await replay.text(), /already decided/i);
@@ -307,7 +318,24 @@ test("only the authenticated owner can choose Save to the active context or Canc
 });
 
 test("foreign users, read-only tokens, and model-supplied authority fail closed", async () => {
-  const receipt = (await offerFile("host-file-offer-003")).payload.result.structuredContent;
+  const offered = await offerFile("host-file-offer-003");
+  const receipt = offered.payload.result.structuredContent;
+  const forgedSave = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "alice_confirm_host_file_save",
+    arguments: {
+      offer_id: receipt.offer_id,
+      preview_version: receipt.preview_version,
+      authority_token: `alice_file_save_${"A".repeat(43)}`,
+    },
+  });
+  assert.equal(forgedSave.payload.result.isError, true);
+  assert.match(forgedSave.payload.result.content[0].text, /authority is unavailable/i);
+  assert.equal(
+    database
+      .prepare("SELECT COUNT(*) AS count FROM host_file_save_decisions WHERE offer_id = ?")
+      .get(receipt.offer_id).count,
+    0,
+  );
   foreignIdentity = await createTestIdentity(database, {
     email: "host-file-foreign@alice.example",
     password: "host file foreign private password",
@@ -505,7 +533,7 @@ test("a tampered or stale preview cannot authorize transfer", async () => {
   );
 });
 
-test("cancel records no transfer authority and no file or trusted-state mutation", async () => {
+test("dismissal and a forged Cancel create no transfer authority or project state", async () => {
   const receipt = (await offerFile("host-file-offer-004", "cancelled.txt")).payload.result
     .structuredContent;
   const page = await fetch(receipt.confirmation_url, { headers: { cookie } });
@@ -516,13 +544,13 @@ test("cancel records no transfer authority and no file or trusted-state mutation
     headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ preview_version: previewVersion, decision: "cancelled" }),
   });
-  assert.equal(cancelled.status, 200);
-  assert.match(await cancelled.text(), /not authorized for transfer/i);
+  assert.equal(cancelled.status, 409);
+  assert.match(await cancelled.text(), /only available decision is Save/i);
   assert.equal(
     database
-      .prepare("SELECT decision FROM host_file_save_decisions WHERE offer_id = ?")
-      .get(receipt.offer_id).decision,
-    "cancelled",
+      .prepare("SELECT COUNT(*) AS count FROM host_file_save_decisions WHERE offer_id = ?")
+      .get(receipt.offer_id).count,
+    0,
   );
   assert.equal(fileStore.putCount, 0);
   assert.equal(

@@ -144,7 +144,7 @@ after(async () => {
   database?.close();
 });
 
-async function createOffer(bytes: Buffer, key: string, decision = "save_file_only") {
+async function createOffer(bytes: Buffer, key: string, save = true) {
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const offered = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
     name: "offer_host_file_save",
@@ -158,7 +158,7 @@ async function createOffer(bytes: Buffer, key: string, decision = "save_file_onl
     },
   });
   const receipt = offered.payload.result.structuredContent;
-  if (decision) {
+  if (save) {
     const page = await fetch(receipt.confirmation_url, { headers: { cookie } });
     const previewVersion = (await page.text()).match(
       /name="preview_version" value="([0-9a-f]{64})"/,
@@ -167,7 +167,7 @@ async function createOffer(bytes: Buffer, key: string, decision = "save_file_onl
     const decided = await fetch(`${receipt.confirmation_url}/decision`, {
       method: "POST",
       headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ preview_version: previewVersion, decision }),
+      body: new URLSearchParams({ preview_version: previewVersion, decision: "save_file_only" }),
     });
     assert.equal(decided.status, 200);
   }
@@ -454,9 +454,9 @@ test("the alice.-controlled fallback is exact-origin, pre-targeted, and scan-gat
   assert.equal(linked.transfer_path, "browser_fallback");
 });
 
-test("cancellation and threat verdicts create no available file receipt", async () => {
+test("an ignored preview and threat verdicts create no available file receipt", async () => {
   const cancelledBytes = Buffer.from("cancelled transfer fixture");
-  const cancelled = await createOffer(cancelledBytes, "cancelled", "cancelled");
+  const cancelled = await createOffer(cancelledBytes, "cancelled", false);
   const cancelledStart = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
     name: "begin_host_file_transfer",
     arguments: {
@@ -472,7 +472,7 @@ test("cancellation and threat verdicts create no available file receipt", async 
   assert.equal(cancelledStart.payload.result.isError, true);
 
   const threatBytes = Buffer.from("threat transfer fixture");
-  const threat = await createOffer(threatBytes, "threat", "save_file_only");
+  const threat = await createOffer(threatBytes, "threat");
   const started = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
     name: "begin_host_file_transfer",
     arguments: {

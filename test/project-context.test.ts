@@ -281,7 +281,7 @@ test("advertises least-privilege OAuth scopes in ChatGPT-compatible tool metadat
   );
   assert.match(
     toolsByName.save_project_update.description,
-    /Never accepts, rejects, supersedes, or otherwise changes trusted project state/,
+    /initial call creates no evidence, candidate, Needs attention item, or accepted state/,
   );
   assert.equal(toolsByName.save_project_update.inputSchema.additionalProperties, false);
   assert.equal(
@@ -415,14 +415,26 @@ test("active-target saves need no destination and explicit mismatches fail close
     },
   });
   assert.equal(saved.payload.result.isError, undefined);
-  const candidateId = saved.payload.result.structuredContent.candidate_ids[0];
-  const target = created.database
-    .prepare("SELECT context_id FROM candidate_context_targets WHERE candidate_id = ?")
-    .get(candidateId);
+  const preview = saved.payload.result.structuredContent;
   const active = created.database
     .prepare("SELECT context_id FROM active_connection_targets WHERE connection_id = ?")
     .get(connectionId);
-  assert.equal(target.context_id, active.context_id);
+  assert.equal(preview.destination.context_id, active.context_id);
+  assert.equal(
+    created.database
+      .prepare("SELECT COUNT(*) AS count FROM candidate_claims WHERE state_key = 'launch.channel'")
+      .get().count,
+    0,
+  );
+  const committed = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "alice_commit_capture_save",
+    arguments: {
+      preview_id: preview.preview_id,
+      preview_version: preview.preview_version,
+      authority_token: saved.payload.result._meta["alice/saveAuthority"].token,
+    },
+  });
+  assert.equal(committed.payload.result.structuredContent.context_id, active.context_id);
 
   const mismatched = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "save_project_update",

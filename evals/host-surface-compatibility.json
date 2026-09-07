@@ -1,9 +1,9 @@
 {
-  "version": "2026-09-06.1",
-  "as_of_date": "2026-09-06",
-  "matrix_contract": "alice.host-surface-compatibility.v1",
+  "version": "2026-09-07.1",
+  "as_of_date": "2026-09-07",
+  "matrix_contract": "alice.host-surface-compatibility.v2",
   "invocation_denominator_contract": "evals/host-invocation-denominators.json",
-  "local_mcp_server_version": "0.6.4",
+  "local_mcp_server_version": "0.8.0",
   "hosted_mcp_server_version": "0.6.2",
   "hosted_runtime_commit": "43febda",
   "hosted_runtime_image_digest": "sha256:f03b9d1276b25415d59e528b15cf23c851265978c570181c9c6dbd35a00b7b60",
@@ -18,7 +18,7 @@
     "oauth_connect_reconnect_revoke",
     "project_discovery_selection",
     "accepted_context_read",
-    "candidate_save_confirm_cancel",
+    "single_action_save_or_no_action",
     "file_reference_attachment_fallback",
     "permission_non_disclosure",
     "cross_host_reuse"
@@ -27,7 +27,7 @@
     "oauth_connect_reconnect_revoke": "Do not advertise the surface; use a separately passing surface.",
     "project_discovery_selection": "Select the exact project and work context in the alice. connection center.",
     "accepted_context_read": "Use the permission-filtered alice. package preview or explicit handoff.",
-    "candidate_save_confirm_cancel": "Use the alice. Needs attention queue and exact authenticated confirmation page.",
+    "single_action_save_or_no_action": "Use the authenticated alice. web preview with one Save action; closing or expiry does nothing.",
     "file_reference_attachment_fallback": "Use the authenticated pre-targeted alice. upload page after exact confirmation.",
     "permission_non_disclosure": "Do not admit the surface until denial and no-mutation behavior pass.",
     "cross_host_reuse": "Use an explicit permission-filtered handoff; do not claim automatic cross-host continuation."
@@ -44,7 +44,7 @@
         "oauth_connect_reconnect_revoke": "untested",
         "project_discovery_selection": "untested",
         "accepted_context_read": "untested",
-        "candidate_save_confirm_cancel": "untested",
+        "single_action_save_or_no_action": "untested",
         "file_reference_attachment_fallback": "untested",
         "permission_non_disclosure": "untested",
         "cross_host_reuse": "untested"
@@ -60,7 +60,7 @@
         "oauth_connect_reconnect_revoke": "untested",
         "project_discovery_selection": "untested",
         "accepted_context_read": "untested",
-        "candidate_save_confirm_cancel": "untested",
+        "single_action_save_or_no_action": "untested",
         "file_reference_attachment_fallback": "untested",
         "permission_non_disclosure": "untested",
         "cross_host_reuse": "untested"
@@ -76,7 +76,7 @@
         "oauth_connect_reconnect_revoke": "untested",
         "project_discovery_selection": "untested",
         "accepted_context_read": "untested",
-        "candidate_save_confirm_cancel": "untested",
+        "single_action_save_or_no_action": "untested",
         "file_reference_attachment_fallback": "untested",
         "permission_non_disclosure": "untested",
         "cross_host_reuse": "untested"
@@ -92,7 +92,7 @@
         "oauth_connect_reconnect_revoke": "untested",
         "project_discovery_selection": "untested",
         "accepted_context_read": "untested",
-        "candidate_save_confirm_cancel": "untested",
+        "single_action_save_or_no_action": "untested",
         "file_reference_attachment_fallback": "untested",
         "permission_non_disclosure": "untested",
         "cross_host_reuse": "untested"
@@ -108,7 +108,7 @@
         "oauth_connect_reconnect_revoke": "untested",
         "project_discovery_selection": "untested",
         "accepted_context_read": "untested",
-        "candidate_save_confirm_cancel": "untested",
+        "single_action_save_or_no_action": "untested",
         "file_reference_attachment_fallback": "untested",
         "permission_non_disclosure": "untested",
         "cross_host_reuse": "untested"
@@ -124,7 +124,7 @@
         "oauth_connect_reconnect_revoke": "untested",
         "project_discovery_selection": "untested",
         "accepted_context_read": "untested",
-        "candidate_save_confirm_cancel": "untested",
+        "single_action_save_or_no_action": "untested",
         "file_reference_attachment_fallback": "untested",
         "permission_non_disclosure": "untested",
         "cross_host_reuse": "untested"
@@ -140,7 +140,7 @@
         "oauth_connect_reconnect_revoke": "untested",
         "project_discovery_selection": "untested",
         "accepted_context_read": "untested",
-        "candidate_save_confirm_cancel": "untested",
+        "single_action_save_or_no_action": "untested",
         "file_reference_attachment_fallback": "untested",
         "permission_non_disclosure": "untested",
         "cross_host_reuse": "untested"

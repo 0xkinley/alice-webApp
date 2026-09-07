@@ -17,6 +17,7 @@ const DELETE_TRIGGER_TABLES = [
   "audit_events",
   "candidate_claims",
   "candidate_context_targets",
+  "capture_save_previews",
   "context_access_grants",
   "context_entry_exclusions",
   "context_history_events",
@@ -31,6 +32,7 @@ const DELETE_TRIGGER_TABLES = [
   "file_upload_intents",
   "host_file_save_decisions",
   "host_file_save_offers",
+  "host_file_save_offer_authorities",
   "host_file_save_transfer_availability",
   "host_file_save_transfer_completions",
   "host_file_save_transfer_intents",
@@ -318,6 +320,13 @@ async function deleteProjectRows(database, input, plan) {
     ...scoped,
   );
   await remove(
+    `DELETE FROM host_file_save_offer_authorities authority
+     USING host_file_save_offers offer
+     WHERE authority.offer_id = offer.id
+       AND offer.workspace_id = ? AND offer.project_id = ?`,
+    ...scoped,
+  );
+  await remove(
     "DELETE FROM host_file_save_offers WHERE workspace_id = ? AND project_id = ?",
     ...scoped,
   );
@@ -345,6 +354,10 @@ async function deleteProjectRows(database, input, plan) {
   );
   await remove(
     "DELETE FROM context_entry_exclusions WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove(
+    "DELETE FROM capture_save_previews WHERE workspace_id = ? AND project_id = ?",
     ...scoped,
   );
   await remove(

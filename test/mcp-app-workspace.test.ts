@@ -40,7 +40,7 @@ after(async () => {
   created.database.close();
 });
 
-test("advertises one portable MCP App resource and keeps mutations app-only", async () => {
+test("advertises portable workspace and Save resources and keeps mutations app-only", async () => {
   const { payload } = await callMcp(baseUrl, accessToken, "tools/list");
   const byName = Object.fromEntries(payload.result.tools.map((tool) => [tool.name, tool]));
   assert.equal(byName.open_alice_workspace._meta.ui.resourceUri, "ui://alice/workspace/v1.html");
@@ -56,6 +56,7 @@ test("advertises one portable MCP App resource and keeps mutations app-only", as
     "alice_create_workspace_project",
     "alice_create_workspace_context",
     "alice_attach_workspace_file",
+    "alice_commit_capture_save",
   ]) {
     assert.deepEqual(byName[name]._meta.ui.visibility, ["app"]);
   }
@@ -66,6 +67,13 @@ test("advertises one portable MCP App resource and keeps mutations app-only", as
   assert.equal(resource.payload.result.contents[0].mimeType, "text/html;profile=mcp-app");
   assert.match(resource.payload.result.contents[0].text, /alice\. workspace/);
   assert.match(resource.payload.result.contents[0].text, /alice_workspace_snapshot/);
+
+  const saveResource = await callMcp(baseUrl, accessToken, "resources/read", {
+    uri: "ui://alice/save/v1.html",
+  });
+  assert.equal(saveResource.payload.result.contents[0].mimeType, "text/html;profile=mcp-app");
+  assert.match(saveResource.payload.result.contents[0].text, /alice_commit_capture_save/);
+  assert.doesNotMatch(saveResource.payload.result.contents[0].text, />Cancel</);
 });
 
 test("provider availability is independent, deny-by-default, and filters discovery", async () => {

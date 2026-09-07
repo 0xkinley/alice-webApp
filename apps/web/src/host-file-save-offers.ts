@@ -86,7 +86,7 @@ function offerPage(offer, directUploadAvailable: boolean) {
         : '<p class="notice"><strong>No file has been copied.</strong> Confirming authorizes transfer only for the exact destination below. alice. still verifies, scans, stores, and authorizes the bytes before claiming the file is saved.</p>';
   const actions =
     pending && !unavailable
-      ? `<form method="post" action="/file-save-offers/${encodeURIComponent(offer.offer_id)}/decision"><input type="hidden" name="preview_version" value="${escapeHtml(offer.decision_version)}"><fieldset><legend>Choose exactly one action</legend><button name="decision" value="save_file_only" type="submit">Save to ${escapeHtml(offer.destination.context_name)}</button> <button name="decision" value="cancelled" type="submit">Cancel</button></fieldset></form>`
+      ? `<form method="post" action="/file-save-offers/${encodeURIComponent(offer.offer_id)}/decision"><input type="hidden" name="preview_version" value="${escapeHtml(offer.decision_version)}"><input type="hidden" name="decision" value="save_file_only"><button type="submit">Save</button></form>`
       : "";
   const conversation = offer.conversation_reference
     ? `<dt>Conversation reference</dt><dd><code>${escapeHtml(offer.conversation_reference)}</code> · opaque identifier only</dd>`
@@ -137,6 +137,7 @@ export function createHostFileSaveOffersRouter({
         offerId: request.params.offerId,
         previewVersion: String(request.body.preview_version || ""),
         decision: String(request.body.decision || "") as HostFileSaveDecision,
+        authority: "web_session",
         publicUrl,
       });
       if (!result) {
@@ -151,16 +152,13 @@ export function createHostFileSaveOffersRouter({
             ),
           );
       }
-      const cancelled = result.status === "cancelled";
       response
         .type("html")
         .send(
           renderStatusPage(
-            cancelled ? "File save cancelled" : "File transfer authorized",
-            cancelled
-              ? `<h1>Cancelled</h1><p>${escapeHtml(result.file.name)} was not authorized for transfer and no attachment bytes were received.</p><p><a href="/">Return to your private workspace</a></p>`
-              : `<h1>Transfer authorized</h1><p>Return to ${escapeHtml(hostLabel(result.source_host))} if it supports secure attachment transfer. Otherwise, use the alice.-controlled upload below.</p><p><strong>The file is not saved yet.</strong> alice. will claim success only after receiving, verifying, scanning, storing, authorizing, and auditing the bytes.</p><p><a class="button" href="/file-save-offers/${encodeURIComponent(result.offer_id)}">Upload the exact file or view transfer status</a></p>`,
-            cancelled ? "neutral" : "warning",
+            "File transfer authorized",
+            `<h1>Transfer authorized</h1><p>Return to ${escapeHtml(hostLabel(result.source_host))} if it supports secure attachment transfer. Otherwise, use the alice.-controlled upload below.</p><p><strong>The file is not saved yet.</strong> alice. will claim success only after receiving, verifying, scanning, storing, authorizing, and auditing the bytes.</p><p><a class="button" href="/file-save-offers/${encodeURIComponent(result.offer_id)}">Upload the exact file or view transfer status</a></p>`,
+            "warning",
           ),
         );
     } catch (error) {

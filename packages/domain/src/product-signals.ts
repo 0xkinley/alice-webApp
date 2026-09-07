@@ -155,7 +155,7 @@ export async function getPrivateAlphaSignals(database, userId: string) {
     privacy: {
       content_fields_read: false,
       limitation:
-        "alice. can count MCP calls it receives, but cannot observe host turns where the host never called alice.",
+        "alice. can count MCP calls it receives and retained capture outcomes, but cannot observe host turns where the host never called alice. or routine Save cards the user ignored or allowed to expire.",
     },
     consumption: {
       observed_attempts: reads.length,

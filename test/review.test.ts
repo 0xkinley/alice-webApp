@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
 import { createApp } from "../apps/mcp/src/app.ts";
@@ -9,6 +10,7 @@ import {
   getReviewQueue,
   listReviewProjects,
   rejectCandidate,
+  saveCandidateUpdate,
   supersedeAcceptedState,
 } from "@alice/domain";
 import { authorize, callMcp, createTestIdentity, TEST_EMAIL, TEST_PASSWORD } from "./helpers.ts";
@@ -21,6 +23,26 @@ let reviewCookie;
 let server;
 let webServer;
 let webUrl;
+
+function captureSubject() {
+  return created.database
+    .prepare(
+      `SELECT user_id, connection_id, client_id FROM oauth_access_tokens
+       WHERE token_hash = ?`,
+    )
+    .get(createHash("sha256").update(accessToken).digest("hex"));
+}
+
+async function capturePending(payload) {
+  const subject = captureSubject();
+  return saveCandidateUpdate(created.database, {
+    userId: subject.user_id,
+    connectionId: subject.connection_id,
+    clientId: subject.client_id,
+    publicUrl: "http://127.0.0.1",
+    payload,
+  });
+}
 
 before(async () => {
   created = await createApp({
@@ -41,18 +63,15 @@ before(async () => {
   ({
     tokens: { access_token: accessToken },
   } = await authorize(baseUrl));
-  const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "save_project_update",
-    arguments: {
-      project_id: "project_switchboard_launch",
-      summary: "Candidate for review",
-      candidate_claims: [{ state_key: "launch.monthly_price_usd", value: 24, summary: "Price" }],
-      source_note: "The user explicitly chose the launch price.",
-      source_context: "Launch plan excerpt: charge USD 24 per month.",
-      idempotency_key: "review-fixture-price",
-    },
+  const captured = await capturePending({
+    project_id: "project_switchboard_launch",
+    summary: "Candidate for review",
+    candidate_claims: [{ state_key: "launch.monthly_price_usd", value: 24, summary: "Price" }],
+    source_note: "The user explicitly chose the launch price.",
+    source_context: "Launch plan excerpt: charge USD 24 per month.",
+    idempotency_key: "review-fixture-price",
   });
-  [candidateId] = payload.result.structuredContent.candidate_ids;
+  [candidateId] = captured.candidate_ids;
 });
 
 after(async () => {
@@ -177,21 +196,17 @@ test("one exact authenticated preview confirms every proposed entry atomically",
        WHERE project_id = 'project_switchboard_launch' AND name = 'General'`,
     )
     .get();
-  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "save_project_update",
-    arguments: {
-      project_id: "project_switchboard_launch",
-      context_id: general.id,
-      summary: "Two exact launch entries",
-      candidate_claims: [
-        { state_key: "launch.channel", value: "Founder groups", summary: "Launch channel" },
-        { state_key: "launch.window", value: "October", summary: "Launch window" },
-      ],
-      source_context: "Use founder groups for an October launch.",
-      idempotency_key: "review-exact-preview-confirm",
-    },
+  const receipt = await capturePending({
+    project_id: "project_switchboard_launch",
+    context_id: general.id,
+    summary: "Two exact launch entries",
+    candidate_claims: [
+      { state_key: "launch.channel", value: "Founder groups", summary: "Launch channel" },
+      { state_key: "launch.window", value: "October", summary: "Launch window" },
+    ],
+    source_context: "Use founder groups for an October launch.",
+    idempotency_key: "review-exact-preview-confirm",
   });
-  const receipt = capture.result.structuredContent;
   const previewResponse = await fetch(`${webUrl}/review/captures/${receipt.evidence_id}`, {
     headers: { cookie: reviewCookie },
   });
@@ -259,19 +274,16 @@ test("the exact preview cross cancels every proposal without activation", async 
   const acceptedBefore = created.database
     .prepare("SELECT COUNT(*) AS count FROM accepted_project_state")
     .get().count;
-  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "save_project_update",
-    arguments: {
-      project_id: "project_switchboard_launch",
-      summary: "Cancel both suggestions",
-      candidate_claims: [
-        { state_key: "launch.cancel_a", value: "A", summary: "Cancel A" },
-        { state_key: "launch.cancel_b", value: "B", summary: "Cancel B" },
-      ],
-      idempotency_key: "review-exact-preview-cancel",
-    },
+  const captured = await capturePending({
+    project_id: "project_switchboard_launch",
+    summary: "Cancel both suggestions",
+    candidate_claims: [
+      { state_key: "launch.cancel_a", value: "A", summary: "Cancel A" },
+      { state_key: "launch.cancel_b", value: "B", summary: "Cancel B" },
+    ],
+    idempotency_key: "review-exact-preview-cancel",
   });
-  const evidenceId = capture.result.structuredContent.evidence_id;
+  const evidenceId = captured.evidence_id;
   const preview = await fetch(`${webUrl}/review/captures/${evidenceId}`, {
     headers: { cookie: reviewCookie },
   });
@@ -305,19 +317,16 @@ test("the exact preview cross cancels every proposal without activation", async 
 });
 
 test("a failed final confirmation audit rolls back the whole exact preview", async () => {
-  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "save_project_update",
-    arguments: {
-      project_id: "project_switchboard_launch",
-      summary: "Rollback the complete preview",
-      candidate_claims: [
-        { state_key: "launch.rollback_a", value: "A", summary: "Rollback A" },
-        { state_key: "launch.rollback_b", value: "B", summary: "Rollback B" },
-      ],
-      idempotency_key: "review-exact-preview-rollback",
-    },
+  const captured = await capturePending({
+    project_id: "project_switchboard_launch",
+    summary: "Rollback the complete preview",
+    candidate_claims: [
+      { state_key: "launch.rollback_a", value: "A", summary: "Rollback A" },
+      { state_key: "launch.rollback_b", value: "B", summary: "Rollback B" },
+    ],
+    idempotency_key: "review-exact-preview-rollback",
   });
-  const evidenceId = capture.result.structuredContent.evidence_id;
+  const evidenceId = captured.evidence_id;
   const userId = created.database
     .prepare("SELECT id FROM users WHERE email = ?")
     .get(TEST_EMAIL).id;
@@ -383,12 +392,9 @@ test("an explicit authenticated human rejection is terminal and preserves proven
     source_note: "Review fixture source",
     idempotency_key: "review-fixture-rejection",
   };
-  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "save_project_update",
-    arguments: rejectionPayload,
-  });
-  const rejectedCandidateId = capture.result.structuredContent.candidate_ids[0];
-  const evidenceId = capture.result.structuredContent.evidence_id;
+  const captured = await capturePending(rejectionPayload);
+  const rejectedCandidateId = captured.candidate_ids[0];
+  const evidenceId = captured.evidence_id;
   const acceptedBefore = created.database
     .prepare("SELECT COUNT(*) AS count FROM accepted_project_state")
     .get().count;
@@ -462,15 +468,12 @@ test("an explicit authenticated human rejection is terminal and preserves proven
     auditCountBeforeRepeat,
   );
 
-  const { payload: retry } = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "save_project_update",
-    arguments: rejectionPayload,
-  });
-  assert.equal(retry.result.structuredContent.status, "reviewed");
-  assert.deepEqual(retry.result.structuredContent.candidate_statuses, [
+  const retry = await capturePending(rejectionPayload);
+  assert.equal(retry.status, "reviewed");
+  assert.deepEqual(retry.candidate_statuses, [
     { candidate_id: rejectedCandidateId, status: "rejected" },
   ]);
-  assert.equal(retry.result.structuredContent.trusted_state_changed, false);
+  assert.equal(retry.trusted_state_changed, false);
 
   const { payload: context } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "get_project_context",
@@ -480,18 +483,15 @@ test("an explicit authenticated human rejection is terminal and preserves proven
 });
 
 test("a failed rejection audit rolls the candidate status back to pending", async () => {
-  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "save_project_update",
-    arguments: {
-      project_id: "project_switchboard_launch",
-      summary: "Rollback rejection fixture",
-      candidate_claims: [
-        { state_key: "launch.rollback_rejection", value: true, summary: "Must stay pending" },
-      ],
-      idempotency_key: "review-rejection-rollback",
-    },
+  const captured = await capturePending({
+    project_id: "project_switchboard_launch",
+    summary: "Rollback rejection fixture",
+    candidate_claims: [
+      { state_key: "launch.rollback_rejection", value: true, summary: "Must stay pending" },
+    ],
+    idempotency_key: "review-rejection-rollback",
   });
-  const candidateId = capture.result.structuredContent.candidate_ids[0];
+  const candidateId = captured.candidate_ids[0];
   const userId = created.database
     .prepare("SELECT id FROM users WHERE email = ?")
     .get(TEST_EMAIL).id;
@@ -526,19 +526,16 @@ test("a failed rejection audit rolls the candidate status back to pending", asyn
 });
 
 test("explicit human supersession creates a traceable version without rewriting history", async () => {
-  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "save_project_update",
-    arguments: {
-      project_id: "project_switchboard_launch",
-      summary: "Revise price",
-      candidate_claims: [
-        { state_key: "launch.monthly_price_usd", value: 29, summary: "Revised price" },
-      ],
-      idempotency_key: "review-fixture-revised-price",
-    },
+  const captured = await capturePending({
+    project_id: "project_switchboard_launch",
+    summary: "Revise price",
+    candidate_claims: [
+      { state_key: "launch.monthly_price_usd", value: 29, summary: "Revised price" },
+    ],
+    idempotency_key: "review-fixture-revised-price",
   });
-  const secondCandidateId = capture.result.structuredContent.candidate_ids[0];
-  const secondEvidenceId = capture.result.structuredContent.evidence_id;
+  const secondCandidateId = captured.candidate_ids[0];
+  const secondEvidenceId = captured.evidence_id;
   const firstAccepted = created.database
     .prepare(
       `SELECT * FROM accepted_project_state
@@ -686,22 +683,19 @@ test("explicit human supersession creates a traceable version without rewriting 
 });
 
 test("a failed supersession audit preserves the current trusted version and pending candidate", async () => {
-  const { payload: capture } = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "save_project_update",
-    arguments: {
-      project_id: "project_switchboard_launch",
-      summary: "Supersession rollback fixture",
-      candidate_claims: [
-        {
-          state_key: "launch.monthly_price_usd",
-          value: 35,
-          summary: "Must not supersede without audit",
-        },
-      ],
-      idempotency_key: "review-supersession-rollback",
-    },
+  const captured = await capturePending({
+    project_id: "project_switchboard_launch",
+    summary: "Supersession rollback fixture",
+    candidate_claims: [
+      {
+        state_key: "launch.monthly_price_usd",
+        value: 35,
+        summary: "Must not supersede without audit",
+      },
+    ],
+    idempotency_key: "review-supersession-rollback",
   });
-  const candidateId = capture.result.structuredContent.candidate_ids[0];
+  const candidateId = captured.candidate_ids[0];
   const current = created.database
     .prepare(
       `SELECT * FROM accepted_project_state
@@ -767,11 +761,12 @@ test("a failed supersession audit preserves the current trusted version and pend
   assert.equal(stillCurrent.version, 2);
 });
 
-test("MCP exposes no trusted-state review action", async () => {
+test("MCP exposes trusted-state Save only as an app-only action", async () => {
   const { payload } = await callMcp(baseUrl, accessToken, "tools/list");
   const tools = payload.result.tools.map(({ name }) => name);
   assert.deepEqual(tools.sort(), [
     "alice_attach_workspace_file",
+    "alice_commit_capture_save",
     "alice_create_workspace_context",
     "alice_create_workspace_project",
     "alice_select_workspace_context",
@@ -783,4 +778,9 @@ test("MCP exposes no trusted-state review action", async () => {
     "open_alice_workspace",
     "save_project_update",
   ]);
+  assert.deepEqual(
+    payload.result.tools.find(({ name }) => name === "alice_commit_capture_save")._meta.ui
+      .visibility,
+    ["app"],
+  );
 });

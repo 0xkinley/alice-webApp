@@ -15,12 +15,16 @@ import { registerAppResource, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/e
 import { openDatabase } from "@alice/database";
 import {
   beginHostFileSaveTransfer,
+  CaptureSavePreviewUserError,
+  commitCaptureSavePreview,
   ContextBudgetError,
   activeTargetForConnection,
   contextScopeForConnection,
   createProject,
   createWorkContext,
   createHostFileSaveOffer,
+  createCaptureSavePreview,
+  decideHostFileSaveOffer,
   finalizeHostFileSaveTransfer,
   getContextProviderAvailability,
   getProjectFileReferencePreview,
@@ -36,7 +40,6 @@ import {
   readProjectFileText,
   recordContextReadFailure,
   recordContextReadSuccess,
-  saveCandidateUpdate,
   setActiveConnectionTarget,
   setContextProviderAvailability,
   suggestProjectUpdatesFromFile,
@@ -47,6 +50,8 @@ import {
   beginHostFileTransferSchema,
   attachAliceWorkspaceFileSchema,
   consumptionContractVersion,
+  commitAliceCaptureSaveSchema,
+  commitAliceHostFileSaveSchema,
   createAliceWorkspaceContextSchema,
   createAliceWorkspaceProjectSchema,
   finalizeHostFileTransferSchema,
@@ -83,25 +88,30 @@ function oauthToolSecurity(scope) {
 }
 
 const WORKSPACE_APP_URI = "ui://alice/workspace/v1.html";
+const SAVE_APP_URI = "ui://alice/save/v1.html";
 
-function oauthAppToolMeta(scope, visibility: Array<"model" | "app">) {
+function oauthAppToolMeta(
+  scope,
+  visibility: Array<"model" | "app">,
+  resourceUri = WORKSPACE_APP_URI,
+) {
   return {
     securitySchemes: [{ type: "oauth2", scopes: [scope] }],
-    ui: { resourceUri: WORKSPACE_APP_URI, visibility },
-    "openai/outputTemplate": WORKSPACE_APP_URI,
+    ui: { resourceUri, visibility },
+    "openai/outputTemplate": resourceUri,
   };
 }
 
-async function workspaceAppHtml() {
-  const bundleUrl = new URL("./workspace-app.js", import.meta.url);
+async function appHtml(name: "workspace-app" | "save-app", title: string) {
+  const bundleUrl = new URL(`./${name}.js`, import.meta.url);
   let script: string;
   try {
     script = await readFile(bundleUrl, "utf8");
   } catch {
-    const sourceBuildUrl = new URL("../dist/workspace-app.js", import.meta.url);
+    const sourceBuildUrl = new URL(`../dist/${name}.js`, import.meta.url);
     script = await readFile(sourceBuildUrl, "utf8");
   }
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>alice. workspace</title></head><body><main id="app"><p role="status">Loading alice. workspace…</p></main><script type="module">${script.replaceAll("</script", "<\\/script")}</script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head><body><main id="app"><p role="status">Loading ${title}…</p></main><script type="module">${script.replaceAll("</script", "<\\/script")}</script></body></html>`;
 }
 
 async function inChatWorkspaceSnapshot(database, { userId, connectionId, publicUrl }) {
@@ -200,7 +210,7 @@ function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes 
 }
 
 function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore | undefined) {
-  const server = new McpServer({ name: "alice-mcp", version: "0.7.0" });
+  const server = new McpServer({ name: "alice-mcp", version: "0.8.0" });
 
   registerAppResource(
     server as unknown as Parameters<typeof registerAppResource>[0],
@@ -216,7 +226,28 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         {
           uri: WORKSPACE_APP_URI,
           mimeType: RESOURCE_MIME_TYPE,
-          text: await workspaceAppHtml(),
+          text: await appHtml("workspace-app", "alice. workspace"),
+          _meta: { ui: { prefersBorder: true } },
+        },
+      ],
+    }),
+  );
+
+  registerAppResource(
+    server as unknown as Parameters<typeof registerAppResource>[0],
+    "alice. Save",
+    SAVE_APP_URI,
+    {
+      title: "alice. Save",
+      description: "One exact authenticated Save action for context and attachments.",
+      _meta: { ui: { prefersBorder: true } },
+    },
+    async () => ({
+      contents: [
+        {
+          uri: SAVE_APP_URI,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: await appHtml("save-app", "alice. Save"),
           _meta: { ui: { prefersBorder: true } },
         },
       ],
@@ -540,9 +571,9 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
       {
         title: "Prepare one requested host attachment save",
         description:
-          "Use only after the user explicitly asks to save one specific ChatGPT or Claude attachment to alice. Always targets the connection's exact active project and work context. Creates an immutable metadata-only preview and returns an alice.-controlled confirmation URL. It accepts no bytes, host URL, credential, cookie, prompt text, or model-generated confirmation. The user must personally choose Save to the named active context or Cancel on the authenticated alice. page before any transfer tool may accept bytes. This tool never queues context suggestions, stores the attachment, or changes trusted project state.",
+          "Use only after the user explicitly asks to save one specific ChatGPT or Claude attachment to alice. Always targets the connection's exact active project and work context. Creates only a short-lived metadata preview for an alice. Save card. It accepts no bytes, host URL, credential, cookie, prompt text, or model-generated confirmation. Only the user's Save action can authorize a later exact-byte transfer; closing or ignoring the card does nothing. This tool never queues context suggestions, stores the attachment, creates a file reference, or changes trusted project state.",
         inputSchema: hostFileSaveOfferSchema,
-        ...oauthToolSecurity("mcp:write"),
+        _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
         annotations: {
           readOnlyHint: false,
           destructiveHint: false,
@@ -559,24 +590,102 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           };
         }
         try {
-          const result = await createHostFileSaveOffer(database, {
+          const created = await createHostFileSaveOffer(database, {
             userId: authenticatedUserId(context),
             connectionId: authenticatedConnectionId(context),
             publicUrl,
             payload,
           });
-          if ("error" in result) {
-            return { content: [{ type: "text", text: result.error }], isError: true };
+          if ("error" in created) {
+            return { content: [{ type: "text", text: created.error }], isError: true };
           }
+          const { authorityToken, ...offer } = created;
+          const result = {
+            contract_version: "alice_save_card_v1",
+            card_type: "host_attachment",
+            ...offer,
+            status: offer.status === "pending" ? "awaiting_save" : offer.status,
+            pre_save_state: "preview_only",
+          };
+          const alreadyAuthorized = result.status === "save_file_only";
           return {
             content: [
               {
                 type: "text",
-                text: `No attachment bytes were copied. Ask the user to open this exact authenticated alice. preview and choose Save to ${result.destination.context_name} or Cancel personally: ${result.confirmation_url} ${JSON.stringify(result)}`,
+                text: alreadyAuthorized
+                  ? "The user already authorized this exact attachment transfer. No attachment bytes have been copied yet."
+                  : `No attachment bytes were copied. Present the alice. Save card for the user to review personally. If the host cannot render it, use the authenticated fallback: ${result.confirmation_url}`,
               },
             ],
             structuredContent: result,
+            ...(authorityToken
+              ? {
+                  _meta: {
+                    "alice/saveAuthority": {
+                      kind: "host_attachment",
+                      preview_id: result.offer_id,
+                      token: authorityToken,
+                    },
+                  },
+                }
+              : {
+                  _meta: {
+                    "alice/saveState": {
+                      kind: "host_attachment",
+                      preview_id: result.offer_id,
+                      status: result.status,
+                    },
+                  },
+                }),
           };
+        } catch (error) {
+          if (error instanceof HostFileSaveOfferUserError) {
+            return { content: [{ type: "text", text: error.message }], isError: true };
+          }
+          throw error;
+        }
+      },
+    );
+
+    server.registerTool(
+      "alice_confirm_host_file_save",
+      {
+        title: "Save the exact host attachment",
+        description:
+          "App-only human Save action. Authorizes transfer for the exact preview and does not itself receive or store attachment bytes.",
+        inputSchema: commitAliceHostFileSaveSchema,
+        _meta: oauthAppToolMeta("mcp:write", ["app"], SAVE_APP_URI),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        },
+      },
+      async (input, context) => {
+        if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
+          return {
+            content: [{ type: "text", text: "The connection does not grant mcp:write." }],
+            isError: true,
+          };
+        }
+        try {
+          const result = await decideHostFileSaveOffer(database, {
+            userId: authenticatedUserId(context),
+            offerId: input.offer_id,
+            previewVersion: input.preview_version,
+            decision: "save_file_only",
+            authority: "mcp_app",
+            authorityToken: input.authority_token,
+            publicUrl,
+          });
+          if (!result) {
+            return {
+              content: [{ type: "text", text: "Save preview unavailable." }],
+              isError: true,
+            };
+          }
+          return { content: [], structuredContent: result };
         } catch (error) {
           if (error instanceof HostFileSaveOfferUserError) {
             return { content: [{ type: "text", text: error.message }], isError: true };
@@ -1046,11 +1155,11 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
   server.registerTool(
     "save_project_update",
     {
-      title: "Save a candidate project update to alice.",
+      title: "Prepare an exact alice. Save card",
       description:
-        "Use only after the user explicitly asks to save or record an update in alice. Do not call for ordinary project work, suggestions, summaries, or inferred save intent. Uses this connection's active alice. project/work context when destination fields are omitted; explicit destination fields must match that active target. Stores the bounded validated payload as immutable evidence and creates pending candidate claims for exact human confirmation. Never accepts, rejects, supersedes, or otherwise changes trusted project state.",
+        "Use only after the user explicitly asks to save or record an update in alice. Do not call for ordinary project work, suggestions, summaries, or inferred save intent. Uses this connection's active alice. project/work context when destination fields are omitted; explicit destination fields must match that active target. Creates only a short-lived exact preview for the alice. Save card. The initial call creates no evidence, candidate, Needs attention item, or accepted state. Only the user's authenticated Save action can atomically create and accept the exact preview.",
       inputSchema: saveProjectUpdateSchema,
-      ...oauthToolSecurity("mcp:write"),
+      _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -1066,7 +1175,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           isError: true,
         };
       }
-      const result = await saveCandidateUpdate(database, {
+      const result = await createCaptureSavePreview(database, {
         clientId: authInfo.clientId,
         connectionId: authenticatedConnectionId(context),
         publicUrl,
@@ -1080,11 +1189,62 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         content: [
           {
             type: "text",
-            text: `${result.candidate_ids.length} candidate claim(s) saved for human review. Trusted state was not changed. ${JSON.stringify(result)}`,
+            text: `Nothing has been saved. Present the exact alice. Save card for the user to decide personally. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
           },
         ],
-        structuredContent: result,
+        structuredContent: result.preview,
+        _meta: {
+          "alice/saveAuthority": {
+            kind: "context_capture",
+            preview_id: result.preview.preview_id,
+            token: result.authorityToken,
+          },
+        },
       };
+    },
+  );
+
+  server.registerTool(
+    "alice_commit_capture_save",
+    {
+      title: "Save the exact context preview",
+      description:
+        "App-only authenticated human Save action. Atomically creates evidence and accepted context for the exact unexpired preview.",
+      inputSchema: commitAliceCaptureSaveSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["app"], SAVE_APP_URI),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
+        return {
+          content: [{ type: "text", text: "The connection does not grant mcp:write." }],
+          isError: true,
+        };
+      }
+      try {
+        const result = await commitCaptureSavePreview(database, {
+          previewId: input.preview_id,
+          previewVersion: input.preview_version,
+          authorityToken: input.authority_token,
+          authority: "mcp_app",
+          publicUrl,
+          userId: authenticatedUserId(context),
+        });
+        if (!result) {
+          return { content: [{ type: "text", text: "Save preview unavailable." }], isError: true };
+        }
+        return { content: [], structuredContent: result };
+      } catch (error) {
+        if (error instanceof CaptureSavePreviewUserError) {
+          return { content: [{ type: "text", text: error.message }], isError: true };
+        }
+        throw error;
+      }
     },
   );
 

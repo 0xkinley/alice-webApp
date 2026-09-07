@@ -731,6 +731,45 @@ function createSchema(database: DatabaseSync) {
       )
     ) STRICT;
 
+    CREATE TABLE capture_save_previews (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      connection_workspace_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      client_classification TEXT NOT NULL CHECK (client_classification IN ('chatgpt', 'claude')),
+      exact_payload_json TEXT NOT NULL CHECK (length(exact_payload_json) BETWEEN 2 AND 65536),
+      payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+      replacement_snapshot_json TEXT NOT NULL CHECK (
+        length(replacement_snapshot_json) BETWEEN 2 AND 65536
+      ),
+      exact_preview_json TEXT NOT NULL CHECK (length(exact_preview_json) BETWEEN 2 AND 131072),
+      preview_version TEXT NOT NULL CHECK (length(preview_version) = 64),
+      authority_token_hash TEXT NOT NULL CHECK (length(authority_token_hash) = 64),
+      target_selection_version TEXT NOT NULL CHECK (
+        length(target_selection_version) BETWEEN 1 AND 200
+      ),
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      FOREIGN KEY (connection_workspace_id, user_id, connection_id)
+        REFERENCES integration_connections(workspace_id, user_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id)
+    ) STRICT;
+
+    CREATE TABLE host_file_save_offer_authorities (
+      id TEXT PRIMARY KEY,
+      offer_id TEXT NOT NULL REFERENCES host_file_save_offers(id),
+      token_hash TEXT NOT NULL CHECK (length(token_hash) = 64),
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      UNIQUE (offer_id, token_hash)
+    ) STRICT;
+
     CREATE TABLE host_file_save_transfer_intents (
       intent_id TEXT PRIMARY KEY,
       offer_id TEXT NOT NULL,
@@ -1317,12 +1356,6 @@ function createSchema(database: DatabaseSync) {
       SELECT RAISE(ABORT, 'host file save offers are immutable');
     END;
 
-    CREATE TRIGGER host_file_save_offers_no_delete
-    BEFORE DELETE ON host_file_save_offers
-    BEGIN
-      SELECT RAISE(ABORT, 'host file save offers are immutable');
-    END;
-
     CREATE TRIGGER host_file_save_decisions_no_update
     BEFORE UPDATE ON host_file_save_decisions
     BEGIN
@@ -1333,6 +1366,18 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON host_file_save_decisions
     BEGIN
       SELECT RAISE(ABORT, 'host file save decisions are immutable');
+    END;
+
+    CREATE TRIGGER capture_save_previews_no_update
+    BEFORE UPDATE ON capture_save_previews
+    BEGIN
+      SELECT RAISE(ABORT, 'capture save previews are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_offer_authorities_no_update
+    BEFORE UPDATE ON host_file_save_offer_authorities
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save offer authorities are immutable');
     END;
 
     CREATE TRIGGER host_file_save_transfer_intents_no_update

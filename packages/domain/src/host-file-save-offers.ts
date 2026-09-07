@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { appendAuditEvent } from "./audit.ts";
 import { activeTargetForConnection } from "./active-targets.ts";
 import { contextScopeForConnection, contextScopeForUser } from "./authorization.ts";
@@ -86,9 +86,29 @@ function safeOfferResult(offer, publicUrl: string) {
     conversation_reference: offer.conversation_reference,
     confirmation_url: new URL(`/file-save-offers/${encodeURIComponent(offer.id)}`, publicUrl).href,
     expires_at: new Date(Number(offer.expires_at)).toISOString(),
+    preview_version: decisionVersion(offer),
     bytes_received: false,
     trusted_state_changed: false,
   };
+}
+
+async function createAppAuthority(database, offer) {
+  const token = `alice_file_save_${randomBytes(32).toString("base64url")}`;
+  const createdAt = new Date().toISOString();
+  await database
+    .prepare(
+      `INSERT INTO host_file_save_offer_authorities
+        (id, offer_id, token_hash, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(
+      `file_save_authority_${randomUUID()}`,
+      offer.id,
+      sha256(token),
+      createdAt,
+      Number(offer.expires_at),
+    );
+  return token;
 }
 
 async function offerForConnectionRetry(database, input) {
@@ -134,6 +154,19 @@ export async function createHostFileSaveOffer(
   };
   const requestHash = sha256(canonicalRequest(request));
   const created = await database.transaction(async () => {
+    await database
+      .prepare("DELETE FROM host_file_save_offer_authorities WHERE expires_at <= ?")
+      .run(Date.now());
+    await database
+      .prepare(
+        `DELETE FROM host_file_save_offers
+         WHERE expires_at <= ?
+           AND NOT EXISTS (
+             SELECT 1 FROM host_file_save_decisions decision
+             WHERE decision.offer_id = host_file_save_offers.id
+           )`,
+      )
+      .run(Date.now());
     await database
       .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
       .get(`host-file-save-offer:${input.connectionId}:${input.payload.idempotency_key}`);
@@ -203,21 +236,6 @@ export async function createHostFileSaveOffer(
         createdAt,
         expiresAt,
       );
-    await appendAuditEvent(database, {
-      workspaceId: access.projectWorkspaceId,
-      projectId: target.project_id,
-      action: "host_file_save_offered",
-      actorType: "ai_tool",
-      actorId: input.connectionId,
-      correlationId: offerId,
-      metadata: {
-        offer_id: offerId,
-        context_id: target.context_id,
-        source_host: target.surface,
-        has_declared_hash: Boolean(request.declaredSha256),
-        has_conversation_reference: Boolean(request.conversationReference),
-      },
-    });
     return await offerForConnectionRetry(database, {
       userId: input.userId,
       connectionId: input.connectionId,
@@ -225,7 +243,11 @@ export async function createHostFileSaveOffer(
     });
   });
   if (created && "error" in created) return created;
-  return safeOfferResult(created, input.publicUrl);
+  const authorityToken =
+    !created.decision && Number(created.expires_at) > Date.now()
+      ? await createAppAuthority(database, created)
+      : undefined;
+  return { ...safeOfferResult(created, input.publicUrl), authorityToken };
 }
 
 async function offerForUser(database, userId: string, offerId: string) {
@@ -287,11 +309,13 @@ export async function decideHostFileSaveOffer(
     offerId: string;
     previewVersion: string;
     decision: HostFileSaveDecision;
+    authority: "mcp_app" | "web_session";
+    authorityToken?: string;
     publicUrl: string;
   },
 ) {
-  if (!["save_file_only", "cancelled"].includes(input.decision)) {
-    throw new HostFileSaveOfferUserError("Choose one of the exact file save actions shown.");
+  if (input.decision !== "save_file_only") {
+    throw new HostFileSaveOfferUserError("The only available decision is Save.");
   }
   return await database.transaction(async () => {
     await database
@@ -318,6 +342,20 @@ export async function decideHostFileSaveOffer(
         "The file save preview changed. Reload it before making a decision.",
       );
     }
+    if (input.authority === "mcp_app") {
+      const tokenHash = sha256(String(input.authorityToken || ""));
+      const authority = await database
+        .prepare(
+          `SELECT id FROM host_file_save_offer_authorities
+           WHERE offer_id = ? AND token_hash = ? AND expires_at > ?`,
+        )
+        .get(offer.id, tokenHash, Date.now());
+      if (!authority) {
+        throw new HostFileSaveOfferUserError(
+          "The authenticated Save authority is unavailable or expired.",
+        );
+      }
+    }
     const decidedAt = new Date().toISOString();
     await database
       .prepare(
@@ -339,10 +377,7 @@ export async function decideHostFileSaveOffer(
     await appendAuditEvent(database, {
       workspaceId: offer.workspace_id,
       projectId: offer.project_id,
-      action:
-        input.decision === "cancelled"
-          ? "host_file_save_cancelled"
-          : "host_file_save_transfer_authorized",
+      action: "host_file_save_transfer_authorized",
       actorType: "human_user",
       actorId: input.userId,
       correlationId: offer.id,
@@ -353,6 +388,9 @@ export async function decideHostFileSaveOffer(
         bytes_received: false,
       },
     });
+    await database
+      .prepare("DELETE FROM host_file_save_offer_authorities WHERE offer_id = ?")
+      .run(offer.id);
     return {
       ...(await getHostFileSaveOfferPreview(database, input)),
       status: input.decision,

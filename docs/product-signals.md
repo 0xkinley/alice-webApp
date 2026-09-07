@@ -2,7 +2,7 @@
 
 Status: Implemented for observable signals and controlled per-surface denominator policy
 
-Decision dates: 2026-08-30 (signals); 2026-09-01 (denominator policy)
+Decision dates: 2026-08-30 (signals); 2026-09-01 (denominator policy); 2026-09-07 (single-action Save observability)
 
 ## Purpose and boundary
 
@@ -16,8 +16,8 @@ The aggregation queries do not select prompts, task text, model responses, evide
 - **Read success among observed attempts:** successful package receipts divided by all received attempts. This is not called host invocation rate.
 - **Cross-host reuse:** a project with successful reads from two different safe client classifications no more than seven days apart. Project identifiers are used only for grouping and are not returned.
 - **Repeated weekly use:** successful reads in at least two distinct UTC weeks.
-- **Save-offer completion:** exact capture receipts whose candidates are all terminal, divided by received save offers. Confirmed, cancelled, and still-pending offers remain separate.
-- **Confirmation burden:** proposed entries per offer and median elapsed seconds from evidence capture to an exact aggregate confirm/cancel audit.
+- **Retained capture outcomes:** exact evidence captures whose candidates are accepted, historically rejected, or still pending. Routine single-action saves enter this population only after Save; ignored and expired previews create no durable evidence or analytics event and are not counted as offers.
+- **Retained review burden:** entries per retained capture and median elapsed seconds from evidence creation to a historical aggregate accept/reject audit. A routine atomic Save normally has a zero-second interval because evidence and acceptance share the authenticated Save transaction.
 - **Repairs:** append-only removal audits carrying only the bounded `stale`, `contradicted`, or `wrong` classification. The optional human explanation is excluded from audit metadata and aggregation.
 
 ## Host invocation denominator
@@ -35,3 +35,7 @@ The implemented denominator contract is limited to a controlled compatibility co
 The machine-readable contract is `evals/host-invocation-denominators.json`. `npm run eval:invocation` validates the formula, explicit outcomes, content-free allowlist, exact-surface registry, and compatibility-matrix gate. A surface cannot be advertised until it has its own dated `measurable` denominator record. A `provider_blocked` or `untested` surface remains unsupported.
 
 This contract makes future controlled compatibility rates defensible; it does not create or claim a population-wide rate for ordinary private-alpha use. The current registry has no live denominator run, so all seven exact Claude and ChatGPT surfaces remain untested and no current invocation percentage is published. Codex is outside the private-alpha denominator and participant product scope.
+
+## Single-action Save denominator
+
+Routine preview state is intentionally short-lived and contains the exact user-visible payload. Closing, ignoring, or expiry must not create a durable candidate, Needs attention item, accepted state, file reference, or content-bearing analytics record. For that reason the current alpha does not retain an ordinary-user denominator for Save cards presented, dismissed, or expired, and it must not relabel completed saves as all offers received. A future completion-rate study must use a separately consented, synthetic, content-free cohort declared before presentation, analogous to the host invocation denominator, rather than weakening the no-action deletion boundary.

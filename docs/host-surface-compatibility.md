@@ -10,7 +10,7 @@ alice. records compatibility per exact host surface. A result from one client ne
 
 The registry is intentionally limited to the two participant products: Claude and ChatGPT. All 49 capability cells across its seven enumerated surfaces are explicitly `untested`, every surface is unadvertised, and every untested capability is treated as unsupported. Milestone 07 needs to validate only an exact surface that will actually be used by a participant; it does not need to complete unrelated rows. Codex is outside the private-alpha product scope; internal use of alice. from Codex is development evidence only and cannot be advertised or inherited by a ChatGPT result. The earlier generic hosted OAuth verifier proved alice.'s server-side PKCE, refresh rotation, revocation, and post-revocation HTTP 401 behavior, but it was not initiated by one of these exact provider surfaces and therefore does not promote any matrix cell.
 
-The retained hosted MCP runtime reports server version `0.6.2`. Hosted source commit `43febda` is deployed as immutable ECR digest `sha256:f03b9d1276b25415d59e528b15cf23c851265978c570181c9c6dbd35a00b7b60`; its automatic scan returned no findings, and the earlier private task verified all 18 migrations before runtime restoration. Native or fallback attachment-transfer results for the previously deployed allowlist may now be recorded against that exact identity, but only through a dated run on the exact surface. The local branch reports MCP `0.6.4`, includes migration 019 for the expanded format allowlist, and routes new ChatGPT/Claude attachment saves to the connection's exact active work context with no suggestion or Needs attention branch. Those changes have no hosted deployment evidence yet. Deployment eligibility does not promote any capability cell by itself.
+The retained hosted MCP runtime reports server version `0.6.2`. Hosted source commit `43febda` is deployed as immutable ECR digest `sha256:f03b9d1276b25415d59e528b15cf23c851265978c570181c9c6dbd35a00b7b60`; its automatic scan returned no findings, and the earlier private task verified all 18 migrations before runtime restoration. Native or fallback attachment-transfer results for the previously deployed allowlist may now be recorded against that exact identity, but only through a dated run on the exact surface. The local branch reports MCP `0.8.0`, includes migrations 019–021 for the expanded format allowlist, provider authorization, and short-lived single-action Save previews, and routes new ChatGPT/Claude saves through the exact active work context with no routine suggestion, Cancel, or Needs attention branch. Those changes have no hosted deployment evidence yet. Deployment eligibility does not promote any capability cell by itself.
 
 ## Enumerated surfaces and current status
 
@@ -31,14 +31,14 @@ Each exact surface has explicit entries for:
 - OAuth connect, reconnect, refresh, revoke, and post-revocation denial;
 - permitted project discovery and alice.-controlled active project/context selection;
 - accepted-context retrieval without manual restatement;
-- candidate save followed by exact authenticated human confirmation and no activation when the user takes no Save action;
+- an exact short-lived preview followed by one authenticated human Save, with no candidate, Needs attention item, activation, or file reference when the user takes no action;
 - permission-filtered file references and native attachment transfer or the alice.-controlled fallback;
 - permission denial with no restricted metadata or mutation; and
 - cross-host reuse of only human-confirmed state.
 
 The allowed cell statuses are `pass`, `fail`, `provider_blocked`, and `untested`. A surface may be advertised only for capabilities with current `pass` evidence and the required measurable denominator. `Fail`, `provider_blocked`, and `untested` remain unsupported and use the exact fallback recorded in the registry. An untested surface does not block Milestone 06 or an independently verified surface.
 
-The current version-1 registry and deterministic harness still describe the implemented Save/Cancel flow. Local MCP `0.7.0` now contains the portable workspace app and migration `020` provider boundary, but no live provider capability cell changes from that source-only work. The planned single-action Save card will require a versioned schema and fixture update when it is implemented; source or planning text does not rewrite current runtime evidence.
+Registry contract `alice.host-surface-compatibility.v2` and the deterministic harness describe the local single-action Save flow. Local MCP `0.8.0` contains the portable workspace and Save apps plus migrations `020` and `021`; the version change does not promote any live provider capability cell. Every exact surface remains untested, unsupported, and unadvertised until its own dated live run.
 
 ## Recording a live run
 
@@ -61,12 +61,12 @@ For the invocation cohort, declare every eligible trial before its host turn and
 `evals/private-alpha-capabilities.json` defines 27 disclosed traces across ChatGPT, Claude, provider-neutral, and cross-host behavior. Twenty-two compliant traces and five intentionally unsafe traces cover:
 
 - project/context selection and read-only active-context or exact-file retrieval;
-- candidate-only save offers, one human confirmation, and cancellation;
+- preview-only save offers, one human Save, and dismissal/expiry with no project write;
 - direct upload, native attachment transfer, alice.-controlled fallback, threat denial, and PDF extraction-to-candidate behavior;
 - append-only removal, project/context sharing, connection revocation, concurrent exact-once behavior, and permission non-disclosure; and
-- ChatGPT-to-Claude confirmed reuse, cancelled-value exclusion on return to ChatGPT, and cross-host use of a saved file strictly as untrusted data.
+- ChatGPT-to-Claude confirmed reuse, ignored-preview exclusion on return to ChatGPT, and cross-host use of a saved file strictly as untrusted data.
 
-The scorer rejects host-performed human actions, activation without a prior exact human check, file references without confirmation and both clean gates, candidate creation without evidence-producing capture, successful reads after revocation, permission-denial metadata leakage, and cross-host accepted-state use before human confirmation. Every capability also names existing runtime test files; missing evidence paths fail the evaluation.
+The scorer rejects host-performed human actions, activation without a prior exact human Save, file references without Save and both clean gates, candidate creation without an evidence-producing Save or explicit file suggestion, successful reads after revocation, permission-denial metadata leakage, and cross-host accepted-state use before human Save. Every capability also names existing runtime test files; missing evidence paths fail the evaluation.
 
 Run the bounded local gate with:
 

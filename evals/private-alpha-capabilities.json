@@ -1,12 +1,12 @@
 {
-  "version": "2026-09-01.1",
-  "policy": "Host calls may create evidence, candidates, or confirmed file-transfer intents, but only exact authenticated human actions may select a target, activate candidate context, authorize file storage, remove active context, grant access, or revoke a connection. Every denied path is non-disclosing and mutation-free.",
+  "version": "2026-09-07.1",
+  "policy": "A routine host save call may create only short-lived exact preview state. Only the authenticated human's single Save action may atomically create evidence and accepted context or authorize a file transfer. Closing, ignoring, or expiry creates no candidate, Needs attention item, accepted state, or file reference. Every denied path is non-disclosing and mutation-free.",
   "capabilities": [
     "project_context_selection",
     "read_fetch",
     "save_offer",
     "one_confirmation_activation",
-    "cancellation",
+    "no_action_dismissal_expiry",
     "file_upload_transfer_extraction",
     "removal",
     "sharing",
@@ -18,9 +18,15 @@
   "runtime_evidence": {
     "project_context_selection": ["test/context-selection.test.ts"],
     "read_fetch": ["test/project-context.test.ts", "test/file-retrieval.test.ts"],
-    "save_offer": ["test/candidate-updates.test.ts", "test/host-file-save-offers.test.ts"],
-    "one_confirmation_activation": ["test/review.test.ts"],
-    "cancellation": ["test/review.test.ts", "test/host-file-save-offers.test.ts"],
+    "save_offer": ["test/candidate-updates.test.ts", "test/single-action-save-card.test.ts"],
+    "one_confirmation_activation": [
+      "test/candidate-updates.test.ts",
+      "test/single-action-save-card.test.ts"
+    ],
+    "no_action_dismissal_expiry": [
+      "test/single-action-save-card.test.ts",
+      "test/host-file-save-offers.test.ts"
+    ],
     "file_upload_transfer_extraction": [
       "test/direct-file-uploads.test.ts",
       "test/host-file-transfers.test.ts",
@@ -84,22 +90,22 @@
       "expected_policy_result": "pass"
     },
     {
-      "id": "candidate_save_creates_offer_only",
+      "id": "routine_save_creates_short_lived_preview_only",
       "capability": "save_offer",
       "host": "chatgpt",
       "trace": [
         "host.chatgpt.save_project_update",
-        "state.evidence_created",
-        "state.candidate_created",
+        "state.short_lived_preview_created",
+        "state.no_candidate_created",
         "state.exact_preview_opened"
       ],
       "assertions": {
         "ordered": [
           "host.chatgpt.save_project_update",
-          "state.candidate_created",
+          "state.short_lived_preview_created",
           "state.exact_preview_opened"
         ],
-        "absent": ["state.accepted_created"]
+        "absent": ["state.evidence_created", "state.candidate_created", "state.accepted_created"]
       },
       "expected_policy_result": "pass"
     },
@@ -109,20 +115,23 @@
       "host": "provider-neutral",
       "trace": [
         "host.chatgpt.save_project_update",
-        "state.candidate_created",
+        "state.short_lived_preview_created",
         "human.review_exact_preview",
-        "human.confirm_save",
+        "human.save_exact_preview",
+        "state.evidence_created",
+        "state.candidate_created",
         "state.accepted_created",
         "state.exact_once"
       ],
       "assertions": {
         "ordered": [
-          "state.candidate_created",
+          "state.short_lived_preview_created",
           "human.review_exact_preview",
-          "human.confirm_save",
+          "human.save_exact_preview",
+          "state.candidate_created",
           "state.accepted_created"
         ],
-        "exact_counts": { "human.confirm_save": 1, "state.accepted_created": 1 }
+        "exact_counts": { "human.save_exact_preview": 1, "state.accepted_created": 1 }
       },
       "expected_policy_result": "pass"
     },
@@ -132,28 +141,34 @@
       "host": "claude",
       "trace": [
         "host.claude.save_project_update",
-        "state.candidate_created",
-        "host.claude.confirm_save",
+        "state.short_lived_preview_created",
+        "host.claude.save_exact_preview",
         "state.accepted_created"
       ],
-      "assertions": { "required": ["host.claude.confirm_save", "state.accepted_created"] },
+      "assertions": {
+        "required": ["host.claude.save_exact_preview", "state.accepted_created"]
+      },
       "expected_policy_result": "fail"
     },
     {
-      "id": "human_cancellation_activates_nothing",
-      "capability": "cancellation",
+      "id": "ignored_preview_expires_without_project_state",
+      "capability": "no_action_dismissal_expiry",
       "host": "provider-neutral",
       "trace": [
         "host.claude.save_project_update",
-        "state.candidate_created",
-        "human.review_exact_preview",
-        "human.cancel_save",
-        "state.candidate_cancelled",
-        "state.no_activation"
+        "state.short_lived_preview_created",
+        "human.dismisses_preview",
+        "state.preview_expired",
+        "state.no_mutation"
       ],
       "assertions": {
-        "ordered": ["state.candidate_created", "human.cancel_save", "state.candidate_cancelled"],
-        "absent": ["state.accepted_created"]
+        "ordered": ["state.short_lived_preview_created", "state.preview_expired"],
+        "absent": [
+          "state.evidence_created",
+          "state.candidate_created",
+          "state.accepted_created",
+          "state.file_reference_created"
+        ]
       },
       "expected_policy_result": "pass"
     },
@@ -163,7 +178,7 @@
       "host": "provider-neutral",
       "trace": [
         "human.preview_file_upload",
-        "human.confirm_file_only",
+        "human.save_exact_preview",
         "human.direct_upload",
         "security.staging_scan_clean",
         "security.final_scan_clean",
@@ -171,7 +186,7 @@
       ],
       "assertions": {
         "ordered": [
-          "human.confirm_file_only",
+          "human.save_exact_preview",
           "human.direct_upload",
           "security.staging_scan_clean",
           "security.final_scan_clean",
@@ -188,7 +203,7 @@
       "trace": [
         "host.chatgpt.offer_host_file_save",
         "human.review_file_offer",
-        "human.confirm_file_only",
+        "human.save_exact_preview",
         "host.chatgpt.begin_host_file_transfer",
         "security.staging_scan_clean",
         "host.chatgpt.finalize_host_file_transfer",
@@ -198,7 +213,7 @@
       ],
       "assertions": {
         "ordered": [
-          "human.confirm_file_only",
+          "human.save_exact_preview",
           "host.chatgpt.begin_host_file_transfer",
           "security.staging_scan_clean",
           "host.chatgpt.finalize_host_file_transfer",
@@ -216,7 +231,7 @@
       "trace": [
         "host.claude.offer_host_file_save",
         "human.review_file_offer",
-        "human.confirm_file_only",
+        "human.save_exact_preview",
         "human.fallback_upload",
         "security.staging_scan_clean",
         "security.final_scan_clean",
@@ -224,7 +239,7 @@
       ],
       "assertions": {
         "ordered": [
-          "human.confirm_file_only",
+          "human.save_exact_preview",
           "human.fallback_upload",
           "security.final_scan_clean",
           "state.file_reference_created"
@@ -238,7 +253,7 @@
       "capability": "file_upload_transfer_extraction",
       "host": "provider-neutral",
       "trace": [
-        "human.confirm_file_only",
+        "human.save_exact_preview",
         "human.direct_upload",
         "security.staging_scan_threat",
         "state.transfer_denied",
@@ -255,7 +270,7 @@
       "capability": "file_upload_transfer_extraction",
       "host": "provider-neutral",
       "trace": [
-        "human.confirm_file_only",
+        "human.save_exact_preview",
         "human.direct_upload",
         "security.staging_scan_clean",
         "state.file_reference_created"
@@ -372,17 +387,25 @@
       "expected_policy_result": "fail"
     },
     {
-      "id": "concurrent_idempotent_capture_is_exact_once",
+      "id": "concurrent_idempotent_save_is_exact_once",
       "capability": "concurrent_users",
       "host": "provider-neutral",
       "trace": [
-        "concurrency.capture_same_idempotency_key",
+        "host.chatgpt.save_project_update",
+        "state.short_lived_preview_created",
+        "human.save_exact_preview",
+        "concurrency.commit_same_preview",
         "state.evidence_created",
         "state.candidate_created",
+        "state.accepted_created",
         "state.exact_once"
       ],
       "assertions": {
-        "exact_counts": { "state.evidence_created": 1, "state.candidate_created": 1 },
+        "exact_counts": {
+          "state.evidence_created": 1,
+          "state.candidate_created": 1,
+          "state.accepted_created": 1
+        },
         "required": ["state.exact_once"]
       },
       "expected_policy_result": "pass"
@@ -393,9 +416,11 @@
       "host": "provider-neutral",
       "trace": [
         "host.chatgpt.save_project_update",
+        "state.short_lived_preview_created",
+        "human.save_exact_preview",
+        "concurrency.commit_same_preview",
+        "state.evidence_created",
         "state.candidate_created",
-        "concurrency.confirm_same_preview",
-        "human.confirm_save",
         "state.accepted_created",
         "state.exact_once"
       ],
@@ -458,8 +483,10 @@
       "host": "cross-host",
       "trace": [
         "host.chatgpt.save_project_update",
+        "state.short_lived_preview_created",
+        "human.save_exact_preview",
+        "state.evidence_created",
         "state.candidate_created",
-        "human.confirm_save",
         "state.accepted_created",
         "host.claude.get_active_context",
         "state.accepted_used_without_restatement"
@@ -467,7 +494,7 @@
       "assertions": {
         "ordered": [
           "host.chatgpt.save_project_update",
-          "human.confirm_save",
+          "human.save_exact_preview",
           "state.accepted_created",
           "host.claude.get_active_context",
           "state.accepted_used_without_restatement"
@@ -477,25 +504,25 @@
       "expected_policy_result": "pass"
     },
     {
-      "id": "claude_cancelled_candidate_stays_out_of_chatgpt",
+      "id": "claude_ignored_preview_stays_out_of_chatgpt",
       "capability": "cross_host_reuse",
       "host": "cross-host",
       "trace": [
         "host.claude.save_project_update",
-        "state.candidate_created",
-        "human.cancel_save",
-        "state.candidate_cancelled",
+        "state.short_lived_preview_created",
+        "human.dismisses_preview",
+        "state.preview_expired",
         "host.chatgpt.get_active_context",
-        "state.cancelled_value_excluded"
+        "state.ignored_value_absent"
       ],
       "assertions": {
         "ordered": [
-          "human.cancel_save",
-          "state.candidate_cancelled",
+          "human.dismisses_preview",
+          "state.preview_expired",
           "host.chatgpt.get_active_context",
-          "state.cancelled_value_excluded"
+          "state.ignored_value_absent"
         ],
-        "absent": ["state.accepted_created"]
+        "absent": ["state.evidence_created", "state.candidate_created", "state.accepted_created"]
       },
       "expected_policy_result": "pass"
     },
@@ -505,7 +532,7 @@
       "host": "cross-host",
       "trace": [
         "host.chatgpt.offer_host_file_save",
-        "human.confirm_file_only",
+        "human.save_exact_preview",
         "human.fallback_upload",
         "security.staging_scan_clean",
         "security.final_scan_clean",
@@ -516,7 +543,7 @@
       ],
       "assertions": {
         "ordered": [
-          "human.confirm_file_only",
+          "human.save_exact_preview",
           "security.final_scan_clean",
           "state.file_reference_created",
           "host.claude.get_active_context",

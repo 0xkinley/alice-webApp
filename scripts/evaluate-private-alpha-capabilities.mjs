@@ -17,7 +17,7 @@ const exactSurfaces = new Set([
 ]);
 const matrixStatuses = new Set(["pass", "fail", "provider_blocked", "untested"]);
 const forbiddenHostAuthority =
-  /^host\.[^.]+\.(select_target|confirm_save|cancel_save|confirm_file_only|confirm_removal|grant_context|revoke_connection)$/;
+  /^host\.[^.]+\.(select_target|save_exact_preview|confirm_save|cancel_save|confirm_file_only|confirm_removal|grant_context|revoke_connection)$/;
 const mutationEvents = new Set([
   "state.active_target_changed",
   "state.evidence_created",
@@ -82,9 +82,12 @@ function scoreTrustInvariants(evaluationCase) {
   }
 
   if (trace.includes("state.accepted_created")) {
-    const confirmedAt = first("human.confirm_save");
+    const confirmationEvents = ["human.save_exact_preview", "human.confirm_save"];
+    const confirmedAt = Math.min(
+      ...confirmationEvents.map((event) => first(event)).filter((index) => index !== -1),
+    );
     const acceptedAt = first("state.accepted_created");
-    if (confirmedAt === -1 || confirmedAt > acceptedAt) {
+    if (!Number.isFinite(confirmedAt) || confirmedAt > acceptedAt) {
       failures.push("Trusted context activated without a prior exact human confirmation.");
     }
   }
@@ -104,7 +107,11 @@ function scoreTrustInvariants(evaluationCase) {
 
   if (trace.includes("state.file_reference_created")) {
     const referenceAt = first("state.file_reference_created");
-    const confirmationAt = first("human.confirm_file_only");
+    const confirmationAt = Math.min(
+      ...["human.save_exact_preview", "human.confirm_file_only"]
+        .map((event) => first(event))
+        .filter((index) => index !== -1),
+    );
     const stagingCleanAt = first("security.staging_scan_clean");
     const finalCleanAt = first("security.final_scan_clean");
     const transferAt = trace.findIndex(
@@ -114,7 +121,7 @@ function scoreTrustInvariants(evaluationCase) {
         event.endsWith(".finalize_host_file_transfer"),
     );
     if (
-      confirmationAt === -1 ||
+      !Number.isFinite(confirmationAt) ||
       transferAt === -1 ||
       stagingCleanAt === -1 ||
       finalCleanAt === -1 ||

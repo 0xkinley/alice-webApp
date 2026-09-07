@@ -3,7 +3,12 @@ import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
 import { createApp } from "../apps/mcp/src/app.ts";
-import { saveCandidateUpdate } from "@alice/domain";
+import {
+  CaptureSavePreviewUserError,
+  commitCaptureSavePreview,
+  createCaptureSavePreview,
+  saveCandidateUpdate,
+} from "@alice/domain";
 import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
 
 let accessToken;
@@ -70,119 +75,86 @@ after(async () => {
   created.database.close();
 });
 
-test("explicit save creates pending candidates without changing trusted state", async () => {
+async function prepareAndSave(argumentsValue = update) {
+  const prepared = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "save_project_update",
+    arguments: argumentsValue,
+  });
+  const preview = prepared.payload.result.structuredContent;
+  const authority = prepared.payload.result._meta["alice/saveAuthority"];
+  const saved = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "alice_commit_capture_save",
+    arguments: {
+      preview_id: preview.preview_id,
+      preview_version: preview.preview_version,
+      authority_token: authority.token,
+    },
+  });
+  return { prepared, preview, saved };
+}
+
+test("the initial save call creates only an exact short-lived preview", async () => {
+  const before = captureCounts();
   const { response, payload } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "save_project_update",
     arguments: update,
   });
   assert.equal(response.status, 200);
-  const result = payload.result.structuredContent;
-  initialCaptureResult = result;
-  assert.equal(result.candidate_ids.length, 3);
-  assert.deepEqual(
-    result.candidate_statuses.map(({ status }) => status),
-    ["pending", "pending", "pending"],
+  const preview = payload.result.structuredContent;
+  assert.equal(preview.contract_version, "alice_save_card_v1");
+  assert.equal(preview.card_type, "context_capture");
+  assert.equal(preview.payload.candidate_claims.length, 3);
+  assert.equal(preview.status, "awaiting_save");
+  assert.equal(preview.pre_save_state, "preview_only");
+  assert.equal(preview.trusted_state_changed, false);
+  assert.match(preview.fallback_url, /\/save-previews\/capture_save_preview_/);
+  assert.equal("authority_token" in preview, false);
+  assert.match(payload.result._meta["alice/saveAuthority"].token, /^alice_save_/);
+  assert.deepEqual(captureCounts(), before);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM capture_save_previews").get().count,
+    1,
   );
-  assert.match(result.audit_event_id, /^audit_/);
-  assert.match(result.correlation_id, /^capture_/);
-  assert.equal(result.trusted_state_changed, false);
-  assert.equal(result.deduplicated, false);
-  assert.match(result.review_url, /\/review\/captures\/evidence_/);
-  assert.match(result.context_id, /^context_/);
-  assert.deepEqual(result.provenance, {
-    actor_type: "mcp_host",
-    connection_id: authenticatedCaptureSubject().connection_id,
-    client_id: authenticatedCaptureSubject().client_id,
-    client_classification: "chatgpt",
-    tool_name: "save_project_update",
-    payload_hash: result.provenance.payload_hash,
-    captured_at: result.provenance.captured_at,
-  });
-  assert.match(result.provenance.payload_hash, /^[a-f0-9]{64}$/);
-  assert.match(result.provenance.captured_at, /^\d{4}-\d{2}-\d{2}T/);
 
-  const candidates = created.database
-    .prepare("SELECT status FROM candidate_claims WHERE evidence_id = ?")
-    .all(result.evidence_id);
-  assert.deepEqual(
-    candidates.map(({ status }) => status),
-    ["pending", "pending", "pending"],
+  const saved = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "alice_commit_capture_save",
+    arguments: {
+      preview_id: preview.preview_id,
+      preview_version: preview.preview_version,
+      authority_token: payload.result._meta["alice/saveAuthority"].token,
+    },
+  });
+  initialCaptureResult = saved.payload.result.structuredContent;
+  assert.equal(initialCaptureResult.status, "saved");
+  assert.equal(initialCaptureResult.accepted.length, 3);
+  assert.equal(initialCaptureResult.trusted_state_changed, true);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM candidate_claims").get().count,
+    3,
   );
   assert.equal(
     created.database
-      .prepare("SELECT COUNT(*) AS count FROM candidate_context_targets WHERE context_id = ?")
-      .get(result.context_id).count,
+      .prepare("SELECT COUNT(*) AS count FROM candidate_claims WHERE status = 'accepted'")
+      .get().count,
     3,
   );
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
+    3,
+  );
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM capture_save_previews").get().count,
     0,
   );
-
-  const evidence = created.database
-    .prepare("SELECT exact_payload_json, payload_hash FROM evidence_events WHERE id = ?")
-    .get(result.evidence_id);
-  assert.equal(evidence.exact_payload_json, JSON.stringify(update));
-  assert.equal(
-    evidence.payload_hash,
-    createHash("sha256").update(evidence.exact_payload_json).digest("hex"),
-  );
-  const orderedStateKeys = result.candidate_ids.map(
-    (candidateId) =>
-      created.database
-        .prepare("SELECT state_key FROM candidate_claims WHERE id = ?")
-        .get(candidateId).state_key,
-  );
-  assert.deepEqual(
-    orderedStateKeys,
-    update.candidate_claims.map(({ state_key }) => state_key),
-  );
-
-  const audit = created.database
-    .prepare("SELECT * FROM audit_events WHERE id = ?")
-    .get(result.audit_event_id);
-  assert.equal(audit.correlation_id, result.correlation_id);
-  assert.deepEqual(JSON.parse(audit.safe_metadata_json), {
-    evidence_id: result.evidence_id,
-    candidate_ids: result.candidate_ids,
-    candidate_count: 3,
-    context_id: result.context_id,
-    connection_id: result.provenance.connection_id,
-    payload_hash: result.provenance.payload_hash,
-  });
-  assert.doesNotMatch(audit.safe_metadata_json, /Explicitly supplied by the tester/);
 });
 
-test("an idempotent retry returns the original evidence and candidates", async () => {
-  const first = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "save_project_update",
-    arguments: update,
-  });
-  const second = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "save_project_update",
-    arguments: update,
-  });
+test("an idempotent Save retry returns the original accepted evidence", async () => {
+  const { saved } = await prepareAndSave();
   assert.equal(
-    first.payload.result.structuredContent.evidence_id,
-    second.payload.result.structuredContent.evidence_id,
+    saved.payload.result.structuredContent.evidence_id,
+    initialCaptureResult.evidence_id,
   );
-  assert.deepEqual(
-    initialCaptureResult.candidate_ids,
-    first.payload.result.structuredContent.candidate_ids,
-  );
-  assert.deepEqual(
-    initialCaptureResult.candidate_ids,
-    second.payload.result.structuredContent.candidate_ids,
-  );
-  assert.equal(
-    first.payload.result.structuredContent.audit_event_id,
-    initialCaptureResult.audit_event_id,
-  );
-  assert.equal(
-    first.payload.result.structuredContent.correlation_id,
-    initialCaptureResult.correlation_id,
-  );
-  assert.equal(second.payload.result.structuredContent.deduplicated, true);
+  assert.equal(saved.payload.result.structuredContent.deduplicated, true);
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count,
     1,
@@ -201,13 +173,61 @@ test("an idempotent retry returns the original evidence and candidates", async (
   );
 });
 
-test("idempotency-key reuse with different evidence is rejected", async () => {
-  const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
+test("model-supplied or expired Save authority creates no durable project state", async () => {
+  const before = captureCounts();
+  const prepared = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "save_project_update",
-    arguments: { ...update, summary: "Different submitted evidence" },
+    arguments: { ...update, idempotency_key: "forged-save-authority" },
   });
-  assert.equal(payload.result.isError, true);
-  assert.match(payload.result.content[0].text, /different payload/i);
+  const preview = prepared.payload.result.structuredContent;
+  const forged = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "alice_commit_capture_save",
+    arguments: {
+      preview_id: preview.preview_id,
+      preview_version: preview.preview_version,
+      authority_token: `alice_save_${"A".repeat(43)}`,
+    },
+  });
+  assert.equal(forged.payload.result.isError, true);
+  assert.match(forged.payload.result.content[0].text, /authority is unavailable/i);
+  assert.deepEqual(captureCounts(), before);
+
+  const subject = authenticatedCaptureSubject();
+  const createdAt = new Date("2026-09-07T00:00:00.000Z");
+  const expired = await createCaptureSavePreview(created.database, {
+    clientId: subject.client_id,
+    connectionId: subject.connection_id,
+    publicUrl: "http://127.0.0.1",
+    userId: subject.user_id,
+    payload: { ...update, idempotency_key: "expired-save-authority" },
+    now: createdAt,
+  });
+  await assert.rejects(
+    () =>
+      commitCaptureSavePreview(created.database, {
+        previewId: expired.preview.preview_id,
+        previewVersion: expired.preview.preview_version,
+        authorityToken: expired.authorityToken,
+        authority: "mcp_app",
+        publicUrl: "http://127.0.0.1",
+        userId: subject.user_id,
+        now: new Date(createdAt.getTime() + 31 * 60 * 1_000),
+      }),
+    CaptureSavePreviewUserError,
+  );
+  assert.deepEqual(captureCounts(), before);
+  assert.equal(
+    created.database
+      .prepare("SELECT COUNT(*) AS count FROM capture_save_previews WHERE id = ?")
+      .get(expired.preview.preview_id).count,
+    0,
+  );
+});
+
+test("idempotency-key reuse with different evidence is rejected at Save", async () => {
+  const { saved } = await prepareAndSave({ ...update, summary: "Different submitted evidence" });
+  assert.equal(saved.payload.result.isError, true);
+  assert.match(saved.payload.result.content[0].text, /different payload/i);
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM evidence_events").get().count,
     1,

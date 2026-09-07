@@ -1,4 +1,11 @@
 export { saveCandidateUpdate } from "./candidate-updates.ts";
+export {
+  CAPTURE_SAVE_PREVIEW_LIFETIME_MS,
+  CaptureSavePreviewUserError,
+  commitCaptureSavePreview,
+  createCaptureSavePreview,
+  getCaptureSavePreview,
+} from "./capture-save-previews.ts";
 export { suggestProjectUpdatesFromFile } from "./file-candidate-suggestions.ts";
 export {
   activeTargetForConnection,

@@ -143,6 +143,37 @@ export const attachAliceWorkspaceFileSchema = z
   })
   .strict();
 
+const saveAuthorityTokenSchema = z
+  .string()
+  .trim()
+  .min(40)
+  .max(160)
+  .regex(/^alice_(?:file_)?save_[A-Za-z0-9_-]+$/);
+
+export const commitAliceCaptureSaveSchema = z
+  .object({
+    preview_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
+    preview_version: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[0-9a-f]{64}$/),
+    authority_token: saveAuthorityTokenSchema,
+  })
+  .strict();
+
+export const commitAliceHostFileSaveSchema = z
+  .object({
+    offer_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
+    preview_version: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[0-9a-f]{64}$/),
+    authority_token: saveAuthorityTokenSchema,
+  })
+  .strict();
+
 export const candidateClaimSchema = z
   .object({
     state_key: z

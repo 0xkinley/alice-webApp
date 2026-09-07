@@ -210,8 +210,15 @@ export async function configureApplicationRole(
     await database.exec(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.file_upload_intents, ${schema}.file_upload_completions FROM ${role}`,
     );
+    await database.exec(`REVOKE UPDATE ON TABLE ${schema}.host_file_save_offers FROM ${role}`);
     await database.exec(
-      `REVOKE UPDATE, DELETE ON TABLE ${schema}.host_file_save_offers, ${schema}.host_file_save_decisions FROM ${role}`,
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.host_file_save_decisions FROM ${role}`,
+    );
+    await database.exec(
+      `REVOKE UPDATE ON TABLE ${schema}.capture_save_previews, ${schema}.host_file_save_offer_authorities FROM ${role}`,
+    );
+    await database.exec(
+      `GRANT SELECT, INSERT, DELETE ON TABLE ${schema}.capture_save_previews, ${schema}.host_file_save_offer_authorities TO ${role}`,
     );
     await database.exec(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.host_file_save_transfer_intents, ${schema}.host_file_save_transfer_completions, ${schema}.host_file_save_transfer_availability FROM ${role}`,
