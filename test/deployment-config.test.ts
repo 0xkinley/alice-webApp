@@ -56,7 +56,7 @@ test("production image pins the Lambda adapter and retains non-root portable sta
   assert.match(dockerfile, /CMD \["npm", "run", "project:erase:container"\]/);
   assert.match(
     dockerfile,
-    /COPY scripts\/migrate-postgres\.mjs scripts\/migrate-postgres-container\.mjs scripts\/verify-postgres-backup\.mjs scripts\/verify-postgres-backup-container\.mjs scripts\/alpha-invitation-operator\.mjs scripts\/erase-project\.mjs scripts\/erase-project-container\.mjs \.\/scripts\//,
+    /COPY scripts\/build-mcp-app\.mjs scripts\/migrate-postgres\.mjs scripts\/migrate-postgres-container\.mjs scripts\/verify-postgres-backup\.mjs scripts\/verify-postgres-backup-container\.mjs scripts\/alpha-invitation-operator\.mjs scripts\/erase-project\.mjs scripts\/erase-project-container\.mjs \.\/scripts\//,
   );
   assert.match(dockerfile, /COPY --from=build --chown=node:node \/app\/scripts \.\/scripts/);
   assert.doesNotMatch(dockerfile, /AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)/);
