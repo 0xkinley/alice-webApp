@@ -114,6 +114,15 @@ test("connection center exposes only the current user's safe connection metadata
   assert.doesNotMatch(html, />Connect Claude/);
   assert.match(html, /Advanced connection settings/);
 
+  const projectBeforeTarget = await fetch(`${baseUrl}/projects/${owner.project_id}`, {
+    headers: { cookie },
+  });
+  const projectBeforeTargetHtml = await projectBeforeTarget.text();
+  assert.match(projectBeforeTargetHtml, /Connected to ChatGPT/);
+  assert.match(projectBeforeTargetHtml, /Connected to Claude/);
+  assert.equal(projectBeforeTargetHtml.match(/provider-light connected/g)?.length, 2);
+  assert.doesNotMatch(projectBeforeTargetHtml, /Active in ChatGPT|Active in Claude/);
+
   const advanced = await fetch(`${baseUrl}/connections/advanced`, { headers: { cookie } });
   assert.equal(advanced.status, 200);
   const advancedHtml = await advanced.text();
@@ -213,8 +222,8 @@ test("a user explicitly selects one permitted target for all active AI connectio
     headers: { cookie },
   });
   const projectHtml = await projectPage.text();
-  assert.match(projectHtml, /Active in ChatGPT/);
-  assert.match(projectHtml, /Active in Claude/);
+  assert.match(projectHtml, /Connected to ChatGPT/);
+  assert.match(projectHtml, /Connected to Claude/);
   assert.equal(projectHtml.match(/provider-light connected/g)?.length, 2);
   assert.doesNotMatch(projectHtml, /Work context|Project-wide|>General</);
 });
@@ -324,4 +333,11 @@ test("authenticated revocation invalidates the user's connection and bearer toke
       .prepare("SELECT revoked_at FROM oauth_access_tokens WHERE token_hash = 'owner-token-hash'")
       .get().revoked_at,
   );
+  const projectPage = await fetch(`${baseUrl}/projects/${owner.project_id}`, {
+    headers: { cookie },
+  });
+  const projectHtml = await projectPage.text();
+  assert.match(projectHtml, /Not connected to ChatGPT/);
+  assert.match(projectHtml, /Connected to Claude/);
+  assert.equal(projectHtml.match(/provider-light connected/g)?.length, 1);
 });

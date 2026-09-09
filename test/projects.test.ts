@@ -86,8 +86,8 @@ test("creates and revisits a project in the authenticated private workspace", as
   assert.match(detailHtml, /Change log/);
   assert.match(detailHtml, new RegExp(`/projects/${ownerProjectId}/changes`));
   assert.doesNotMatch(detailHtml, /What alice\. knows/);
-  assert.match(detailHtml, /Not active in ChatGPT/);
-  assert.match(detailHtml, /Not active in Claude/);
+  assert.match(detailHtml, /Not connected to ChatGPT/);
+  assert.match(detailHtml, /Not connected to Claude/);
   assert.doesNotMatch(detailHtml, /Project and work contexts/);
   assert.doesNotMatch(detailHtml, /Create a work context/);
   assert.doesNotMatch(detailHtml, /Preview host package/);

@@ -106,7 +106,7 @@ Every ordinary project view reuses one project header. The project name and sign
 
 Within the shared status row, provider states stay grouped on the left and Add files aligns to the far end of the available line.
 
-Project cards and project pages show provider-specific active states derived from the signed-in user's committed connection targets: Active in ChatGPT, Active in Claude, or Active in ChatGPT and Claude. Pending form values are not styled as active.
+Project pages show provider-specific connection states derived from the signed-in user's current non-revoked MCP connections, using the same rule as AI Connections. A connected ChatGPT or Claude provider has a green light even before it selects a project target; a revoked or absent provider remains gray. Project-target state stays available in advanced and access details but does not control the header light. Pending form values are not styled as connected.
 
 ## ChatGPT and Claude contract
 

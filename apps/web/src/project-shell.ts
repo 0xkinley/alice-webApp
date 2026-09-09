@@ -30,12 +30,9 @@ export async function getProjectShell(database, userId: string, projectId: strin
   ]);
   return {
     project,
-    activeProviders: new Set(
+    connectedProviders: new Set(
       connections
-        .filter(
-          ({ project_id: connectedProjectId, revoked_at: revokedAt }) =>
-            connectedProjectId === projectId && !revokedAt,
-        )
+        .filter(({ revoked_at: revokedAt }) => !revokedAt)
         .map(({ client_classification: provider }) => provider),
     ),
     archivePreviewVersion: lifecycle?.preview_version,
@@ -85,7 +82,7 @@ export function renderProjectShell({
   shell: Awaited<ReturnType<typeof getProjectShell>>;
 }): string {
   if (!shell) return "";
-  const { activeProviders, archivePreviewVersion, project, uploadContextId } = shell;
+  const { connectedProviders, archivePreviewVersion, project, uploadContextId } = shell;
   const canWrite = project.project_role === "owner" || project.project_role === "editor";
   const isOwner = project.project_role === "owner";
   const providers = [
@@ -93,8 +90,8 @@ export function renderProjectShell({
     ["claude", "Claude"],
   ]
     .map(([provider, label]) => {
-      const active = activeProviders.has(provider);
-      return `<span class="project-provider"><span class="provider-light${active ? " connected" : ""}"><span class="visually-hidden">${active ? "Active" : "Not active"}</span></span>${active ? "Active in" : "Not active in"} ${label}</span>`;
+      const connected = connectedProviders.has(provider);
+      return `<span class="project-provider"><span class="provider-light${connected ? " connected" : ""}"><span class="visually-hidden">${connected ? "Connected" : "Not connected"}</span></span>${connected ? "Connected to" : "Not connected to"} ${label}</span>`;
     })
     .join("");
   const encodedProjectId = encodeURIComponent(project.id);
