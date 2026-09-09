@@ -150,6 +150,9 @@ test("registers one user and atomically provisions one private workspace", async
   const html = await home.text();
   assert.match(html, /Private workspace/);
   assert.match(html, /owner@alice\.example/);
+  assert.match(html, /Create your first project/);
+  assert.equal(html.match(/<details class="create-project"/g)?.length, 1);
+  assert.match(html, /prefers-reduced-motion/);
 });
 
 test("rejects duplicate identities and invalid credentials", async () => {

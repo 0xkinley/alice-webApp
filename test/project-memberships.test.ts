@@ -202,7 +202,7 @@ test("only the exact invited account can accept a hash-only project invitation",
   assert.equal(reused.status, 404);
   const sharedHome = await fetch(baseUrl, { headers: { cookie: recipientCookie } });
   const sharedHtml = await sharedHome.text();
-  assert.match(sharedHtml, /Shared with you/);
+  assert.match(sharedHtml, /Shared with You/);
   assert.match(sharedHtml, /Membership safety project/);
   assert.match(sharedHtml, /Editor/);
 

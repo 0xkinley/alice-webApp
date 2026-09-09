@@ -163,7 +163,13 @@ test("creates and revisits a project in the authenticated private workspace", as
   assert.equal(workspace.status, 200);
   const workspaceHtml = await workspace.text();
   assert.match(workspaceHtml, new RegExp(ownerProjectId));
-  assert.match(workspaceHtml, /Alpha signals/);
+  assert.match(workspaceHtml, /<aside class="app-sidebar"/);
+  assert.match(workspaceHtml, /aria-controls="app-sidebar" aria-expanded="true"/);
+  assert.match(workspaceHtml, /Your Projects/);
+  assert.match(workspaceHtml, /Shared with You/);
+  assert.match(workspaceHtml, /Archived Projects/);
+  assert.match(workspaceHtml, /AI Connections/);
+  assert.equal(workspaceHtml.match(/<details class="create-project"/g)?.length, 1);
   const signals = await fetch(`${baseUrl}/signals`, { headers: { cookie: revisitingCookie } });
   assert.equal(signals.status, 200);
   const signalsHtml = await signals.text();
