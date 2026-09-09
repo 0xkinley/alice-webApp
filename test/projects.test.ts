@@ -72,6 +72,13 @@ test("creates and revisits a project in the authenticated private workspace", as
   assert.match(detailHtml, />Your access</);
   assert.match(detailHtml, />Collaborators</);
   assert.match(detailHtml, />Archive project</);
+  assert.match(
+    detailHtml,
+    new RegExp(`method="post" action="/projects/${ownerProjectId}/archive"`),
+  );
+  assert.match(detailHtml, /Are you sure you want to archive this project\?/);
+  assert.match(detailHtml, /name="expected_preview_version"/);
+  assert.doesNotMatch(detailHtml, new RegExp(`href="/projects/${ownerProjectId}/archive"`));
   assert.doesNotMatch(
     detailHtml,
     /Project lifecycle|Project settings|Alpha signals|>Needs attention/,

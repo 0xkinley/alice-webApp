@@ -1,4 +1,9 @@
-import { getProject, listIntegrationConnections, listWorkContexts } from "@alice/domain";
+import {
+  getProject,
+  getProjectLifecycle,
+  listIntegrationConnections,
+  listWorkContexts,
+} from "@alice/domain";
 import type { PrivateFileStore } from "@alice/domain";
 import { roleLabel } from "./product-copy.ts";
 
@@ -16,9 +21,12 @@ function escapeHtml(value: unknown): string {
 export async function getProjectShell(database, userId: string, projectId: string) {
   const project = await getProject(database, userId, projectId);
   if (!project) return undefined;
-  const [connections, contexts] = await Promise.all([
+  const [connections, contexts, lifecycle] = await Promise.all([
     listIntegrationConnections(database, userId),
     listWorkContexts(database, userId, projectId),
+    project.project_role === "owner"
+      ? getProjectLifecycle(database, { userId, projectId })
+      : undefined,
   ]);
   return {
     project,
@@ -30,6 +38,7 @@ export async function getProjectShell(database, userId: string, projectId: strin
         )
         .map(({ client_classification: provider }) => provider),
     ),
+    archivePreviewVersion: lifecycle?.preview_version,
     uploadContextId: contexts?.find(({ context_kind: kind }) => kind === "work")?.id || undefined,
   };
 }
@@ -76,7 +85,7 @@ export function renderProjectShell({
   shell: Awaited<ReturnType<typeof getProjectShell>>;
 }): string {
   if (!shell) return "";
-  const { activeProviders, project, uploadContextId } = shell;
+  const { activeProviders, archivePreviewVersion, project, uploadContextId } = shell;
   const canWrite = project.project_role === "owner" || project.project_role === "editor";
   const isOwner = project.project_role === "owner";
   const providers = [
@@ -92,8 +101,8 @@ export function renderProjectShell({
   const menuItems = [
     `<a href="/projects/${encodedProjectId}/access">Your access</a>`,
     isOwner ? `<a href="/projects/${encodedProjectId}/collaborators">Collaborators</a>` : "",
-    isOwner
-      ? `<a class="destructive" href="/projects/${encodedProjectId}/archive">Archive project</a>`
+    isOwner && archivePreviewVersion
+      ? `<form class="project-menu-action" method="post" action="/projects/${encodedProjectId}/archive" onsubmit="return window.confirm('Are you sure you want to archive this project?')"><input type="hidden" name="expected_preview_version" value="${escapeHtml(archivePreviewVersion)}"><button class="destructive" type="submit">Archive project</button></form>`
       : "",
   ].join("");
   const filesEnabled = Boolean(fileStore && uploadContextId);

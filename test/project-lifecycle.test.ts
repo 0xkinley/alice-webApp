@@ -170,6 +170,14 @@ test("Owner lifecycle controls archive without erasure and export only permitted
   const lifecycleUrl = `${baseUrl}/projects/${encodeURIComponent(projectId)}/archive`;
   const exportUrl = `${baseUrl}/projects/${encodeURIComponent(projectId)}/export.json`;
 
+  const projectPage = await fetch(`${baseUrl}/projects/${encodeURIComponent(projectId)}`, {
+    headers: { cookie: ownerCookie },
+  });
+  const projectHtml = await projectPage.text();
+  assert.match(projectHtml, /Are you sure you want to archive this project\?/);
+  assert.match(projectHtml, /class="project-menu-action" method="post"/);
+  assert.doesNotMatch(projectHtml, new RegExp(`href="/projects/${projectId}/archive"`));
+
   const ownerView = await fetch(lifecycleUrl, { headers: { cookie: ownerCookie } });
   assert.equal(ownerView.status, 200);
   const ownerHtml = await ownerView.text();
