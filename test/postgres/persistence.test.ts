@@ -1760,11 +1760,9 @@ test("PostgreSQL project lifecycle preserves data behind constrained-role archiv
 test("privileged erasure removes exact project rows and unshared object versions with a retry receipt", async () => {
   const erasedProject = await createProject(database, owner.id, {
     name: "Erasure fixture",
-    brief: "A disposable project for privileged erasure verification.",
   });
   const retainedProject = await createProject(database, owner.id, {
     name: "Retained erasure control",
-    brief: "Proves shared immutable bytes and unrelated project data remain.",
   });
   const erasedContext = await database
     .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND context_kind = 'work'")

@@ -13,7 +13,7 @@ export async function listSelectableProjectContexts(database, userId) {
   if (!tenant) return [];
   const projects = await database
     .prepare(
-      `SELECT project.id, project.name, project.brief,
+      `SELECT project.id, project.name,
               project.created_at, project.updated_at
        FROM projects project
        JOIN project_memberships membership

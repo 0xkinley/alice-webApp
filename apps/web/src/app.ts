@@ -100,27 +100,28 @@ export async function createApp({
     const projectList = ownedProjects
       .map(
         (project) =>
-          `<article class="project-card"><p class="eyebrow">Your project</p><h2><a class="project-link" href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p class="project-meta">Updated ${escapeHtml(timestampLabel(project.updated_at))}</p></article>`,
+          `<article class="project-card"><p class="eyebrow">Your project</p><h2><a class="project-link" href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p class="project-meta">Updated ${escapeHtml(timestampLabel(project.updated_at))}</p></article>`,
       )
       .join("");
     const sharedProjectList = sharedProjects
       .map(
         (project) =>
-          `<article class="project-card"><p class="eyebrow">Shared project</p><h2><a class="project-link" href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p class="project-meta">Your access · ${escapeHtml(roleLabel(project.role))}</p></article>`,
+          `<article class="project-card"><p class="eyebrow">Shared project</p><h2><a class="project-link" href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p class="project-meta">Your access · ${escapeHtml(roleLabel(project.role))}</p></article>`,
       )
       .join("");
     const archivedProjectList = archivedProjects
       .map(
         (project) =>
-          `<article class="project-card"><p class="eyebrow">Archived</p><h3><a class="project-link" href="/projects/${encodeURIComponent(project.id)}/lifecycle">${escapeHtml(project.name)}</a></h3><p>${escapeHtml(project.brief)}</p><p class="project-meta">Archived ${escapeHtml(timestampLabel(project.archived_at))}</p></article>`,
+          `<article class="project-card"><p class="eyebrow">Archived</p><h3><a class="project-link" href="/projects/${encodeURIComponent(project.id)}/lifecycle">${escapeHtml(project.name)}</a></h3><p class="project-meta">Archived ${escapeHtml(timestampLabel(project.archived_at))}</p></article>`,
       )
       .join("");
-    const createProjectControl = `<details class="create-project" id="create-project"><summary>Create project</summary><form method="post" action="/projects"><label>Project name<input name="name" maxlength="120" required></label><label>Brief<textarea name="brief" maxlength="4000" required></textarea></label><button type="submit">Create project</button></form></details>`;
+    const projectForm = `<form class="create-project-form" method="post" action="/projects"><label>Project name<input name="name" maxlength="120" required></label><div class="actions">${fileStore ? '<button class="secondary" type="submit" name="after_create" value="files">Add files</button>' : ""}<button type="submit">Create project</button></div></form>`;
+    const createProjectControl = `<details class="create-project" id="create-project"><summary>New project</summary>${projectForm}</details>`;
     const hasAnyProject = projects.length > 0 || archivedProjects.length > 0;
     const workspaceBody = `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Private workspace</p><h1>Your projects</h1><p>Create a project, add files, connect the AI tools you trust, and approve anything saved back to it.</p></div>${hasAnyProject ? createProjectControl : ""}</header>${
       hasAnyProject
         ? `<section class="project-section"><div class="section-heading"><h2>Your Projects</h2><p class="muted">${ownedProjects.length} available</p></div><div class="project-grid">${projectList || '<p class="section-empty">No projects of your own yet.</p>'}</div></section><section class="project-section" id="shared-projects"><div class="section-heading"><h2>Shared with You</h2><p class="muted">${sharedProjects.length} available</p></div><div class="project-grid">${sharedProjectList || '<p class="section-empty">Projects appear here after an Owner gives you access.</p>'}</div></section><section class="project-section" id="archived-projects"><div class="section-heading"><h2>Archived Projects</h2><p class="muted">${archivedProjects.length} retained</p></div><p class="muted">Archived projects you own remain available for restore, export, or the separate deletion-request process.</p><div class="project-grid">${archivedProjectList || '<p class="section-empty">No archived projects.</p>'}</div></section>`
-        : `<section class="workspace-empty"><div><p class="eyebrow">Start here</p><h2>Create your first project</h2><p>Give your work one clear home. Files, AI connections, and anything you choose to save will stay attached to the project.</p>${createProjectControl}</div></section>`
+        : `<section class="workspace-empty"><div><p class="eyebrow">Start here</p><h2>Create your first project</h2><p>Give your work one clear home. Files, AI connections, and anything you choose to save will stay attached to the project.</p>${projectForm}</div></section>`
     }</div>`;
     response.type("html").send(
       renderAppPage("alice. private workspace", workspaceBody, {
@@ -156,7 +157,9 @@ export async function createApp({
   });
   app.post("/projects", requireAuthenticatedUser(database), async (request, response) => {
     try {
-      const project = await createProject(database, request.aliceUser!.id, request.body);
+      const project = await createProject(database, request.aliceUser!.id, {
+        name: request.body.name,
+      });
       if (!project) {
         return response
           .status(403)
@@ -168,6 +171,17 @@ export async function createApp({
               "danger",
             ),
           );
+      }
+      if (fileStore && request.body.after_create === "files") {
+        const contexts =
+          (await listWorkContexts(database, request.aliceUser!.id, project.id)) || [];
+        const initialContext = contexts.find(({ context_kind: kind }) => kind === "work");
+        if (initialContext) {
+          return response.redirect(
+            303,
+            `/projects/${encodeURIComponent(project.id)}/files?context_id=${encodeURIComponent(initialContext.id)}`,
+          );
+        }
       }
       response.redirect(303, `/projects/${encodeURIComponent(project.id)}`);
     } catch (error) {
@@ -232,7 +246,7 @@ export async function createApp({
       .send(
         renderPage(
           project.name,
-          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a><a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>${collaboratorsLink}${lifecycleLink}</nav><header class="hero"><p class="eyebrow">Project · ${escapeHtml(roleLabel(project.project_role))}</p><h1>${escapeHtml(project.name)}</h1><p>${escapeHtml(project.brief)}</p><div class="actions">${reviewLink}<a href="/connections">Choose the active AI target</a></div></header><section><div class="section-heading"><h2>Project and work contexts</h2><p class="muted">Only listed contexts are visible to you.</p></div><p>Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}</section><section><div class="section-heading"><h2>Recent host reads</h2><p class="muted">Your own AI connections only</p></div><p>These receipts show retrieval. A successful retrieval does not prove that a host used the context in its answer.</p>${readActivity}</section>${createContext}`,
+          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a><a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>${collaboratorsLink}${lifecycleLink}</nav><header class="hero"><p class="eyebrow">Project · ${escapeHtml(roleLabel(project.project_role))}</p><h1>${escapeHtml(project.name)}</h1><div class="actions">${reviewLink}<a href="/connections">Choose the active AI target</a></div></header><section><div class="section-heading"><h2>Project and work contexts</h2><p class="muted">Only listed contexts are visible to you.</p></div><p>Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}</section><section><div class="section-heading"><h2>Recent host reads</h2><p class="muted">Your own AI connections only</p></div><p>These receipts show retrieval. A successful retrieval does not prove that a host used the context in its answer.</p>${readActivity}</section>${createContext}`,
         ),
       );
   });

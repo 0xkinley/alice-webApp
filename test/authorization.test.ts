@@ -79,10 +79,7 @@ test("tenant policies deny missing, unknown, mismatched, and revoked principals"
 
   assert.deepEqual(await listProjects(database, undefined), []);
   assert.equal(await getProject(database, other.id, owner.project_id), undefined);
-  assert.equal(
-    await createProject(database, "user_guessed", { name: "Denied", brief: "Denied" }),
-    undefined,
-  );
+  assert.equal(await createProject(database, "user_guessed", { name: "Denied" }), undefined);
   assert.equal(
     await getProjectContext(database, {
       userId: other.id,

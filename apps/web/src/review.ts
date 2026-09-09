@@ -40,7 +40,7 @@ function reviewProjectIndex(projects) {
   const cards = projects
     .map(
       (project) =>
-        `<article><h2><a href="/review?project_id=${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p>${escapeHtml(project.brief)}</p><p><strong>${project.pending_count} need attention</strong> · ${project.accepted_count} saved · ${project.rejected_count} not saved</p>${project.latest_candidate_at ? `<p class="muted">Latest proposal: ${escapeHtml(timestampLabel(project.latest_candidate_at))}</p>` : '<p class="muted">No proposals captured yet.</p>'}</article>`,
+        `<article><h2><a href="/review?project_id=${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p><strong>${project.pending_count} need attention</strong> · ${project.accepted_count} saved · ${project.rejected_count} not saved</p>${project.latest_candidate_at ? `<p class="muted">Latest proposal: ${escapeHtml(timestampLabel(project.latest_candidate_at))}</p>` : '<p class="muted">No proposals captured yet.</p>'}</article>`,
     )
     .join("");
   return `<nav><a href="/">Private workspace</a></nav><header class="hero"><p class="eyebrow">Needs attention</p><h1>Review proposed context before it is saved.</h1><p>Only your explicit decision can save project context. A connected AI tool can propose an update, but cannot save it for you.</p></header><section><div class="section-heading"><h2>Projects with review history</h2><p class="muted">Choose a project to inspect exact proposals.</p></div>${cards || '<div class="empty-state"><h2>No projects need review</h2><p>Create a project and use a connected host to capture a proposal. Nothing is saved automatically.</p></div>'}</section>`;

@@ -25,7 +25,7 @@ export async function createProject(
           `INSERT INTO projects (id, workspace_id, name, brief, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?)`,
         )
-        .run(projectId, tenant.workspaceId, project.name, project.brief, createdAt, createdAt);
+        .run(projectId, tenant.workspaceId, project.name, "", createdAt, createdAt);
       await provisionInitialWorkContexts(database, {
         userId,
         workspaceId: tenant.workspaceId,
@@ -56,7 +56,6 @@ export async function createProject(
     id: projectId,
     workspace_id: tenant.workspaceId,
     name: project.name,
-    brief: project.brief,
     created_at: createdAt,
     updated_at: createdAt,
   };
@@ -67,7 +66,7 @@ export async function getProject(database, userId, projectId) {
   if (!scope) return undefined;
   return await database
     .prepare(
-      `SELECT id, name, brief, created_at, updated_at, ? AS project_role
+      `SELECT id, name, created_at, updated_at, ? AS project_role
        FROM projects WHERE id = ? AND workspace_id = ?`,
     )
     .get(scope.projectRole, projectId, scope.projectWorkspaceId);

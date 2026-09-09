@@ -136,7 +136,7 @@ export async function listProjects(database, userId) {
   if (!tenant) return [];
   const projects = await database
     .prepare(
-      `SELECT project.id, project.workspace_id, project.name, project.brief,
+      `SELECT project.id, project.workspace_id, project.name,
               project.created_at, project.updated_at
        FROM projects project
        JOIN project_memberships membership
@@ -196,7 +196,6 @@ export async function listProjects(database, userId) {
     visible.push({
       id: project.id,
       name: project.name,
-      brief: project.brief,
       created_at: project.created_at,
       updated_at: project.updated_at,
       accepted_state_count: acceptedStateCount,
@@ -248,7 +247,7 @@ export async function getProjectContext(
   if (!scope) return undefined;
   const project = await database
     .prepare(
-      `SELECT id, name, brief, created_at, updated_at
+      `SELECT id, name, created_at, updated_at
        FROM projects WHERE id = ? AND workspace_id = ?`,
     )
     .get(projectId, scope.projectWorkspaceId);

@@ -26,7 +26,7 @@ export async function listReviewProjects(database, userId) {
   if (!tenant) return [];
   const projects = await database
     .prepare(
-      `SELECT project.id, project.name, project.brief
+      `SELECT project.id, project.name
        FROM projects project
        JOIN project_memberships membership
          ON membership.workspace_id = project.workspace_id
@@ -79,7 +79,7 @@ export async function getReviewQueue(
   if (!scope || !REVIEW_STATUSES.has(status)) return undefined;
   const project = await database
     .prepare(
-      `SELECT id, name, brief, created_at, updated_at
+      `SELECT id, name, created_at, updated_at
        FROM projects WHERE id = ? AND workspace_id = ?`,
     )
     .get(projectId, scope.projectWorkspaceId);

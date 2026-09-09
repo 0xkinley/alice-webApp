@@ -406,8 +406,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     "alice_create_workspace_project",
     {
       title: "Create alice. project",
-      description:
-        "Create a project and its initial work context from exact human-entered settings.",
+      description: "Create a project from its exact human-entered name.",
       inputSchema: createAliceWorkspaceProjectSchema,
       _meta: oauthAppToolMeta("mcp:write", ["app"]),
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
@@ -416,19 +415,45 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
       if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
         return { content: [{ type: "text", text: "Write access is unavailable." }], isError: true };
       }
+      const userId = authenticatedUserId(context);
+      const connection = await tenantScopeForConnection(database, {
+        userId,
+        connectionId: authenticatedConnectionId(context),
+      });
+      if (!connection?.provider) {
+        return { content: [{ type: "text", text: "Connection unavailable." }], isError: true };
+      }
       const project = await createProject(
         database,
-        authenticatedUserId(context),
-        { name: input.name, brief: input.brief },
+        userId,
+        { name: input.name },
         {
-          providerAvailability: { chatgpt: input.chatgpt, claude: input.claude },
-          initialWorkContextVisibility: input.context_visibility,
+          providerAvailability: {
+            chatgpt: connection.provider === "chatgpt",
+            claude: connection.provider === "claude",
+          },
         },
       );
       if (!project) {
         return { content: [{ type: "text", text: "Project unavailable." }], isError: true };
       }
-      return { content: [], structuredContent: project };
+      const createdProject = (await listSelectableProjectContexts(database, userId)).find(
+        ({ id }) => id === project.id,
+      );
+      const initialContext = createdProject?.contexts[0];
+      return {
+        content: [],
+        structuredContent: {
+          ...project,
+          upload_url:
+            fileStore && initialContext
+              ? new URL(
+                  `/projects/${encodeURIComponent(project.id)}/files?context_id=${encodeURIComponent(initialContext.id)}`,
+                  publicUrl,
+                ).href
+              : null,
+        },
+      };
     },
   );
 

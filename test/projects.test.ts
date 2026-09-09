@@ -52,18 +52,22 @@ test("creates and revisits a project in the authenticated private workspace", as
       cookie: ownerCookie,
       "content-type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams({ name: "Launch Plan", brief: "Plan the private alpha." }),
+    body: new URLSearchParams({ name: "Launch Plan" }),
     redirect: "manual",
   });
   assert.equal(createResponse.status, 303);
   const location = createResponse.headers.get("location");
   assert.match(location, /^\/projects\/project_/);
   ownerProjectId = decodeURIComponent(location.split("/").at(-1));
+  assert.equal(
+    created.database.prepare("SELECT brief FROM projects WHERE id = ?").get(ownerProjectId).brief,
+    "",
+  );
 
   const detail = await fetch(`${baseUrl}${location}`, { headers: { cookie: ownerCookie } });
   assert.equal(detail.status, 200);
   const detailHtml = await detail.text();
-  assert.match(detailHtml, /Plan the private alpha\./);
+  assert.doesNotMatch(detailHtml, /Brief/);
   assert.match(detailHtml, /Project-wide/);
   assert.match(detailHtml, /General/);
   assert.match(detailHtml, /Preview host package/);
@@ -170,6 +174,8 @@ test("creates and revisits a project in the authenticated private workspace", as
   assert.match(workspaceHtml, /Archived Projects/);
   assert.match(workspaceHtml, /AI Connections/);
   assert.equal(workspaceHtml.match(/<details class="create-project"/g)?.length, 1);
+  assert.equal(workspaceHtml.match(/>Create project</g)?.length, 1);
+  assert.doesNotMatch(workspaceHtml, /Brief|Plan the private alpha/);
   const signals = await fetch(`${baseUrl}/signals`, { headers: { cookie: revisitingCookie } });
   assert.equal(signals.status, 200);
   const signalsHtml = await signals.text();
@@ -209,7 +215,7 @@ test("does not reveal a guessed project identifier to another user", async () =>
       cookie: otherCookie,
       "content-type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams({ name: "Launch Plan", brief: "Another private project." }),
+    body: new URLSearchParams({ name: "Launch Plan" }),
     redirect: "manual",
   });
   assert.equal(createSameName.status, 303);

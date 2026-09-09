@@ -18,7 +18,7 @@ The integration fixture creates two authenticated users, separate private worksp
 
 | Surface | Project data path | Foreign/guessed assertion | Mutation assertion |
 | --- | --- | --- | --- |
-| Web | Workspace project list | Other project ID, name, and brief are absent | None |
+| Web | Workspace project list | Other project ID and name are absent; legacy brief data is never rendered | None |
 | Web | Project detail | Foreign and random project IDs return identical 404 pages | None |
 | Web | Project creation | Submitted foreign `workspace_id` is ignored | New project belongs to the authenticated workspace |
 | Web | Workspace review dashboard | Other project names, candidate counts, values, and evidence identifiers are absent | None |
@@ -31,7 +31,7 @@ The integration fixture creates two authenticated users, separate private worksp
 | Web | Restricted-context access management | A non-Manager, project Viewer elevation attempt, foreign grant, and guessed context/grant return non-disclosing denial | No grant, role, history, or audit mutation |
 | Web | Saved context, repair, review, and files | Context Viewer controls are read-only; members without write access cannot open repair/removal previews; members without context access receive the same not-found result as guessed identifiers | No candidate decision, repair exclusion, upload, scan transition, replacement, or removal |
 | Web | Ownership transfer and departure | Non-Owners cannot transfer; an Owner cannot leave directly; personal or unmanaged selected contexts block departure | Transfer preserves an active Owner; departure ends grants and membership atomically |
-| MCP | `list_projects` | Other project ID, name, and brief are absent | None |
+| MCP | `list_projects` | Other project ID and name are absent; legacy brief data is outside the contract | None |
 | MCP | `get_project_context` | Foreign and random project IDs return the same not-found tool error | No accepted value, pending value, candidate, or evidence leaks |
 | MCP | `read_project_file_text` | Foreign, guessed, superseded, removed, non-clean, and inaccessible file references share a non-disclosing unavailable result; restricted-context metadata and bytes are absent | Exact-version integrity-checked reads create no evidence, candidate, accepted-state, audit, file, or project mutation |
 | MCP | `read_project_file_pdf_text` | The text-read denial matrix also applies to PDF extraction; selected-context boundaries are reauthorized before exact-version parsing | Embedded-text reads remain byte-bounded, no-OCR, untrusted, and project-state read-only |

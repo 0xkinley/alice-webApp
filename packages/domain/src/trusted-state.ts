@@ -170,7 +170,7 @@ async function captureCandidates(database, tenant, evidenceId, { lock = false } 
     .prepare(
       `SELECT evidence.id, evidence.project_id, evidence.exact_payload_json,
               evidence.payload_hash, evidence.created_at, evidence.client_classification,
-              project.name AS project_name, project.brief AS project_brief
+              project.name AS project_name
        FROM evidence_events evidence
        JOIN projects project
          ON project.workspace_id = evidence.workspace_id AND project.id = evidence.project_id
@@ -230,7 +230,6 @@ async function buildCapturePreview(database, tenant, evidenceId, options = {}) {
     project: {
       id: captured.evidence.project_id,
       name: captured.evidence.project_name,
-      brief: captured.evidence.project_brief,
     },
     context: captured.context,
     candidates,

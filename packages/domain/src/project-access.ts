@@ -60,7 +60,7 @@ export async function getProjectAccessOverview(
 
   const project = await database
     .prepare(
-      `SELECT id, name, brief
+      `SELECT id, name
        FROM projects
        WHERE workspace_id = ? AND id = ?`,
     )

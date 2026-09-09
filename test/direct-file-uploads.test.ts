@@ -75,7 +75,6 @@ test("direct upload intents preserve the scan and immutable-reference boundary",
     addPrivateWorkspace(database, "user_other", "workspace_other", "other@alice.example");
     const project = await createProject(database, "user_owner", {
       name: "Direct upload project",
-      brief: "Verify the staged upload trust boundary.",
     });
     const context = database
       .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND context_kind = 'work'")
@@ -224,7 +223,6 @@ test("direct upload HTTP routes require the authenticated exact origin", async (
     addPrivateWorkspace(database, "user_route", "workspace_route", "route@alice.example");
     const project = await createProject(database, "user_route", {
       name: "Route upload project",
-      brief: "Verify authenticated direct upload endpoints.",
     });
     const context = database
       .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND context_kind = 'work'")

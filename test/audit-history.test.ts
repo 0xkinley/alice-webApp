@@ -21,7 +21,6 @@ test("appends safe audit history for identity, session, and project actions", as
   const session = await createUserSession(database, user.id);
   const project = await createProject(database, user.id, {
     name: "Audited project",
-    brief: "Verify append-only history.",
   });
   await revokeUserSession(database, session.token);
 

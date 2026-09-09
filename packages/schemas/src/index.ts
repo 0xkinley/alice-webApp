@@ -75,10 +75,11 @@ export const contextIdSchema = z
   .regex(boundedIdentifierPattern)
   .describe("Work-context identifier selected in alice.");
 
-export const createProjectSchema = z.object({
-  name: z.string().trim().min(1).max(120),
-  brief: z.string().trim().min(1).max(4_000),
-});
+export const createProjectSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+  })
+  .strict();
 
 export const createWorkContextSchema = z
   .object({
@@ -116,10 +117,6 @@ export const selectAliceWorkspaceContextSchema = z
 export const createAliceWorkspaceProjectSchema = z
   .object({
     name: z.string().trim().min(1).max(120),
-    brief: z.string().trim().min(1).max(4_000),
-    context_visibility: z.enum(["all_members", "selected_members", "personal"]),
-    chatgpt: z.boolean(),
-    claude: z.boolean(),
   })
   .strict();
 
@@ -475,7 +472,6 @@ const projectIdentitySchema = z
   .object({
     id: z.string(),
     name: z.string(),
-    brief: z.string(),
     created_at: z.string(),
     updated_at: z.string(),
   })

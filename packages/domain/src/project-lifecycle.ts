@@ -34,7 +34,7 @@ async function ownerLifecycle(database, userId: string, projectId: string, lock 
   }
   const project = await database
     .prepare(
-      `SELECT project.id, project.workspace_id, project.name, project.brief,
+      `SELECT project.id, project.workspace_id, project.name,
               project.created_at, project.updated_at, project.archived_at,
               project.archived_by_user_id, membership.id AS membership_id
        FROM projects project
@@ -70,7 +70,7 @@ export async function listArchivedProjects(database, userId: string) {
   if (typeof userId !== "string" || !userId) return [];
   return await database
     .prepare(
-      `SELECT project.id, project.name, project.brief, project.archived_at,
+      `SELECT project.id, project.name, project.archived_at,
               project.updated_at
        FROM projects project
        JOIN project_memberships membership

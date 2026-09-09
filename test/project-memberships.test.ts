@@ -71,7 +71,6 @@ before(async () => {
     headers: { cookie: ownerCookie, "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       name: "Membership safety project",
-      brief: "Exact project access fixture.",
     }),
     redirect: "manual",
   });

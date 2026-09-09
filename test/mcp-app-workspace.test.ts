@@ -171,18 +171,31 @@ test("provider availability is independent, deny-by-default, and filters discove
   );
 });
 
-test("the app creates human/provider-scoped work and selects only an enabled provider", async () => {
+test("the app creates a name-only project for the active provider", async () => {
+  const beforeRejectedBrief = created.database
+    .prepare("SELECT COUNT(*) AS count FROM projects")
+    .get().count;
+  const rejectedBrief = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "alice_create_workspace_project",
+    arguments: {
+      name: "Project with removed field",
+      brief: "This field is no longer accepted.",
+    },
+  });
+  assert.equal(rejectedBrief.payload.result.isError, true);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM projects").get().count,
+    beforeRejectedBrief,
+  );
+
   const createdProject = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "alice_create_workspace_project",
     arguments: {
       name: "MCP App Project",
-      brief: "Created from exact in-chat settings.",
-      context_visibility: "personal",
-      chatgpt: true,
-      claude: false,
     },
   });
   assert.equal(createdProject.payload.result.structuredContent.name, "MCP App Project");
+  assert.equal(createdProject.payload.result.structuredContent.brief, undefined);
   const projectId = createdProject.payload.result.structuredContent.id;
   const general = created.database
     .prepare(
@@ -190,7 +203,7 @@ test("the app creates human/provider-scoped work and selects only an enabled pro
        WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
     )
     .get(projectId);
-  assert.equal(general.visibility, "personal");
+  assert.equal(general.visibility, "all_members");
 
   const selected = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "alice_select_workspace_context",

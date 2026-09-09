@@ -144,6 +144,7 @@ test("lists only projects in the authenticated workspace", async () => {
     ["project_switchboard_launch"],
   );
   assert.equal(payload.result.structuredContent.projects[0].accepted_state_count, 1);
+  assert.equal(payload.result.structuredContent.projects[0].brief, undefined);
   assert.equal(
     payload.result.structuredContent.projects[0].accepted_state_updated_at,
     fixtureTimestamp,
@@ -201,6 +202,7 @@ test("uses the per-connection active project and work context without target arg
     arguments: { task: "Continue launch planning" },
   });
   const context = payload.result.structuredContent;
+  assert.equal(context.project.brief, undefined);
   assert.equal(context.project.id, identity.project_id);
   assert.equal(context.context.id, general.id);
   assert.equal(context.context.name, "General");

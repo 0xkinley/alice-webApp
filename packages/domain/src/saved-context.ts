@@ -40,7 +40,7 @@ async function buildRemovalPreview(database, tenant, { projectId, contextId, acc
               candidate.summary, evidence.payload_hash,
               evidence.created_at AS evidence_created_at,
               evidence.client_classification,
-              project.name AS project_name, project.brief AS project_brief,
+              project.name AS project_name,
               context.name AS context_name, context.description AS context_description,
               context.visibility, context.updated_at AS context_updated_at
        FROM accepted_project_state accepted
@@ -86,7 +86,7 @@ async function buildRemovalPreview(database, tenant, { projectId, contextId, acc
     .get(tenant.workspaceId, projectId, contextId, acceptedStateId);
   if (!row) return undefined;
   const preview = {
-    project: { id: projectId, name: row.project_name, brief: row.project_brief },
+    project: { id: projectId, name: row.project_name },
     context: {
       id: contextId,
       name: row.context_name,
@@ -252,7 +252,7 @@ export async function getSavedContextView(database, { userId, projectId, context
   if (!projectAccess) return undefined;
   const project = await database
     .prepare(
-      `SELECT id, name, brief, created_at, updated_at
+      `SELECT id, name, created_at, updated_at
        FROM projects WHERE id = ? AND workspace_id = ?`,
     )
     .get(projectId, projectAccess.projectWorkspaceId);

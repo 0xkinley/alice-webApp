@@ -53,6 +53,8 @@ A versioned PostgreSQL migration will add an explicit project-to-default-context
 
 New projects create exactly one hidden default context and designate it in that mapping. They do not create a visible `General`, `Project-wide`, research, feature, or other named context. The hidden default is used for new files, saved updates, permissions, AI retrieval, capture, review, removal, export, archive, and erasure. Project creation stores an empty internal brief until project description editing is separately admitted; the creation form does not ask for a brief.
 
+Product-owner correction on 2026-09-09 makes the creation contract exact: Project name, optional Add files, and Create project are the only controls. The web and shared ChatGPT/Claude embedded form must not request human/provider options or any brief. A host-created project authorizes the currently authenticated provider internally; the ordinary web path retains the existing deny-by-default provider state. Project lists, detail views, invitations, review summaries, confirmation data, exports, and model-visible packages omit the legacy brief field.
+
 The hidden default uses project membership as its human-access boundary. A new project has one Owner and no collaborators, so it is private to its creator. Adding a collaborator later is the only ordinary way to broaden human project access. Per-user ChatGPT and Claude authorization remains separate from human membership.
 
 ### Legacy projects and records

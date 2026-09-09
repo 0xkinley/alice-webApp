@@ -480,6 +480,10 @@ test("web project list, detail, creation, and review queue stay tenant-scoped", 
     maliciousCreate.headers.get("location").split("/").at(-1),
   );
   assert.equal(
+    database.prepare("SELECT brief FROM projects WHERE id = ?").get(createdProjectId).brief,
+    "",
+  );
+  assert.equal(
     database.prepare("SELECT workspace_id FROM projects WHERE id = ?").get(createdProjectId)
       .workspace_id,
     tenants.beta.workspace_id,

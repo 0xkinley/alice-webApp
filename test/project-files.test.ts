@@ -139,10 +139,12 @@ before(async () => {
   const createResponse = await fetch(`${baseUrl}/projects`, {
     method: "POST",
     headers: { cookie: ownerCookie, "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ name: "File project", brief: "Private file test." }),
+    body: new URLSearchParams({ name: "File project", after_create: "files" }),
     redirect: "manual",
   });
-  ownerProjectId = decodeURIComponent(createResponse.headers.get("location").split("/").at(-1));
+  const addFilesLocation = createResponse.headers.get("location");
+  assert.match(addFilesLocation, /^\/projects\/project_[^/]+\/files\?context_id=context_/);
+  ownerProjectId = decodeURIComponent(addFilesLocation.match(/^\/projects\/([^/]+)\/files/)[1]);
   contexts = created.database
     .prepare(
       "SELECT id, context_kind FROM work_contexts WHERE project_id = ? ORDER BY context_kind, id",

@@ -81,7 +81,6 @@ before(async () => {
     headers: { cookie: ownerCookie, "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       name: "Lifecycle safety project",
-      brief: "Archive and export without overstating erasure.",
     }),
     redirect: "manual",
   });
@@ -192,6 +191,7 @@ test("Owner lifecycle controls archive without erasure and export only permitted
   const exported = JSON.parse(exportedText);
   assert.equal(exported.format, "alice.project-export");
   assert.equal(exported.version, 1);
+  assert.equal(exported.project.brief, undefined);
   assert.match(exported.scope, /omitted without names or counts/i);
   assert.ok(exported.contexts.some(({ name }) => name === "General"));
   assert.doesNotMatch(exportedText, /Restricted launch secret|KESTREL/);

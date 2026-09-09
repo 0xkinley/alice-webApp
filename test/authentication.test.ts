@@ -151,7 +151,9 @@ test("registers one user and atomically provisions one private workspace", async
   assert.match(html, /Private workspace/);
   assert.match(html, /owner@alice\.example/);
   assert.match(html, /Create your first project/);
-  assert.equal(html.match(/<details class="create-project"/g)?.length, 1);
+  assert.equal(html.match(/<form class="create-project-form"/g)?.length, 1);
+  assert.equal(html.match(/>Create project</g)?.length, 1);
+  assert.doesNotMatch(html, /Brief/);
   assert.match(html, /prefers-reduced-motion/);
 });
 

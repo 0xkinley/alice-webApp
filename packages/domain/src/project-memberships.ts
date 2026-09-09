@@ -56,7 +56,7 @@ async function projectMembership(database, userId: string, projectId: string) {
   if (!tenant || typeof projectId !== "string" || !projectId) return undefined;
   return await database
     .prepare(
-      `SELECT project.id AS project_id, project.workspace_id, project.name, project.brief,
+      `SELECT project.id AS project_id, project.workspace_id, project.name,
               membership.id AS membership_id, membership.role, membership.created_at,
               membership.updated_at
        FROM project_memberships membership
@@ -83,8 +83,7 @@ async function invitationForRecipient(database, userId: string, token: unknown, 
       `SELECT invitation.id, invitation.workspace_id, invitation.project_id,
               invitation.email, invitation.role, invitation.expires_at,
               invitation.created_at, invitation.created_by_user_id,
-              project.name AS project_name,
-              project.brief AS project_brief
+              project.name AS project_name
        FROM project_invitations invitation
        JOIN projects project
          ON project.workspace_id = invitation.workspace_id
@@ -158,7 +157,7 @@ export async function listSharedProjects(database, userId: string) {
   if (!tenant) return [];
   return await database
     .prepare(
-      `SELECT project.id, project.name, project.brief, membership.role,
+      `SELECT project.id, project.name, membership.role,
               membership.created_at AS joined_at
        FROM project_memberships membership
        JOIN projects project
