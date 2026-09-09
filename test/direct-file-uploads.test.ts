@@ -234,6 +234,10 @@ test("direct upload HTTP routes require the authenticated exact origin", async (
     await new Promise<void>((resolve) => server.once("listening", resolve));
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
     const cookie = `alice_session=${encodeURIComponent(session.token)}`;
+    const home = await fetch(baseUrl, { headers: { cookie } });
+    const homeHtml = await home.text();
+    assert.match(homeHtml, /await uploadDirect\(files\[index\],createdProject\)/);
+    assert.doesNotMatch(homeHtml, /await uploadLegacy\(files\[index\],createdProject\)/);
     const bytes = Buffer.from("route fixture");
     const body = {
       context_id: context.id,

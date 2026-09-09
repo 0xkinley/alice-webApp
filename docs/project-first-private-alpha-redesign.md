@@ -96,7 +96,7 @@ One shared renderer will map internal structured values into bounded, escaped us
 
 The authenticated shell contains a collapsible sidebar with Your Projects, Shared with You, Archived Projects, and AI Connections. The header contains the formatted `alice.` wordmark, signed-in account, and sign-out control. Desktop and mobile layouts use the same hierarchy.
 
-The empty workspace has one prominent `Create project` action. Project creation asks for a name and offers an optional Add files continuation. A project menu exposes Needs Attention, Alpha Signals, Your Access, and Collaborators, with badges only when an actionable or informational item exists.
+The empty workspace has one prominent `Create project` action. Project creation asks for a name and offers an optional Add files action. Add files opens the browser's file chooser in place; it does not submit the form, create a project, or navigate to the separate file-management page. Selected filenames return to the creation form, and the exact files are uploaded through the existing private scan-gated path only after Create project creates their destination. A project menu exposes Needs Attention, Alpha Signals, Your Access, and Collaborators, with badges only when an actionable or informational item exists.
 
 Project cards and project pages show provider-specific active states derived from the signed-in user's committed connection targets: Active in ChatGPT, Active in Claude, or Active in ChatGPT and Claude. Pending form values are not styled as active.
 

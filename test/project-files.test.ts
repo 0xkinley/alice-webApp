@@ -136,21 +136,35 @@ before(async () => {
   baseUrl = `http://127.0.0.1:${server.address().port}`;
   ownerCookie = await register("file-owner@alice.example", "file owner private password");
   otherCookie = await register("file-other@alice.example", "file other private password");
+  const home = await fetch(baseUrl, { headers: { cookie: ownerCookie } });
+  const homeHtml = await home.text();
+  assert.match(homeHtml, /id="add-project-files" class="secondary" type="button"/);
+  assert.match(homeHtml, /id="project-files" type="file"[^>]+ hidden tabindex="-1"/);
+  assert.match(homeHtml, /add\.addEventListener\("click",\(\)=>picker\.click\(\)\)/);
+  assert.match(homeHtml, /await uploadLegacy\(files\[index\],createdProject\)/);
+  assert.doesNotMatch(homeHtml, /after_create/);
   const createResponse = await fetch(`${baseUrl}/projects`, {
     method: "POST",
-    headers: { cookie: ownerCookie, "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ name: "File project", after_create: "files" }),
+    headers: {
+      accept: "application/json",
+      cookie: ownerCookie,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ name: "File project", response_mode: "inline_file_upload" }),
     redirect: "manual",
   });
-  const addFilesLocation = createResponse.headers.get("location");
-  assert.match(addFilesLocation, /^\/projects\/project_[^/]+\/files\?context_id=context_/);
-  ownerProjectId = decodeURIComponent(addFilesLocation.match(/^\/projects\/([^/]+)\/files/)[1]);
+  assert.equal(createResponse.status, 201);
+  const createdProject = await createResponse.json();
+  assert.match(createdProject.project_id, /^project_/);
+  assert.match(createdProject.context_id, /^context_/);
+  ownerProjectId = createdProject.project_id;
   contexts = created.database
     .prepare(
       "SELECT id, context_kind FROM work_contexts WHERE project_id = ? ORDER BY context_kind, id",
     )
     .all(ownerProjectId);
   workContextId = contexts.find(({ context_kind: kind }) => kind === "work").id;
+  assert.equal(createdProject.context_id, workContextId);
 });
 
 after(async () => {

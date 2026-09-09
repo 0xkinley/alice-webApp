@@ -45,6 +45,21 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+const PROJECT_FILE_ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx";
+
+function projectCreationFileScript({ directUpload }: { directUpload: boolean }): string {
+  return `<script>
+(()=>{const form=document.querySelector(".create-project-form"),picker=document.getElementById("project-files"),add=document.getElementById("add-project-files"),selection=document.getElementById("project-file-selection"),status=document.getElementById("project-create-status");if(!form||!picker||!add||!selection||!status)return;const buttons=Array.from(form.querySelectorAll("button"));let createdProject=null;const announce=message=>{status.textContent=message};const fail=message=>{buttons.forEach(button=>button.disabled=false);status.textContent="";if(createdProject){status.append("The project was created, but the file upload did not finish. ");const link=document.createElement("a");link.href="/projects/"+encodeURIComponent(createdProject.project_id);link.textContent="Open the project";status.append(link,".")}else status.textContent=message||"The project could not be created."};const sha256=async file=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",await file.arrayBuffer()))).map(byte=>byte.toString(16).padStart(2,"0")).join("");const uploadLegacy=async(file,created)=>{const response=await fetch("/projects/"+encodeURIComponent(created.project_id)+"/files?context_id="+encodeURIComponent(created.context_id),{method:"POST",headers:{"Content-Type":file.type||"application/octet-stream","X-Alice-File-Name":encodeURIComponent(file.name)},body:file});if(!response.ok)throw new Error(await response.text())};const putDirect=(file,intent)=>new Promise((resolve,reject)=>{const xhr=new XMLHttpRequest();xhr.open("PUT",intent.upload_url);for(const [name,value] of Object.entries(intent.upload_headers))xhr.setRequestHeader(name,value);xhr.onerror=()=>reject(new Error("The private storage upload failed."));xhr.onload=()=>{if(xhr.status<200||xhr.status>=300)return reject(new Error("The private storage upload failed."));const versionId=xhr.getResponseHeader("x-amz-version-id");if(!versionId)return reject(new Error("Private storage did not expose the immutable object version."));resolve(versionId)};xhr.send(file)});const uploadDirect=async(file,created)=>{const digest=await sha256(file),intentResponse=await fetch("/projects/"+encodeURIComponent(created.project_id)+"/files/direct/intents",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({context_id:created.context_id,file_name:file.name,claimed_media_type:file.type||"application/octet-stream",byte_size:file.size,sha256:digest})});if(!intentResponse.ok)throw new Error(await intentResponse.text());const intent=await intentResponse.json(),versionId=await putDirect(file,intent);for(;;){const response=await fetch("/projects/"+encodeURIComponent(created.project_id)+"/files/direct/intents/"+encodeURIComponent(intent.intent_id)+"/finalize",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({storage_version_id:versionId})});if(response.status===202){await new Promise(resolve=>setTimeout(resolve,3000));continue}if(!response.ok)throw new Error(await response.text());return}};add.addEventListener("click",()=>picker.click());picker.addEventListener("change",()=>{const files=Array.from(picker.files||[]);selection.textContent=files.length===0?"":files.length===1?files[0].name:files.length+" files selected"});form.addEventListener("submit",async event=>{const files=Array.from(picker.files||[]);if(files.length===0)return;event.preventDefault();buttons.forEach(button=>button.disabled=true);announce("Creating project…");try{const response=await fetch("/projects",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded","Accept":"application/json"},body:new URLSearchParams({name:String(new FormData(form).get("name")||""),response_mode:"inline_file_upload"})});if(!response.ok)throw new Error(await response.text());createdProject=await response.json();for(let index=0;index<files.length;index+=1){announce("Uploading "+(index+1)+" of "+files.length+"…");${directUpload ? "await uploadDirect(files[index],createdProject)" : "await uploadLegacy(files[index],createdProject)"}}announce("Files received. Opening project…");location.href="/projects/"+encodeURIComponent(createdProject.project_id)}catch(error){fail(error instanceof Error?error.message:String(error))}})})();
+</script>`;
+}
+
+function projectCreationForm(fileStore?: PrivateFileStore): string {
+  const fileControls = fileStore
+    ? `<button id="add-project-files" class="secondary" type="button" aria-controls="project-files" aria-haspopup="dialog">Add files</button><input id="project-files" type="file" accept="${PROJECT_FILE_ACCEPT}" multiple hidden tabindex="-1" aria-hidden="true"><span id="project-file-selection" class="file-selection" role="status"></span>`
+    : "";
+  return `<form class="create-project-form" method="post" action="/projects"><label>Project name<input name="name" maxlength="120" required></label><div class="actions">${fileControls}<button type="submit">Create project</button></div><p id="project-create-status" role="status"></p></form>${fileStore ? projectCreationFileScript({ directUpload: Boolean(fileStore.createSignedUpload) }) : ""}`;
+}
+
 function contextReadEventCard(event) {
   const route = event.requested_via === "active_target" ? "active target" : "explicit fallback";
   const result =
@@ -115,7 +130,7 @@ export async function createApp({
           `<article class="project-card"><p class="eyebrow">Archived</p><h3><a class="project-link" href="/projects/${encodeURIComponent(project.id)}/lifecycle">${escapeHtml(project.name)}</a></h3><p class="project-meta">Archived ${escapeHtml(timestampLabel(project.archived_at))}</p></article>`,
       )
       .join("");
-    const projectForm = `<form class="create-project-form" method="post" action="/projects"><label>Project name<input name="name" maxlength="120" required></label><div class="actions">${fileStore ? '<button class="secondary" type="submit" name="after_create" value="files">Add files</button>' : ""}<button type="submit">Create project</button></div></form>`;
+    const projectForm = projectCreationForm(fileStore);
     const createProjectControl = `<details class="create-project" id="create-project"><summary>New project</summary>${projectForm}</details>`;
     const hasAnyProject = projects.length > 0 || archivedProjects.length > 0;
     const workspaceBody = `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Private workspace</p><h1>Your projects</h1><p>Create a project, add files, connect the AI tools you trust, and approve anything saved back to it.</p></div>${hasAnyProject ? createProjectControl : ""}</header>${
@@ -172,15 +187,15 @@ export async function createApp({
             ),
           );
       }
-      if (fileStore && request.body.after_create === "files") {
+      if (fileStore && request.body.response_mode === "inline_file_upload") {
         const contexts =
           (await listWorkContexts(database, request.aliceUser!.id, project.id)) || [];
         const initialContext = contexts.find(({ context_kind: kind }) => kind === "work");
         if (initialContext) {
-          return response.redirect(
-            303,
-            `/projects/${encodeURIComponent(project.id)}/files?context_id=${encodeURIComponent(initialContext.id)}`,
-          );
+          return response
+            .status(201)
+            .set("Cache-Control", "no-store")
+            .json({ project_id: project.id, context_id: initialContext.id });
         }
       }
       response.redirect(303, `/projects/${encodeURIComponent(project.id)}`);
