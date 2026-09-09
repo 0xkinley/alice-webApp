@@ -119,7 +119,7 @@ export async function createApp({
     const archivedProjectList = archivedProjects
       .map(
         (project) =>
-          `<article class="project-card"><p class="eyebrow">Archived</p><h3><a class="project-link" href="/projects/${encodeURIComponent(project.id)}/lifecycle">${escapeHtml(project.name)}</a></h3><p class="project-meta">Archived ${escapeHtml(timestampLabel(project.archived_at))}</p></article>`,
+          `<article class="project-card"><p class="eyebrow">Archived</p><h3><a class="project-link" href="/projects/${encodeURIComponent(project.id)}/archive">${escapeHtml(project.name)}</a></h3><p class="project-meta">Archived ${escapeHtml(timestampLabel(project.archived_at))}</p></article>`,
       )
       .join("");
     const projectForm = projectCreationForm(fileStore);
@@ -251,16 +251,12 @@ export async function createApp({
       .join("");
     const pendingCount = reviewQueue?.counts.pending || 0;
     const menuItems = [
-      canWrite
-        ? `<a href="/review?project_id=${encodeURIComponent(project.id)}">Needs attention${pendingCount ? ` <span class="count-badge">${pendingCount}</span>` : ""}</a>`
-        : "",
-      '<a href="/signals">Alpha signals</a>',
       `<a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>`,
       isOwner
         ? `<a href="/projects/${encodeURIComponent(project.id)}/collaborators">Collaborators</a>`
         : "",
       isOwner
-        ? `<a href="/projects/${encodeURIComponent(project.id)}/lifecycle">Project settings</a>`
+        ? `<a class="destructive" href="/projects/${encodeURIComponent(project.id)}/archive">Archive project</a>`
         : "",
     ].join("");
     const filesCard = fileStore
@@ -271,7 +267,7 @@ export async function createApp({
       .send(
         renderAppPage(
           project.name,
-          `<div class="project-home"><header class="project-header"><div><p class="eyebrow">Project · ${escapeHtml(roleLabel(project.project_role))}</p><h1>${escapeHtml(project.name)}</h1><p>Files and information you choose to save stay together in this project.</p><div class="project-providers" aria-label="Project AI status">${providerStatus}</div></div><details class="project-menu"><summary>Project menu</summary><nav aria-label="Project menu">${menuItems}</nav></details></header><section class="project-workspace-grid" aria-label="Project workspace"><a class="project-workspace-card" href="/projects/${encodeURIComponent(project.id)}/saved"><span class="eyebrow">Saved information</span><strong>What alice. knows</strong><span>Review human-approved project information and its history.</span>${pendingCount ? `<span class="count-badge">${pendingCount} need${pendingCount === 1 ? "s" : ""} attention</span>` : ""}</a>${filesCard}</section></div>`,
+          `<div class="project-home"><header class="project-header"><div><p class="eyebrow">Project · ${escapeHtml(roleLabel(project.project_role))}</p><h1>${escapeHtml(project.name)}</h1><p>Files and information you choose to save stay together in this project.</p><div class="project-providers" aria-label="Project AI status">${providerStatus}</div></div><details class="project-menu"><summary aria-label="Project options"><span aria-hidden="true">…</span><span class="visually-hidden">Project options</span></summary><nav aria-label="Project options">${menuItems}</nav></details></header><section class="project-workspace-grid" aria-label="Project workspace"><a class="project-workspace-card" href="/projects/${encodeURIComponent(project.id)}/saved"><span class="eyebrow">Saved information</span><strong>What alice. knows</strong><span>Review human-approved project information and its history.</span>${pendingCount ? `<span class="count-badge">${pendingCount} need${pendingCount === 1 ? "s" : ""} attention</span>` : ""}</a>${filesCard}</section></div>`,
           { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );

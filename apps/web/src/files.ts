@@ -307,7 +307,7 @@ export function createFilesRouter({
     if (!file) return notFound(response);
     const permanentDeletionControl =
       file.access.project_role === "owner"
-        ? `<section><h2>Permanent deletion</h2><p>Removing this file from a context preserves its immutable object and history. Permanent deletion is governed at the project level so shared immutable objects are not silently removed from another authorized project.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/lifecycle">Open project lifecycle</a></p></section>`
+        ? `<section><h2>Permanent deletion</h2><p>Removing this file from a context preserves its immutable object and history. Permanent deletion is governed at the project level so shared immutable objects are not silently removed from another authorized project.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/archive">Open archive controls</a></p></section>`
         : "<section><h2>Permanent deletion</h2><p>Removing this file from a context preserves its immutable object and history. A project Owner controls archive, export, and any project-level permanent-deletion request.</p></section>";
     response
       .type("html")

@@ -68,7 +68,14 @@ test("creates and revisits a project in the authenticated private workspace", as
   assert.equal(detail.status, 200);
   const detailHtml = await detail.text();
   assert.doesNotMatch(detailHtml, /Brief/);
-  assert.match(detailHtml, /Project menu/);
+  assert.match(detailHtml, /aria-label="Project options"/);
+  assert.match(detailHtml, />Your access</);
+  assert.match(detailHtml, />Collaborators</);
+  assert.match(detailHtml, />Archive project</);
+  assert.doesNotMatch(
+    detailHtml,
+    /Project lifecycle|Project settings|Alpha signals|>Needs attention/,
+  );
   assert.match(detailHtml, /Saved information/);
   assert.match(detailHtml, /Not active in ChatGPT/);
   assert.match(detailHtml, /Not active in Claude/);

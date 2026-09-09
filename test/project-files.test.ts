@@ -875,7 +875,7 @@ test("an exact human removal disables access without erasing file provenance", a
   assert.match(detailsHtml, /No longer active in this context/);
   assert.match(detailsHtml, /not permanent erasure/i);
   assert.match(detailsHtml, /Permanent deletion/);
-  assert.match(detailsHtml, new RegExp(`/projects/${ownerProjectId}/lifecycle`));
+  assert.match(detailsHtml, new RegExp(`/projects/${ownerProjectId}/archive`));
   assert.doesNotMatch(detailsHtml, />Download</);
 
   const list = await fetch(

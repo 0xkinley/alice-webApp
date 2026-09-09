@@ -167,7 +167,7 @@ after(async () => {
 });
 
 test("Owner lifecycle controls archive without erasure and export only permitted contexts", async () => {
-  const lifecycleUrl = `${baseUrl}/projects/${encodeURIComponent(projectId)}/lifecycle`;
+  const lifecycleUrl = `${baseUrl}/projects/${encodeURIComponent(projectId)}/archive`;
   const exportUrl = `${baseUrl}/projects/${encodeURIComponent(projectId)}/export.json`;
 
   const ownerView = await fetch(lifecycleUrl, { headers: { cookie: ownerCookie } });
@@ -219,7 +219,7 @@ test("Owner lifecycle controls archive without erasure and export only permitted
     expected_preview_version: initial.preview_version,
   });
   assert.equal(archived.status, 303);
-  assert.equal(archived.headers.get("location"), `/projects/${projectId}/lifecycle`);
+  assert.equal(archived.headers.get("location"), "/#archived-projects");
   assert.equal(
     (await fetch(`${baseUrl}/projects/${projectId}`, { headers: { cookie: ownerCookie } })).status,
     404,
