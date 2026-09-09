@@ -3,7 +3,7 @@ import { openDatabase } from "@alice/database";
 import {
   ContextBudgetError,
   createProject,
-  createWorkContext,
+  getProject,
   getReviewQueue,
   getProjectContext,
   getPrivateAlphaSignals,
@@ -11,7 +11,6 @@ import {
   listSharedProjects,
   listProjects,
   listWorkContexts,
-  suggestSimilarWorkContexts,
 } from "@alice/domain";
 import { getProjectContextSchema } from "@alice/schemas";
 import {
@@ -32,7 +31,13 @@ import { createProjectMembershipRouter } from "./project-memberships.ts";
 import { privateAlphaAboutBody } from "./public-site.ts";
 import { createReviewRouter } from "./review.ts";
 import { createSavedContextRouter } from "./saved-context.ts";
-import { accessLabel, roleLabel, timestampLabel } from "./product-copy.ts";
+import {
+  escapeHtml as escapeReadableHtml,
+  readableLabel,
+  readableText,
+  renderReadableValue,
+} from "./human-readable.ts";
+import { roleLabel, timestampLabel } from "./product-copy.ts";
 import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 import type { PrivateFileStore } from "@alice/domain";
 
@@ -43,6 +48,39 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function packageCollection(title: string, entries: any[]): string {
+  if (!entries.length) return "";
+  return `<section><div class="section-heading"><h3>${escapeHtml(title)}</h3><p class="muted">${entries.length} ${entries.length === 1 ? "item" : "items"}</p></div>${entries
+    .map(
+      (entry) =>
+        `<article><h3>${escapeReadableHtml(readableLabel(entry.state_key))}</h3><p>${escapeReadableHtml(readableText(entry.summary))}</p><div class="readable-value">${renderReadableValue(entry.value)}</div><p class="muted">Saved ${escapeHtml(timestampLabel(entry.accepted_at))}</p></article>`,
+    )
+    .join("")}</section>`;
+}
+
+function renderPackagePreview(packagePreview): string {
+  const files = packagePreview.file_artifacts.length
+    ? `<section><div class="section-heading"><h3>Files</h3><p class="muted">${packagePreview.file_artifacts.length} ${packagePreview.file_artifacts.length === 1 ? "file" : "files"}</p></div>${packagePreview.file_artifacts
+        .map(
+          (file) =>
+            `<article><h3>${escapeHtml(file.display_name)}</h3><p>${escapeHtml(file.media_type)} · ${Number(file.byte_size).toLocaleString()} bytes</p><p class="muted">Added ${escapeHtml(timestampLabel(file.referenced_at))}</p></article>`,
+        )
+        .join("")}</section>`
+    : "";
+  const conflicts = packagePreview.unresolved_conflicts.length
+    ? `<aside class="notice warning"><strong>Some project information needs review.</strong><p>${packagePreview.unresolved_conflicts.length} ${packagePreview.unresolved_conflicts.length === 1 ? "item has" : "items have"} conflicting proposals and ${packagePreview.unresolved_conflicts.length === 1 ? "is" : "are"} excluded from this preview.</p></aside>`
+    : "";
+  const empty =
+    packagePreview.accepted_decisions.length +
+      packagePreview.open_questions.length +
+      packagePreview.artifacts.length +
+      packagePreview.file_artifacts.length ===
+    0
+      ? '<div class="empty-state"><h3>No project information matched</h3><p>Try a clearer task description or return after saving project information.</p></div>'
+      : "";
+  return `${conflicts}${packageCollection("Saved information", packagePreview.accepted_decisions)}${packageCollection("Open questions", packagePreview.open_questions)}${packageCollection("References", packagePreview.artifacts)}${files}${empty}`;
 }
 
 const PROJECT_FILE_ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx";
@@ -285,7 +323,7 @@ export async function createApp({
       task:
         typeof input.task === "string" && input.task.trim()
           ? input.task
-          : "Preview the exact host context package",
+          : "Preview the exact project information package",
       context_budget:
         typeof input.context_budget === "string" ? Number(input.context_budget) : undefined,
     });
@@ -331,7 +369,7 @@ export async function createApp({
         .send(
           renderStatusPage(
             "Not found",
-            `<h1>Project or context not found</h1><p>The destination may be unavailable or outside your access.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}">Return to the project</a></p>`,
+            `<h1>Project not found</h1><p>The project may be unavailable or outside your access.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}">Return to the project</a></p>`,
             "neutral",
           ),
         );
@@ -345,7 +383,7 @@ export async function createApp({
       .send(
         renderAppPage(
           "Host package preview",
-          `<div class="project-home">${renderProjectShell({ shell, fileStore })}<section><div class="section-heading"><div><p class="eyebrow">AI delivery preview</p><h2>Exact project package</h2></div></div><p>This is the deterministic JSON alice. would return for this task and byte budget. Opening this preview does not create a read receipt or mean an AI tool consulted alice.</p><form method="post"><label>Task<input name="task" maxlength="2000" value="${escapeHtml(parsed.data.task)}" required></label><label>UTF-8 byte budget<input name="context_budget" type="number" min="2000" max="32000" value="${escapeHtml(parsed.data.context_budget)}" required></label><button type="submit">Refresh preview</button></form><dl><dt>Package version</dt><dd>${escapeHtml(packagePreview.package.version)}</dd><dt>Budget</dt><dd>${escapeHtml(packagePreview.package.budget.used)} of ${escapeHtml(packagePreview.package.budget.limit)} UTF-8 bytes</dd><dt>Freshness</dt><dd><pre>${escapeHtml(JSON.stringify(packagePreview.package.freshness, null, 2))}</pre></dd><dt>Omitted entries</dt><dd>${escapeHtml(packagePreview.package.omissions.total)}</dd></dl><pre>${escapeHtml(JSON.stringify(packagePreview, null, 2))}</pre></section></div>`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore })}<section><div class="section-heading"><div><p class="eyebrow">AI delivery preview</p><h2>What an AI tool would receive</h2></div></div><p>This readable preview shows the bounded project information available for one task. Opening it does not create a read receipt or mean an AI tool consulted alice.</p><form method="post"><label>Task<input name="task" maxlength="2000" value="${escapeHtml(parsed.data.task)}" required></label><label>Information budget<input name="context_budget" type="number" min="2000" max="32000" value="${escapeHtml(parsed.data.context_budget)}" required></label><button type="submit">Refresh preview</button></form><dl><dt>Information included</dt><dd>${escapeHtml(packagePreview.package.budget.used)} of ${escapeHtml(packagePreview.package.budget.limit)} permitted bytes</dd><dt>Current as of</dt><dd>${escapeHtml(timestampLabel(packagePreview.package.freshness.state_as_of))}</dd><dt>Items omitted for size</dt><dd>${escapeHtml(packagePreview.package.omissions.total)}</dd></dl>${renderPackagePreview(packagePreview)}</section></div>`,
           { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );
@@ -362,108 +400,21 @@ export async function createApp({
     (request, response) => renderContextPreview(request, response, request.body),
   );
   app.post(
-    "/projects/:projectId/contexts/preview",
+    ["/projects/:projectId/contexts/preview", "/projects/:projectId/contexts"],
     requireAuthenticatedUser(database),
     async (request, response) => {
-      try {
-        const suggestions = await suggestSimilarWorkContexts(database, {
-          userId: request.aliceUser!.id,
-          projectId: request.params.projectId,
-          input: request.body,
-        });
-        if (!suggestions) {
-          return response
-            .status(404)
-            .type("html")
-            .send(
-              renderStatusPage(
-                "Not found",
-                '<h1>Project not found</h1><p>No work context was created.</p><p><a href="/">Return to your private workspace</a></p>',
-                "neutral",
-              ),
-            );
-        }
-        const similar = suggestions.length
-          ? `<h2>Similar contexts</h2><p>Nothing is grouped or moved automatically. You can return to one of these contexts instead.</p>${suggestions
-              .map(
-                (context) =>
-                  `<article><h3><a href="/projects/${encodeURIComponent(request.params.projectId)}#${encodeURIComponent(context.id)}">${escapeHtml(context.name)}</a></h3><p>${escapeHtml(context.description)}</p></article>`,
-              )
-              .join("")}`
-          : "<p>No similar work context was found.</p>";
-        const shell = await getProjectShell(
-          database,
-          request.aliceUser!.id,
-          request.params.projectId,
-        );
-        if (!shell) {
-          return response.status(404).end();
-        }
-        response
+      const projectId = String(request.params.projectId);
+      if (!(await getProject(database, request.aliceUser!.id, projectId))) {
+        return response
+          .status(404)
           .type("html")
-          .send(
-            renderAppPage(
-              "Confirm work context",
-              `<div class="project-home">${renderProjectShell({ shell, fileStore })}<section><div class="section-heading"><div><p class="eyebrow">Advanced project organization</p><h2>Confirm new work area</h2></div></div>${similar}<article><h3>${escapeHtml(request.body.name)}</h3><p>${escapeHtml(request.body.description)}</p><p>Access: ${escapeHtml(accessLabel(request.body.visibility))}</p></article><form method="post" action="/projects/${encodeURIComponent(request.params.projectId)}/contexts"><input type="hidden" name="name" value="${escapeHtml(request.body.name)}"><input type="hidden" name="description" value="${escapeHtml(request.body.description)}"><input type="hidden" name="visibility" value="${escapeHtml(request.body.visibility)}"><button type="submit">Create this work area</button></form></section></div>`,
-              { email: request.aliceUser!.email, activeSection: "projects" },
-            ),
-          );
-      } catch (error) {
-        response
-          .status(400)
-          .type("html")
-          .send(
-            renderStatusPage(
-              "Invalid work context",
-              `<h1>${escapeHtml(String(error))}</h1><p>No work context was created.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}">Return to the project</a></p>`,
-              "danger",
-            ),
-          );
+          .send(renderStatusPage("Project unavailable", "This project is unavailable."));
       }
-    },
-  );
-  app.post(
-    "/projects/:projectId/contexts",
-    requireAuthenticatedUser(database),
-    async (request, response) => {
-      try {
-        const context = await createWorkContext(database, {
-          userId: request.aliceUser!.id,
-          projectId: request.params.projectId,
-          input: request.body,
-        });
-        if (!context) {
-          return response
-            .status(404)
-            .type("html")
-            .send(
-              renderStatusPage(
-                "Not found",
-                '<h1>Project not found</h1><p>No work context was created.</p><p><a href="/">Return to your private workspace</a></p>',
-                "neutral",
-              ),
-            );
-        }
-        response.redirect(
-          303,
-          `/projects/${encodeURIComponent(request.params.projectId)}#${encodeURIComponent(context.id)}`,
-        );
-      } catch (error) {
-        response
-          .status(400)
-          .type("html")
-          .send(
-            renderStatusPage(
-              "Work context not created",
-              `<h1>${escapeHtml(String(error))}</h1><p>No work context was created.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}">Return to the project</a></p>`,
-              "danger",
-            ),
-          );
-      }
+      return response.redirect(303, `/projects/${encodeURIComponent(projectId)}`);
     },
   );
   app.use("/projects", createSavedContextRouter({ database, fileStore }));
-  app.use("/save-previews", createCaptureSavePreviewsRouter({ database, publicUrl }));
+  app.use("/save-previews", createCaptureSavePreviewsRouter({ database, fileStore, publicUrl }));
   if (fileStore) {
     app.use(
       "/file-save-offers",

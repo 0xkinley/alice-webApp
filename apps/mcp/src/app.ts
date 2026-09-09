@@ -195,7 +195,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     WORKSPACE_APP_URI,
     {
       title: "alice. workspace",
-      description: "Portable authenticated project, context, provider, and file controls.",
+      description: "Portable authenticated project, provider, and file controls.",
       _meta: { ui: { prefersBorder: true } },
     },
     async () => ({
@@ -216,7 +216,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     SAVE_APP_URI,
     {
       title: "alice. Save",
-      description: "One exact authenticated Save action for context and attachments.",
+      description: "One exact authenticated Save action for project information and attachments.",
       _meta: { ui: { prefersBorder: true } },
     },
     async () => ({

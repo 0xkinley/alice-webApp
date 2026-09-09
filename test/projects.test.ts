@@ -122,11 +122,14 @@ test("creates and revisits a project in the authenticated private workspace", as
   assert.equal(packagePreview.status, 200);
   const packageHtml = await packagePreview.text();
   assert.match(packageHtml, /data-app-shell/);
-  assert.match(packageHtml, /Exact project package/);
+  assert.match(packageHtml, /What an AI tool would receive/);
   assert.match(packageHtml, /does not create a read receipt/);
   assert.doesNotMatch(packageHtml, />General</);
-  assert.match(packageHtml, /&quot;version&quot;/);
-  assert.match(packageHtml, /&quot;freshness&quot;/);
+  assert.match(packageHtml, /Current as of/);
+  assert.doesNotMatch(
+    packageHtml,
+    /&quot;version&quot;|&quot;freshness&quot;|context_[0-9a-f]{64}/,
+  );
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM context_read_events").get().count,
     receiptsBeforePreview,
@@ -144,9 +147,9 @@ test("creates and revisits a project in the authenticated private workspace", as
     }),
   });
   assert.equal(preview.status, 200);
+  assert.match(preview.url, new RegExp(`/projects/${ownerProjectId}$`));
   const previewHtml = await preview.text();
-  assert.match(previewHtml, /data-app-shell/);
-  assert.match(previewHtml, /Confirm new work area/);
+  assert.doesNotMatch(previewHtml, /work area|Work context|Similar contexts|>General</i);
 
   const createContext = await fetch(`${baseUrl}${location}/contexts`, {
     method: "POST",
@@ -161,7 +164,7 @@ test("creates and revisits a project in the authenticated private workspace", as
     redirect: "manual",
   });
   assert.equal(createContext.status, 303);
-  assert.match(createContext.headers.get("location"), /#context_/);
+  assert.equal(createContext.headers.get("location"), `/projects/${ownerProjectId}`);
 
   const similar = await fetch(`${baseUrl}${location}/contexts/preview`, {
     method: "POST",
@@ -175,7 +178,8 @@ test("creates and revisits a project in the authenticated private workspace", as
     }),
   });
   assert.equal(similar.status, 200);
-  assert.match(await similar.text(), /Similar contexts/);
+  assert.match(similar.url, new RegExp(`/projects/${ownerProjectId}$`));
+  assert.doesNotMatch(await similar.text(), /work area|Work context|Similar contexts|>General</i);
   assert.doesNotMatch(
     await (await fetch(`${baseUrl}${location}`, { headers: { cookie: ownerCookie } })).text(),
     /Launch planning/,
@@ -237,7 +241,7 @@ test("does not reveal a guessed project identifier to another user", async () =>
     headers: { cookie: otherCookie },
   });
   assert.equal(guessed.status, 404);
-  assert.doesNotMatch(await guessed.text(), /Launch Plan|private alpha/);
+  assert.doesNotMatch(await guessed.text(), /Launch Plan/);
 
   const guessedContext = await fetch(
     `${baseUrl}/projects/${encodeURIComponent(ownerProjectId)}/contexts`,

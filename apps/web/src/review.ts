@@ -11,31 +11,15 @@ import {
 import type { PrivateFileStore } from "@alice/domain";
 import express from "express";
 import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
+import { escapeHtml, readableLabel, readableText, renderReadableValue } from "./human-readable.ts";
 import { hostLabel, reviewStatusLabel, timestampLabel } from "./product-copy.ts";
 import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
 // Trusted-state acceptance stays behind the human web control plane.
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function renderJson(valueJson) {
-  try {
-    return escapeHtml(JSON.stringify(JSON.parse(valueJson), null, 2));
-  } catch {
-    return escapeHtml(valueJson);
-  }
-}
-
 function fileSourceDetails(fileSource) {
   if (!fileSource) return "";
-  return `<aside><h3>Untrusted PDF evidence</h3><p>This source is evidence only. Its claims are not active alice.-verified state unless you confirm the exact entries below.</p><dl><dt>File</dt><dd>${escapeHtml(fileSource.display_name)}</dd><dt>File reference</dt><dd><code>${escapeHtml(fileSource.file_reference_id)}</code></dd><dt>Immutable version</dt><dd>${escapeHtml(fileSource.file_version)}</dd><dt>Content SHA-256</dt><dd><code>${escapeHtml(fileSource.content_sha256)}</code></dd><dt>Extraction</dt><dd>${escapeHtml(fileSource.extraction_version)} · ${escapeHtml(fileSource.method)} · characters ${escapeHtml(fileSource.start_character)}–${escapeHtml(fileSource.end_character)}</dd><dt>Excerpt SHA-256</dt><dd><code>${escapeHtml(fileSource.excerpt_sha256)}</code></dd></dl></aside>`;
+  return `<aside><h3>Untrusted file source</h3><p>This file is evidence only. Its claims do not become trusted project information unless you save the exact changes below.</p><dl><dt>File</dt><dd>${escapeHtml(fileSource.display_name)}</dd><dt>Extracted section</dt><dd>Characters ${escapeHtml(fileSource.start_character)}–${escapeHtml(fileSource.end_character)}</dd></dl></aside>`;
 }
 
 function reviewProjectIndex(projects) {
@@ -60,24 +44,24 @@ function filterLink(projectId, filter, count, active) {
 
 function evidenceDetails(candidate) {
   const sourceNote = candidate.source_note
-    ? `<p><strong>Source note:</strong> ${escapeHtml(candidate.source_note)}</p>`
+    ? `<p><strong>Source note:</strong> ${escapeHtml(readableText(candidate.source_note))}</p>`
     : "";
   const sourceContext = candidate.source_context
-    ? `<details><summary>Explicitly saved source context</summary><pre>${escapeHtml(candidate.source_context)}</pre></details>`
+    ? `<details><summary>Supporting information</summary><p>${escapeHtml(readableText(candidate.source_context))}</p></details>`
     : "";
-  return `<details><summary>Capture evidence and provenance</summary><p><strong>Capture summary:</strong> ${escapeHtml(candidate.capture_summary || "Not supplied")}</p>${sourceNote}${fileSourceDetails(candidate.file_source)}${sourceContext}<dl><dt>Evidence</dt><dd><code>${escapeHtml(candidate.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(candidate.payload_hash)}</code></dd><dt>Source client</dt><dd>${escapeHtml(hostLabel(candidate.client_classification))}</dd><dt>Tool</dt><dd>${escapeHtml(candidate.tool_name)}</dd><dt>Captured</dt><dd>${escapeHtml(timestampLabel(candidate.evidence_created_at))}</dd></dl></details>`;
+  return `<details><summary>Source and history</summary><p><strong>Summary:</strong> ${escapeHtml(readableText(candidate.capture_summary || "Not supplied"))}</p>${sourceNote}${fileSourceDetails(candidate.file_source)}${sourceContext}<dl><dt>Source</dt><dd>${escapeHtml(hostLabel(candidate.client_classification))}</dd><dt>Captured</dt><dd>${escapeHtml(timestampLabel(candidate.evidence_created_at))}</dd></dl></details>`;
 }
 
 function candidateCard(candidate) {
   const accepted = candidate.accepted_state_id
-    ? `<p class="muted">Saved information: <code>${escapeHtml(candidate.accepted_state_id)}</code> · Version ${candidate.accepted_version}</p>`
+    ? `<p class="muted">Saved as revision ${candidate.accepted_version}.</p>`
     : "";
   const reviewAudit = candidate.review_audit_id
-    ? `<p class="muted">Human decision audit: <code>${escapeHtml(candidate.review_audit_id)}</code> · ${escapeHtml(timestampLabel(candidate.reviewed_at))}</p>`
+    ? `<p class="muted">Decision recorded ${escapeHtml(timestampLabel(candidate.reviewed_at))}.</p>`
     : "";
   const currentTrusted =
     candidate.status === "pending" && candidate.current_accepted_state_id
-      ? `<aside><h3>Current project information</h3><p>Version ${candidate.current_accepted_version} · <code>${escapeHtml(candidate.current_accepted_state_id)}</code></p><pre>${renderJson(candidate.current_accepted_value_json)}</pre><p>Saving this proposal replaces the active version. The current version remains unchanged in History.</p></aside>`
+      ? `<aside><h3>Current project information</h3><div class="readable-value">${renderReadableValue(candidate.current_accepted_value_json)}</div><p>Saving this proposal creates a new revision. The current revision remains in the change log.</p></aside>`
       : "";
   const acceptAction = candidate.current_accepted_state_id
     ? `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/supersede"><input type="hidden" name="superseded_accepted_state_id" value="${escapeHtml(candidate.current_accepted_state_id)}"><button type="submit">Replace saved version ${candidate.current_accepted_version}</button></form>`
@@ -86,7 +70,7 @@ function candidateCard(candidate) {
     candidate.status === "pending"
       ? `<div class="actions">${acceptAction}<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/reject"><button type="submit">Not now</button></form></div>`
       : "";
-  return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p><p><a href="/review/captures/${encodeURIComponent(candidate.evidence_id)}">Review the exact save preview</a></p><p class="muted">Status: ${escapeHtml(reviewStatusLabel(candidate.status))} · Proposal receipt: <code>${escapeHtml(candidate.id)}</code></p>${accepted}${reviewAudit}${currentTrusted}${evidenceDetails(candidate)}${actions}</article>`;
+  return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(readableLabel(candidate.state_key))}</h2><div class="readable-value">${renderReadableValue(candidate.value_json)}</div><p>${escapeHtml(readableText(candidate.summary))}</p><p><a href="/review/captures/${encodeURIComponent(candidate.evidence_id)}">Review the exact save preview</a></p><p class="muted">Status: ${escapeHtml(reviewStatusLabel(candidate.status))}</p>${accepted}${reviewAudit}${currentTrusted}${evidenceDetails(candidate)}${actions}</article>`;
 }
 
 function capturePreviewPage(preview) {
@@ -94,23 +78,23 @@ function capturePreviewPage(preview) {
     .map((candidate) => {
       const current = candidate.current
         ? candidate.current.removed_at
-          ? `<aside><h3>Will restore removed key as a new saved version</h3><pre>${renderJson(candidate.current.value_json)}</pre><p class="muted">Removed version ${candidate.current.version} and its provenance remain in History.</p></aside>`
-          : `<aside><h3>Will replace saved version ${candidate.current.version}</h3><pre>${renderJson(candidate.current.value_json)}</pre><p class="muted">The earlier version and provenance remain in History.</p></aside>`
+          ? `<aside><h3>Will restore removed information as a new revision</h3><div class="readable-value">${renderReadableValue(candidate.current.value_json)}</div><p class="muted">The removed revision and its source remain in the change log.</p></aside>`
+          : `<aside><h3>Will replace the current saved revision</h3><div class="readable-value">${renderReadableValue(candidate.current.value_json)}</div><p class="muted">The earlier revision and source remain in the change log.</p></aside>`
         : "";
-      return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(candidate.state_key)}</h2><pre>${renderJson(candidate.value_json)}</pre><p>${escapeHtml(candidate.summary)}</p>${current}<p class="muted">Status: ${escapeHtml(reviewStatusLabel(candidate.status))}</p></article>`;
+      return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(readableLabel(candidate.state_key))}</h2><div class="readable-value">${renderReadableValue(candidate.value_json)}</div><p>${escapeHtml(readableText(candidate.summary))}</p>${current}<p class="muted">Status: ${escapeHtml(reviewStatusLabel(candidate.status))}</p></article>`;
     })
     .join("");
   const sourceNote = preview.source_note
-    ? `<p><strong>Source note:</strong> ${escapeHtml(preview.source_note)}</p>`
+    ? `<p><strong>Source note:</strong> ${escapeHtml(readableText(preview.source_note))}</p>`
     : "";
   const sourceContext = preview.source_context
-    ? `<details><summary>Source material included in this save</summary><pre>${escapeHtml(preview.source_context)}</pre></details>`
+    ? `<details><summary>Supporting information</summary><p>${escapeHtml(readableText(preview.source_context))}</p></details>`
     : "";
   const pending = preview.candidates.every(({ status }) => status === "pending");
   const actions = pending
     ? `<div class="actions"><form method="post" action="/review/captures/${encodeURIComponent(preview.evidence_id)}/confirm"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><button type="submit" aria-label="Save every entry shown in this preview">✓ Save these entries</button></form><form method="post" action="/review/captures/${encodeURIComponent(preview.evidence_id)}/cancel"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><button type="submit" aria-label="Cancel this save preview">× Not now</button></form></div>`
     : `<p><strong>This preview has already been decided.</strong></p>`;
-  return `<section><div class="section-heading"><div><p class="eyebrow">Exact save preview</p><h2>Save these changes to ${escapeHtml(preview.project.name)}?</h2></div></div><p>Check the exact entries below. Only the ✓ action saves them as current project information. × makes no change.</p><dl><dt>Project</dt><dd>${escapeHtml(preview.project.name)}</dd><dt>Proposed by</dt><dd>${escapeHtml(hostLabel(preview.client_classification))}</dd><dt>Captured</dt><dd>${escapeHtml(timestampLabel(preview.captured_at))}</dd></dl><p class="notice"><strong>Save summary:</strong> ${escapeHtml(preview.capture_summary || "Not supplied")}</p>${sourceNote}${fileSourceDetails(preview.file_source)}${sourceContext}<div class="section-heading"><h2>Exact proposed entries</h2><p class="muted">${preview.candidates.length} item${preview.candidates.length === 1 ? "" : "s"}</p></div>${candidateCards}${actions}<details><summary>Evidence receipt</summary><dl><dt>Evidence</dt><dd><code>${escapeHtml(preview.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(preview.payload_hash)}</code></dd></dl></details></section>`;
+  return `<section><div class="section-heading"><div><p class="eyebrow">Exact Save preview</p><h2>Save these changes to ${escapeHtml(preview.project.name)}?</h2></div></div><p>Review every item below. Save accepts the complete proposal; Not now makes no change.</p><dl><dt>Project</dt><dd>${escapeHtml(preview.project.name)}</dd><dt>Proposed by</dt><dd>${escapeHtml(hostLabel(preview.client_classification))}</dd><dt>Captured</dt><dd>${escapeHtml(timestampLabel(preview.captured_at))}</dd></dl><p class="notice"><strong>Summary:</strong> ${escapeHtml(readableText(preview.capture_summary || "Not supplied"))}</p>${sourceNote}${fileSourceDetails(preview.file_source)}${sourceContext}<div class="section-heading"><h2>Proposed changes</h2><p class="muted">${preview.candidates.length} item${preview.candidates.length === 1 ? "" : "s"}</p></div>${candidateCards}${actions}</section>`;
 }
 
 function paginationLinks(queue) {
@@ -244,7 +228,7 @@ export function createReviewRouter({
         .send(
           renderStatusPage(
             "Not found",
-            '<h1>Save preview not found</h1><p>No context was saved.</p><p><a href="/review">Return to review</a></p>',
+            '<h1>Save preview not found</h1><p>No project information was saved.</p><p><a href="/review">Return to review</a></p>',
             "neutral",
           ),
         );
@@ -313,7 +297,7 @@ export function createReviewRouter({
         .send(
           renderStatusPage(
             "Not accepted",
-            '<h1>Candidate is not pending or accessible.</h1><p>No trusted context changed.</p><p><a href="/review">Return to review</a></p>',
+            '<h1>Proposal is not pending or accessible.</h1><p>No project information changed.</p><p><a href="/review">Return to review</a></p>',
           ),
         );
     response.redirect(303, `/review?project_id=${encodeURIComponent(result.projectId)}`);
@@ -350,7 +334,7 @@ export function createReviewRouter({
         .send(
           renderStatusPage(
             "Not superseded",
-            '<h1>Candidate or current trusted version is not pending or accessible.</h1><p>No trusted context changed.</p><p><a href="/review">Return to review</a></p>',
+            '<h1>The proposal or current revision is not pending or accessible.</h1><p>No project information changed.</p><p><a href="/review">Return to review</a></p>',
           ),
         );
     response.redirect(303, `/review?project_id=${encodeURIComponent(result.projectId)}`);

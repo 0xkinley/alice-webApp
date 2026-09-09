@@ -32,7 +32,7 @@ function readEventCard(event) {
   const destination = event.project_name ? ` · ${escapeHtml(event.project_name)}` : "";
   const result =
     event.status === "succeeded"
-      ? `Succeeded · package ${escapeHtml(event.package_version)} · ${escapeHtml(event.package_utf8_bytes)} UTF-8 bytes`
+      ? `Succeeded · ${escapeHtml(event.package_utf8_bytes)} bytes delivered`
       : `Failed · ${escapeHtml(String(event.failure_code).replaceAll("_", " "))}`;
   return `<article><p><strong>${result}</strong></p><p>${escapeHtml(event.client_name)} · ${escapeHtml(hostLabel(event.client_classification))} · ${route}${destination}</p><p class="muted">${escapeHtml(timestampLabel(event.created_at))}</p></article>`;
 }
@@ -105,7 +105,7 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
     const cards = connections.map((connection) => connectionCard(connection)).join("");
     const readActivity = readEvents.length
       ? readEvents.map(readEventCard).join("")
-      : "<p>No successful or failed host context read has been recorded for your AI connections. This does not mean a host consulted alice.</p>";
+      : "<p>No successful or failed project read has been recorded for your AI connections. This does not mean an AI tool consulted alice.</p>";
     response
       .type("html")
       .send(

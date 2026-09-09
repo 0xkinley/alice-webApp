@@ -8,17 +8,10 @@ import {
 } from "@alice/domain";
 import type { HostFileSaveDecision, PrivateFileStore } from "@alice/domain";
 import express from "express";
-import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
+import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
+import { escapeHtml } from "./human-readable.ts";
 import { hostLabel, timestampLabel } from "./product-copy.ts";
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
+import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
 function optionalFileMetadata(offer) {
   const rows: string[] = [];
@@ -78,7 +71,7 @@ function offerPage(offer, directUploadAvailable: boolean) {
   const unavailable = offer.expired;
   const pending = offer.status === "pending";
   const notice = !pending
-    ? `<p class="notice"><strong>Already decided:</strong> ${escapeHtml(decisionSummary(offer.status, offer.destination.project_name))}. No attachment bytes were received by this confirmation step.</p>`
+    ? `<p class="notice"><strong>Transfer authorized.</strong> ${escapeHtml(decisionSummary(offer.status, offer.destination.project_name))}. <strong>The file is not saved yet.</strong> No attachment bytes were received by this confirmation step.</p>`
     : offer.expired
       ? '<p class="notice warning"><strong>This offer expired.</strong> Ask the host for a new exact preview. No attachment bytes were received.</p>'
       : '<p class="notice"><strong>No file has been copied.</strong> Confirming authorizes transfer only for the exact project below. alice. still verifies, scans, stores, and authorizes the bytes before claiming the file is saved.</p>';
@@ -86,13 +79,7 @@ function offerPage(offer, directUploadAvailable: boolean) {
     pending && !unavailable
       ? `<form method="post" action="/file-save-offers/${encodeURIComponent(offer.offer_id)}/decision"><input type="hidden" name="preview_version" value="${escapeHtml(offer.decision_version)}"><input type="hidden" name="decision" value="save_file_only"><button type="submit">Save</button></form>`
       : "";
-  const conversation = offer.conversation_reference
-    ? `<dt>Conversation reference</dt><dd><code>${escapeHtml(offer.conversation_reference)}</code> · opaque identifier only</dd>`
-    : "";
-  return renderPage(
-    "Host file save offer",
-    `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a></nav><header class="hero"><p class="eyebrow">Exact attachment preview</p><h1>Save this file to alice.?</h1><p>The host cannot answer this question for you. Only this authenticated alice. action can authorize attachment transfer.</p></header>${notice}<section><h2>Exact file and project</h2><dl><dt>Filename</dt><dd>${escapeHtml(offer.file.name)}</dd>${optionalFileMetadata(offer)}<dt>Project</dt><dd>${escapeHtml(offer.destination.project_name)}</dd><dt>Source host</dt><dd>${escapeHtml(hostLabel(offer.source_host))}</dd>${conversation}<dt>Offer expires</dt><dd>${escapeHtml(timestampLabel(offer.expires_at))}</dd><dt>Offer receipt</dt><dd><code>${escapeHtml(offer.offer_id)}</code></dd></dl></section>${actions}${transferSection(offer, directUploadAvailable)}<p class="muted">The saved file becomes an untrusted project reference after its security scans pass. It does not enter Needs attention or turn file contents into trusted project information.</p>`,
-  );
+  return `<section><div class="section-heading"><div><p class="eyebrow">Exact attachment preview</p><h2>Save this file to ${escapeHtml(offer.destination.project_name)}?</h2></div></div><p>The AI tool cannot decide this for you. Only your authenticated Save action can authorize attachment transfer.</p>${notice}<dl><dt>File</dt><dd>${escapeHtml(offer.file.name)}</dd>${optionalFileMetadata(offer)}<dt>Project</dt><dd>${escapeHtml(offer.destination.project_name)}</dd><dt>Source</dt><dd>${escapeHtml(hostLabel(offer.source_host))}</dd><dt>Expires</dt><dd>${escapeHtml(timestampLabel(offer.expires_at))}</dd></dl>${actions}${transferSection(offer, directUploadAvailable)}<p class="muted">After its security scans pass, the file becomes an untrusted project reference. Its contents do not become trusted project information automatically.</p></section>`;
 }
 
 export function createHostFileSaveOffersRouter({
@@ -120,12 +107,26 @@ export function createHostFileSaveOffersRouter({
         .send(
           renderStatusPage(
             "File save offer not found",
-            '<h1>File save offer not found</h1><p>It may be unavailable or belong to another alice. account or context. No attachment bytes were received.</p><p><a href="/">Return to your private workspace</a></p>',
+            '<h1>File save offer not found</h1><p>It may be unavailable or belong to another alice. account or project. No attachment bytes were received.</p><p><a href="/">Return to your private workspace</a></p>',
             "neutral",
           ),
         );
     }
-    response.type("html").send(offerPage(offer, Boolean(fileStore.createSignedUpload)));
+    const shell = await getProjectShell(
+      database,
+      request.aliceUser!.id,
+      offer.destination.project_id,
+    );
+    if (!shell) return response.status(404).end();
+    response
+      .type("html")
+      .send(
+        renderAppPage(
+          `Save ${offer.file.name}`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "files" })}${offerPage(offer, Boolean(fileStore.createSignedUpload))}</div>`,
+          { email: request.aliceUser!.email, activeSection: "projects" },
+        ),
+      );
   });
 
   router.post("/:offerId/decision", async (request, response) => {
@@ -150,15 +151,7 @@ export function createHostFileSaveOffersRouter({
             ),
           );
       }
-      response
-        .type("html")
-        .send(
-          renderStatusPage(
-            "File transfer authorized",
-            `<h1>Transfer authorized</h1><p>Return to ${escapeHtml(hostLabel(result.source_host))} if it supports secure attachment transfer. Otherwise, use the alice.-controlled upload below.</p><p><strong>The file is not saved yet.</strong> alice. will claim success only after receiving, verifying, scanning, storing, authorizing, and auditing the bytes.</p><p><a class="button" href="/file-save-offers/${encodeURIComponent(result.offer_id)}">Upload the exact file or view transfer status</a></p>`,
-            "warning",
-          ),
-        );
+      response.redirect(303, `/file-save-offers/${encodeURIComponent(result.offer_id)}`);
     } catch (error) {
       if (!(error instanceof HostFileSaveOfferUserError)) throw error;
       response

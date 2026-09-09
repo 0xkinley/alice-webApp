@@ -2,6 +2,7 @@ import { getRemovalPreview, getSavedContextView, removeSavedContextEntry } from 
 import type { PrivateFileStore } from "@alice/domain";
 import express from "express";
 import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
+import { escapeHtml, readableLabel, readableText, renderReadableValue } from "./human-readable.ts";
 import { hostLabel, timestampLabel } from "./product-copy.ts";
 import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
@@ -11,66 +12,6 @@ const REPAIR_TYPES = new Map([
   ["contradicted", "Contradicted"],
   ["wrong", "Wrong"],
 ]);
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function renderJson(value) {
-  return escapeHtml(JSON.stringify(value, null, 2));
-}
-
-function readableText(value) {
-  const decoded = String(value)
-    .replaceAll("&amp;", "&")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&#39;", "'");
-  return decoded
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<\/?[a-z][^>]*>/gi, " ")
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-    .replace(/^\s*>\s?/gm, "")
-    .replace(/^\s*(?:[-+*]|\d+[.)])\s+/gm, "")
-    .replace(/\*+|~{2,}|`+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function readableLabel(value) {
-  const label = readableText(String(value).replace(/[._-]+/g, " "));
-  return label ? `${label.charAt(0).toUpperCase()}${label.slice(1)}` : "Update";
-}
-
-function renderReadableValue(value, depth = 0) {
-  if (depth > 5) return '<p class="muted">Additional detail omitted.</p>';
-  if (value === null || value === undefined) return '<p class="muted">No value recorded.</p>';
-  if (typeof value === "string") {
-    const text = readableText(value);
-    return `<p>${escapeHtml(text || "No text recorded.")}</p>`;
-  }
-  if (typeof value === "boolean") return `<p>${value ? "Yes" : "No"}</p>`;
-  if (typeof value === "number") return `<p>${escapeHtml(value)}</p>`;
-  if (Array.isArray(value)) {
-    if (value.length === 0) return '<p class="muted">No items recorded.</p>';
-    return `<ul class="change-value-list">${value.map((item) => `<li>${renderReadableValue(item, depth + 1)}</li>`).join("")}</ul>`;
-  }
-  if (typeof value === "object") {
-    const entries = Object.entries(value);
-    if (entries.length === 0) return '<p class="muted">No details recorded.</p>';
-    return `<dl class="change-value-fields">${entries.map(([key, item]) => `<dt>${escapeHtml(readableLabel(key))}</dt><dd>${renderReadableValue(item, depth + 1)}</dd>`).join("")}</dl>`;
-  }
-  return `<p>${escapeHtml(readableText(value))}</p>`;
-}
 
 function changeTimestamp(entry) {
   return entry.removed_at || entry.accepted_at || entry.created_at;
@@ -135,15 +76,15 @@ async function projectChangeLog(database, userId, initialView) {
 }
 
 function provenance(entry) {
-  return `<details><summary>Source and history</summary><dl><dt>Source host</dt><dd>${escapeHtml(hostLabel(entry.client_classification))}</dd><dt>Saved</dt><dd>${escapeHtml(timestampLabel(entry.accepted_at))}</dd><dt>Version</dt><dd>${entry.version}</dd><dt>Evidence receipt</dt><dd><code>${escapeHtml(entry.evidence_id)}</code></dd><dt>Payload hash</dt><dd><code>${escapeHtml(entry.payload_hash)}</code></dd></dl></details>`;
+  return `<details><summary>Source and history</summary><dl><dt>Source</dt><dd>${escapeHtml(hostLabel(entry.client_classification))}</dd><dt>Saved</dt><dd>${localTimestamp(entry.accepted_at)}</dd><dt>Revision</dt><dd>${entry.version}</dd></dl></details>`;
 }
 
 function removalPreviewPage(preview) {
-  return `<section><div class="section-heading"><div><p class="eyebrow">Remove information</p><h2>Remove this from the project?</h2></div></div><p>This stops the item from being used as current project information. It does not erase the saved version, its evidence, source, or history.</p><article><h3>${escapeHtml(preview.entry.state_key)}</h3><pre>${renderJson(preview.entry.value)}</pre><p>${escapeHtml(preview.entry.summary)}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/remove"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>Reason (optional)<textarea name="reason" maxlength="500"></textarea></label><button class="destructive" type="submit">Remove from project</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/changes">Keep this information</a></p></section>`;
+  return `<section><div class="section-heading"><div><p class="eyebrow">Remove information</p><h2>Remove this from the project?</h2></div></div><p>This stops the item from being used as current project information. It does not erase the saved version, its source, or its history.</p><article><h3>${escapeHtml(readableLabel(preview.entry.state_key))}</h3><div class="readable-value">${renderReadableValue(preview.entry.value)}</div><p>${escapeHtml(readableText(preview.entry.summary))}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/remove"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>Reason (optional)<textarea name="reason" maxlength="500"></textarea></label><button class="destructive" type="submit">Remove from project</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/changes">Keep this information</a></p></section>`;
 }
 
 function repairPreviewPage(preview) {
-  return `<section><div class="section-heading"><div><p class="eyebrow">Correct project information</p><h2>What needs to change?</h2></div></div><p>Classify what is wrong, then remove this exact version from current project information. Its value, evidence, source, and history remain unchanged. A corrected value must arrive as a new proposal and receive its own confirmation.</p><article><h3>${escapeHtml(preview.entry.state_key)}</h3><pre>${renderJson(preview.entry.value)}</pre><p>${escapeHtml(preview.entry.summary)}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/repair"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>What is wrong?<select name="repair_type" required><option value="stale">Stale: it is no longer current</option><option value="contradicted">Contradicted: reliable information now conflicts with it</option><option value="wrong">Wrong: it should not have been saved as stated</option></select></label><label>Explanation (optional)<textarea name="note" maxlength="450"></textarea></label><button class="destructive" type="submit">Confirm and remove</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/changes">Keep the current information</a></p></section>`;
+  return `<section><div class="section-heading"><div><p class="eyebrow">Correct project information</p><h2>What needs to change?</h2></div></div><p>Classify what is wrong, then remove this exact revision from current project information. Its value, source, and history remain unchanged. A correction must arrive as a new proposal and receive its own confirmation.</p><article><h3>${escapeHtml(readableLabel(preview.entry.state_key))}</h3><div class="readable-value">${renderReadableValue(preview.entry.value)}</div><p>${escapeHtml(readableText(preview.entry.summary))}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/repair"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>What is wrong?<select name="repair_type" required><option value="stale">Stale: it is no longer current</option><option value="contradicted">Contradicted: reliable information now conflicts with it</option><option value="wrong">Wrong: it should not have been saved as stated</option></select></label><label>Explanation (optional)<textarea name="note" maxlength="450"></textarea></label><button class="destructive" type="submit">Confirm and remove</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/changes">Keep the current information</a></p></section>`;
 }
 
 export function createSavedContextRouter({
@@ -170,7 +111,7 @@ export function createSavedContextRouter({
         .send(
           renderStatusPage(
             "Not found",
-            '<h1>Saved context not found</h1><p>The entry may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
+            '<h1>Project information not found</h1><p>The entry may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
             "neutral",
           ),
         );
@@ -202,7 +143,7 @@ export function createSavedContextRouter({
         .send(
           renderStatusPage(
             "Not found",
-            '<h1>Saved context not found</h1><p>The entry may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
+            '<h1>Project information not found</h1><p>The entry may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
             "neutral",
           ),
         );
@@ -230,7 +171,7 @@ export function createSavedContextRouter({
         .send(
           renderStatusPage(
             "Invalid repair",
-            '<h1>Select a valid repair reason.</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>',
+            '<h1>Select a valid repair reason.</h1><p>No project information was changed.</p><p><a href="/">Return to your private workspace</a></p>',
           ),
         );
     }
@@ -242,7 +183,7 @@ export function createSavedContextRouter({
         .send(
           renderStatusPage(
             "Invalid repair",
-            '<h1>Repair explanation exceeds 450 characters.</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>',
+            '<h1>Repair explanation exceeds 450 characters.</h1><p>No project information was changed.</p><p><a href="/">Return to your private workspace</a></p>',
           ),
         );
     }
@@ -264,7 +205,7 @@ export function createSavedContextRouter({
         .send(
           renderStatusPage(
             "Not repaired",
-            `<h1>${escapeHtml(String(error))}</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>`,
+            `<h1>${escapeHtml(String(error))}</h1><p>No project information was changed.</p><p><a href="/">Return to your private workspace</a></p>`,
             "danger",
           ),
         );
@@ -276,7 +217,7 @@ export function createSavedContextRouter({
         .send(
           renderStatusPage(
             "Not found",
-            '<h1>Saved context not found</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>',
+            '<h1>Project information not found</h1><p>No project information was changed.</p><p><a href="/">Return to your private workspace</a></p>',
             "neutral",
           ),
         );
@@ -313,7 +254,7 @@ export function createSavedContextRouter({
         .send(
           renderStatusPage(
             "Not removed",
-            `<h1>${escapeHtml(String(error))}</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>`,
+            `<h1>${escapeHtml(String(error))}</h1><p>No project information was changed.</p><p><a href="/">Return to your private workspace</a></p>`,
             "danger",
           ),
         );
@@ -325,7 +266,7 @@ export function createSavedContextRouter({
         .send(
           renderStatusPage(
             "Not found",
-            '<h1>Saved context not found</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>',
+            '<h1>Project information not found</h1><p>No project information was changed.</p><p><a href="/">Return to your private workspace</a></p>',
             "neutral",
           ),
         );
@@ -356,7 +297,7 @@ export function createSavedContextRouter({
           .send(
             renderStatusPage(
               "Invalid view",
-              '<h1>Invalid saved-context view</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>',
+              '<h1>Invalid change-log view</h1><p>No project information was changed.</p><p><a href="/">Return to your private workspace</a></p>',
             ),
           );
       }
@@ -372,7 +313,7 @@ export function createSavedContextRouter({
           .send(
             renderStatusPage(
               "Not found",
-              '<h1>Project or context not found</h1><p>The destination may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
+              '<h1>Project not found</h1><p>The project may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
               "neutral",
             ),
           );

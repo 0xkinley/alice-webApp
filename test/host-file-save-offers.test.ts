@@ -242,7 +242,8 @@ test("only the authenticated owner can choose the single Save action", async () 
   const page = await fetch(receipt.confirmation_url, { headers: { cookie } });
   assert.equal(page.status, 200);
   const html = await page.text();
-  assert.match(html, /Save this file to alice\.\?/);
+  assert.match(html, /Save this file to Private project\?/);
+  assert.match(html, /data-app-shell/);
   assert.match(html, /alpha-plan\.md/);
   assert.match(html, /Private project/);
   assert.doesNotMatch(html, /Chat workstream|General|Work context|Personal draft/);
@@ -274,6 +275,7 @@ test("only the authenticated owner can choose the single Save action", async () 
     }),
   });
   assert.equal(decided.status, 200);
+  assert.match(decided.url, new RegExp(`/file-save-offers/${receipt.offer_id}$`));
   const decisionHtml = await decided.text();
   assert.match(decisionHtml, /Transfer authorized/);
   assert.match(decisionHtml, /file is not saved yet/i);

@@ -124,13 +124,12 @@ test("an explicit authenticated review accepts a candidate into versioned truste
   });
   assert.equal(reviewResponse.status, 200);
   const reviewHtml = await reviewResponse.text();
-  assert.match(reviewHtml, new RegExp(candidateId));
   assert.match(reviewHtml, /Needs attention \(1\)/);
   assert.match(reviewHtml, /Candidate for review/);
   assert.match(reviewHtml, /The user explicitly chose the launch price/);
   assert.match(reviewHtml, /Launch plan excerpt: charge USD 24 per month/);
-  assert.match(reviewHtml, /Payload hash/);
   assert.match(reviewHtml, /ChatGPT/);
+  assert.doesNotMatch(reviewHtml, /Payload hash|Evidence receipt|Proposal receipt/);
 
   const userId = created.database
     .prepare("SELECT id FROM users WHERE email = ?")
@@ -179,9 +178,9 @@ test("an explicit authenticated review accepts a candidate into versioned truste
     { headers: { cookie: reviewCookie } },
   );
   const acceptedHtml = await acceptedResponse.text();
-  assert.match(acceptedHtml, new RegExp(candidateId));
-  assert.match(acceptedHtml, new RegExp(accepted.id));
-  assert.match(acceptedHtml, /Version 1/);
+  assert.match(acceptedHtml, /Saved as revision 1/);
+  assert.doesNotMatch(acceptedHtml, new RegExp(candidateId));
+  assert.doesNotMatch(acceptedHtml, new RegExp(accepted.id));
 
   const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "get_project_context",
@@ -218,7 +217,7 @@ test("one exact authenticated preview confirms every proposed entry atomically",
   assert.match(previewHtml, /Two exact launch entries/);
   assert.match(previewHtml, /Founder groups/);
   assert.match(previewHtml, /October/);
-  assert.match(previewHtml, /Only the ✓ action saves them as current project information/);
+  assert.match(previewHtml, /Save accepts the complete proposal/);
   const previewVersion = previewHtml.match(/name="preview_version" value="([^"]+)"/)[1];
 
   const stale = await fetch(`${webUrl}/review/captures/${receipt.evidence_id}/confirm`, {
@@ -449,10 +448,10 @@ test("an explicit authenticated human rejection is terminal and preserves proven
     { headers: { cookie: reviewCookie } },
   );
   const rejectedHtml = await rejectedResponse.text();
-  assert.match(rejectedHtml, new RegExp(rejectedCandidateId));
-  assert.match(rejectedHtml, new RegExp(evidenceId));
-  assert.match(rejectedHtml, new RegExp(audit.id));
   assert.match(rejectedHtml, /Review fixture source/);
+  assert.match(rejectedHtml, /Status: Not saved/);
+  assert.match(rejectedHtml, /Decision recorded/);
+  assert.doesNotMatch(rejectedHtml, /Evidence receipt|Proposal receipt|Audit receipt/);
 
   const auditCountBeforeRepeat = created.database
     .prepare("SELECT COUNT(*) AS count FROM audit_events")

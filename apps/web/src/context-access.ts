@@ -24,7 +24,7 @@ function notFound(response) {
     .send(
       renderStatusPage(
         "Not found",
-        '<h1>Restricted context not found</h1><p>It may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
+        '<h1>Project access not found</h1><p>It may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
         "neutral",
       ),
     );
@@ -34,14 +34,14 @@ function actionError(response, error) {
   const message =
     error instanceof ContextAccessUserError
       ? error.message
-      : "Context access could not be changed. Nothing was modified.";
+      : "Project access could not be changed. Nothing was modified.";
   return response
     .status(400)
     .type("html")
     .send(
       renderStatusPage(
         "Access not changed",
-        `<h1>Access not changed</h1><p>${escapeHtml(message)}</p><p>No context permission was changed.</p><p><a href="/">Return to your private workspace</a></p>`,
+        `<h1>Access not changed</h1><p>${escapeHtml(message)}</p><p>No project permission was changed.</p><p><a href="/">Return to your private workspace</a></p>`,
         "danger",
       ),
     );

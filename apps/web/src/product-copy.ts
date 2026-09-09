@@ -25,7 +25,7 @@ const REVIEW_STATUS_LABELS = {
 };
 
 const PERMISSION_LABELS = {
-  "mcp:read": "Read context",
+  "mcp:read": "Read projects",
   "mcp:write": "Propose updates",
   offline_access: "Stay connected",
 };

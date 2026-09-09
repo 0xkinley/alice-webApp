@@ -105,7 +105,8 @@ test("the authenticated web fallback has one Save action and atomically accepts 
   );
   assert.equal(page.status, 200);
   const html = await page.text();
-  assert.match(html, /Save this to alice\.\?/);
+  assert.match(html, /Save this to Private project\?/);
+  assert.match(html, /data-app-shell/);
   assert.match(html, /Keep the plot/);
   assert.doesNotMatch(html, /General|Work context/);
   assert.match(html, />Save</);
@@ -121,9 +122,9 @@ test("the authenticated web fallback has one Save action and atomically accepts 
     },
   );
   assert.equal(saved.status, 200);
+  assert.match(saved.url, new RegExp(`/projects/${identity.project_id}/changes$`));
   const savedHtml = await saved.text();
-  assert.match(savedHtml, /1 exact entry now appears in the project's change log/);
-  assert.match(savedHtml, new RegExp(`/projects/${identity.project_id}/changes`));
+  assert.match(savedHtml, /Latest changes/);
   assert.deepEqual({ ...projectStateCounts() }, { evidence: 1, candidates: 1, accepted: 1 });
 });
 

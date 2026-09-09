@@ -46,7 +46,7 @@ test("publishes the private-alpha privacy and security boundary without authenti
   assert.match(html, /Application logs/);
   assert.match(html, /14 days/);
   assert.match(html, /automated backups are currently retained for seven days/);
-  assert.match(html, /Hosted erasure and observed backup expiry are not yet verified/);
+  assert.match(html, /provider-backup expiry remains unverified until after September 16, 2026/);
   assert.match(html, /Account-wide erasure is not yet implemented/);
   assert.match(html, /same private channel in which you received your alice\. invitation/);
   assert.match(html, /does not sell alpha data or use it for advertising/);
@@ -57,11 +57,11 @@ test("presents an honest friend-facing product entry point without authenticatio
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
   const html = await response.text();
-  assert.match(html, /Keep your project context in one place/);
+  assert.match(html, /Keep each project in one trusted place/);
   assert.match(html, /decisions, questions, and files you choose to save/);
   assert.match(html, /AI can propose\. Only you can save/);
-  assert.match(html, /Choose the destination/);
-  assert.match(html, /only your authenticated Save action activates it/);
+  assert.match(html, /Create a project/);
+  assert.match(html, /only your authenticated Save action accepts it/);
   assert.match(html, /Closing, ignoring, navigating away, or expiry saves nothing/);
   assert.match(html, /Choose Save, or leave it without saving/);
   assert.doesNotMatch(html, /authenticated check|cross saves nothing/i);
@@ -72,6 +72,7 @@ test("presents an honest friend-facing product entry point without authenticatio
   assert.match(html, /Do not enter sensitive, regulated, or client-confidential information/);
   assert.match(html, /href="\/auth\/login"/);
   assert.match(html, /href="\/privacy-security"/);
+  assert.doesNotMatch(html, /Work context|Project-wide|Saved context|active target/i);
   assert.doesNotMatch(html, /customer|certified|guaranteed|never trains/i);
 
   const login = await fetch(`${baseUrl}/auth/login`);

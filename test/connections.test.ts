@@ -245,8 +245,8 @@ test("connection center shows private immutable host-read receipts without packa
   const html = await response.text();
   assert.match(html, /Your recent host reads/);
   assert.match(html, /ChatGPT web/);
-  assert.match(html, /package-visible-version/);
-  assert.match(html, /4321 UTF-8 bytes/);
+  assert.match(html, /4321 bytes delivered/);
+  assert.doesNotMatch(html, /package-visible-version|UTF-8/);
   assert.doesNotMatch(html, /task text|package content/);
 });
 

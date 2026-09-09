@@ -1,6 +1,6 @@
 # Project-First Private-Alpha Redesign
 
-Status: Approved for Milestone 06; project-level MCP routing implemented locally
+Status: Approved for Milestone 06; project-first web UI signed off locally
 
 Decision date: 2026-09-09
 
@@ -163,3 +163,13 @@ Every completed phase receives focused tests, a `MILESTONES.md` update, and its 
 - File availability is impossible before exact-byte validation, immutable storage, clean security gates, authorization, and reference creation.
 - Cross-user, cross-project, non-member, insufficient-role, restricted-legacy, revoked-connection, and provider-disabled requests disclose no protected content or metadata and make no mutation.
 - The web and MCP interfaces pass desktop/mobile rendering, keyboard navigation, focus visibility, contrast, and reduced-motion checks.
+
+## Web UI sign-off — 2026-09-10
+
+The project-first web interface is complete in source and signed off locally. The public entry and sign-in copy, authenticated workspace, project landing, Change log, Files, access, collaborators, project-package preview, review and exact Save confirmations, attachment fallback, archived management, AI Connections, Shared with You, and Archived Projects all use the current shell and project vocabulary. Retired context-creation forms no longer render; their compatibility submissions reauthorize the exact project before returning to it.
+
+The web renderer now turns structured project values into bounded semantic paragraphs, lists, and labelled fields. Raw JSON, internal state keys, hashes, storage identifiers, receipt identifiers, preview versions, and legacy destination names are absent from rendered preview and history surfaces. Explicit JSON export routes remain machine-readable downloads rather than product UI.
+
+A disposable local account verified every ordinary authenticated destination at 1440×1000 and 390×844. All audited pages stayed within the viewport, retained the shared navigation and visible focus treatment, contained none of the retired user-facing terminology, and produced no browser warning or error. Focused authorization tests also verify that the retired context-creation compatibility routes disclose no guessed or foreign project. Formatting, linting, typechecking, secret scanning, all four deterministic evaluations, all 149 fast tests, and both production builds pass.
+
+This sign-off is source-only. It does not deploy the redesign, change an external provider or AWS resource, advertise an untested provider surface, or complete the still-separate hidden-default, portable MCP workspace, cross-surface renderer, Save/OAuth, milestone-wide verification, and provider-backup-expiry tasks.

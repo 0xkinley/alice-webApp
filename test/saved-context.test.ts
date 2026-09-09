@@ -441,7 +441,7 @@ test("an exact human removal stops consumption without erasing provenance", asyn
   const restorationPage = await fetch(`${baseUrl}/review/captures/${restoration.evidence_id}`, {
     headers: { cookie },
   });
-  assert.match(await restorationPage.text(), /Will restore removed key as a new saved version/);
+  assert.match(await restorationPage.text(), /Will restore removed information as a new revision/);
   await confirmCapturedUpdate(created.database, {
     evidenceId: restoration.evidence_id,
     expectedPreviewVersion: restorationPreview.preview_version,
@@ -492,7 +492,7 @@ test("an exact repair classifies stale context and removes it without rewriting 
   assert.doesNotMatch(previewHtml, />General/);
   assert.match(previewHtml, /Outdated launch date/);
   assert.match(previewHtml, /Stale: it is no longer current/);
-  assert.match(previewHtml, /corrected value must arrive as a new proposal/i);
+  assert.match(previewHtml, /correction must arrive as a new proposal/i);
   const previewVersion = previewHtml.match(/name="preview_version" value="([^"]+)"/)[1];
 
   const invalid = await fetch(
