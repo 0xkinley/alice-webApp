@@ -4,7 +4,6 @@ import {
   ContextBudgetError,
   createProject,
   getProject,
-  getReviewQueue,
   getProjectContext,
   getPrivateAlphaSignals,
   listArchivedProjects,
@@ -280,42 +279,6 @@ export async function createApp({
           ),
         );
     }
-  });
-  app.get("/projects/:projectId", requireAuthenticatedUser(database), async (request, response) => {
-    const shell = await getProjectShell(database, request.aliceUser!.id, request.params.projectId);
-    if (!shell) {
-      return response
-        .status(404)
-        .type("html")
-        .send(
-          renderStatusPage(
-            "Not found",
-            '<h1>Project not found</h1><p>The project may be unavailable or outside your workspace.</p><p><a href="/">Return to your private workspace</a></p>',
-            "neutral",
-          ),
-        );
-    }
-    const project = shell.project;
-    const canWrite = project.project_role === "owner" || project.project_role === "editor";
-    const reviewQueue = canWrite
-      ? await getReviewQueue(database, {
-          userId: request.aliceUser!.id,
-          projectId: project.id,
-          status: "pending",
-          page: 1,
-          pageSize: 1,
-        })
-      : undefined;
-    const pendingCount = reviewQueue?.counts.pending || 0;
-    response
-      .type("html")
-      .send(
-        renderAppPage(
-          project.name,
-          `<div class="project-home">${renderProjectShell({ shell, fileStore, pendingCount })}</div>`,
-          { email: request.aliceUser!.email, activeSection: "projects" },
-        ),
-      );
   });
   const renderContextPreview = async (request, response, input) => {
     const parsed = getProjectContextSchema.safeParse({

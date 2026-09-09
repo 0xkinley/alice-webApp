@@ -241,6 +241,8 @@ test("the project page exposes one project-level change log", async () => {
   const html = await project.text();
   assert.match(html, new RegExp(`/projects/${owner.project_id}/changes`));
   assert.match(html, /Change log/);
+  assert.match(html, /aria-current="page"[^>]*>Change log/);
+  assert.match(html, /Latest changes/);
   assert.doesNotMatch(html, /What alice\. knows/);
   assert.doesNotMatch(html, /context_id=/);
   assert.doesNotMatch(html, /Create a work context|Work context|Project-wide/);

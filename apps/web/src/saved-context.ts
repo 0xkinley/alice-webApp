@@ -286,9 +286,11 @@ export function createSavedContextRouter({
   });
 
   router.get(
-    ["/:projectId/changes", "/:projectId/saved", "/:projectId/saved-context"],
+    ["/:projectId", "/:projectId/changes", "/:projectId/saved", "/:projectId/saved-context"],
     async (request, response) => {
-      const changeLog = request.path.endsWith("/changes") && !request.query.context_id;
+      const changeLog =
+        !request.query.context_id &&
+        (request.path === `/${request.params.projectId}` || request.path.endsWith("/changes"));
       const selected = String(request.query.view || "saved");
       if (!VIEWS.has(selected)) {
         return response
