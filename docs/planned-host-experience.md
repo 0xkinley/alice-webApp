@@ -4,6 +4,8 @@ Status: Conversation workspace and single-action Save implemented locally; impor
 
 Decision date: 2026-09-06
 
+The 2026-09-09 project-first amendment supersedes the visible project-and-context workspace described below. The replacement shows projects only, uses one hidden internal default, removes provider checkboxes from the picker, and keeps the single-action Save authority. See [`docs/project-first-private-alpha-redesign.md`](project-first-private-alpha-redesign.md). The context-first sections remain as dated implementation history.
+
 ## Scope
 
 This document records three product directions. The first is now implemented in local source; the others remain planned:

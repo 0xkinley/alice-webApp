@@ -1,8 +1,10 @@
 # Project and Work Contexts
 
-Status: Durable single-user foundation implemented for Milestone 06
+Status: Internal compatibility foundation implemented for Milestone 06
 
 Decision date: 2026-08-30
+
+The 2026-09-09 project-first amendment removes Work Context from the product experience without destructively removing this mechanism. New writes will use one hidden project default, and legacy records will retain their original context scope and authorization. See [`docs/project-first-private-alpha-redesign.md`](project-first-private-alpha-redesign.md). The remainder of this document records the pre-amendment internal implementation.
 
 ## Model
 

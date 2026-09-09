@@ -4,6 +4,8 @@ Status: Implemented for the single-user Milestone 06 loop
 
 Decision date: 2026-08-30
 
+The 2026-09-09 project-first amendment retains one authenticated alice. `Save` action but removes visible context names, state keys, versions, hashes, identifiers, and raw JSON from the preview. See [`docs/project-first-private-alpha-redesign.md`](project-first-private-alpha-redesign.md). The older two-action flow below remains historical design evidence; the later single-action implementation in `docs/planned-host-experience.md` is the current authority until the project-first renderer lands.
+
 ## Authority boundary
 
 `save_project_update` remains a candidate-only MCP operation. It stores immutable evidence and pending candidate claims, returns a receipt, and cannot accept, supersede, reject, or otherwise activate project context. Its review URL now names the immutable evidence identifier and opens the smallest alice.-controlled confirmation page for that exact capture.

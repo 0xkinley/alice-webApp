@@ -4,6 +4,12 @@ Status: Accepted for Milestone 06; implementation in progress
 
 Decision date: 2026-08-30
 
+## Project-first amendment — 2026-09-09
+
+The product owner approved a project-first private-alpha redesign after the implementation evidence recorded below. Work Context remains an internal compatibility mechanism but disappears from every alice.-controlled user and model-visible experience. New projects receive one hidden default, while legacy records retain their original scope and are assembled only through conflict-safe, per-source authorization checks. AI-Notes replaces Keel only as the visual reference for the remaining redesign.
+
+The complete superseding product contract, compatibility decision, repository audit, visual checkpoints, and implementation sequence are in [`docs/project-first-private-alpha-redesign.md`](project-first-private-alpha-redesign.md). The dated context-first implementation evidence in this document remains historical truth and must not be read as the current user-experience direction.
+
 ## Purpose
 
 Hands-on testing after Milestone 05 proved the core cross-host consumption loop but exposed too much setup and governance friction for friend testing. The current two-process SQLite topology also cannot safely support an independently deployed hosted alpha, and the one-private-workspace model cannot express the requested project collaboration.
