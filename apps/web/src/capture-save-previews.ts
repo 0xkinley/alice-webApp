@@ -92,7 +92,7 @@ export function createCaptureSavePreviewsRouter({ database, publicUrl }) {
         .send(
           renderStatusPage(
             "Saved to alice.",
-            `<h1>Saved</h1><p>${result.accepted.length} exact ${result.accepted.length === 1 ? "entry is" : "entries are"} now accepted in the reviewed work context.</p><p><a class="button" href="/projects/${encodeURIComponent(result.project_id)}/saved-context?context_id=${encodeURIComponent(result.context_id)}">View saved context</a></p>`,
+            `<h1>Saved</h1><p>${result.accepted.length} exact ${result.accepted.length === 1 ? "entry now appears" : "entries now appear"} in the project's change log.</p><p><a class="button" href="/projects/${encodeURIComponent(result.project_id)}/changes">View change log</a></p>`,
             "success",
           ),
         );

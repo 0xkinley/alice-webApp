@@ -22,10 +22,11 @@ let owner;
 let pendingEvidenceId;
 let server;
 
-async function capture(idempotencyKey, contextId, stateKey, value) {
+async function capture(idempotencyKey, contextId, stateKey, value, provider = "chatgpt") {
+  const claude = provider === "claude";
   return saveCandidateUpdate(created.database, {
-    clientId: "saved-context-client",
-    connectionId: "saved-context-connection",
+    clientId: claude ? "claude-saved-context-client" : "saved-context-client",
+    connectionId: claude ? "claude-saved-context-connection" : "saved-context-connection",
     publicUrl: baseUrl,
     userId: owner.id,
     payload: {
@@ -55,7 +56,7 @@ before(async () => {
     .prepare(
       `INSERT INTO oauth_clients
         (client_id, client_name, redirect_uris_json, token_endpoint_auth_method, created_at)
-       VALUES ('saved-context-client', 'Saved context fixture', '[]', 'none', ?)`,
+       VALUES ('saved-context-client', 'ChatGPT saved context fixture', '[]', 'none', ?)`,
     )
     .run(now);
   database
@@ -64,6 +65,22 @@ before(async () => {
         (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
          first_connected_at, last_used_at)
        VALUES ('saved-context-connection', ?, ?, 'saved-context-client', 'chatgpt',
+               'mcp:read mcp:write', ?, ?)`,
+    )
+    .run(owner.id, owner.workspace_id, now, now);
+  database
+    .prepare(
+      `INSERT INTO oauth_clients
+        (client_id, client_name, redirect_uris_json, token_endpoint_auth_method, created_at)
+       VALUES ('claude-saved-context-client', 'Claude saved context fixture', '[]', 'none', ?)`,
+    )
+    .run(now);
+  database
+    .prepare(
+      `INSERT INTO integration_connections
+        (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
+         first_connected_at, last_used_at)
+       VALUES ('claude-saved-context-connection', ?, ?, 'claude-saved-context-client', 'claude',
                'mcp:read mcp:write', ?, ?)`,
     )
     .run(owner.id, owner.workspace_id, now, now);
@@ -119,7 +136,12 @@ before(async () => {
     "saved-context-project-wide",
     projectWide.id,
     "project.saved_item",
-    "Project-wide saved value",
+    {
+      outcome: "**Approved launch direction** <b>from Claude</b>",
+      approved: true,
+      next_steps: ["Invite the team", "[Review launch](https://example.invalid)"],
+    },
+    "claude",
   );
   const projectPreview = await getCapturePreview(database, {
     evidenceId: projectSaved.evidence_id,
@@ -160,7 +182,7 @@ test("saved context is private and uses user-facing lifecycle language", async (
   assert.match(html, /Visible saved value/);
   assert.doesNotMatch(
     html,
-    /Visible pending value|Visible not-saved value|Project-wide saved value/,
+    /Visible pending value|Visible not-saved value|Approved launch direction/,
   );
   assert.match(html, /Source and history/);
 });
@@ -199,7 +221,7 @@ test("context switching is explicit and guessed context identifiers reveal nothi
     headers: { cookie },
   });
   const projectWideHtml = await projectWide.text();
-  assert.match(projectWideHtml, /Project-wide saved value/);
+  assert.match(projectWideHtml, /Approved launch direction/);
   assert.doesNotMatch(projectWideHtml, /Visible saved value/);
   assert.match(projectWideHtml, /Saved information/);
   assert.doesNotMatch(projectWideHtml, /aria-label="Project contexts"/);
@@ -217,14 +239,37 @@ test("context switching is explicit and guessed context identifiers reveal nothi
   assert.equal(await foreign.text(), await guessed.text());
 });
 
-test("the project page exposes one project-level saved-information entry point", async () => {
+test("the project page exposes one project-level change log", async () => {
   const project = await fetch(`${baseUrl}/projects/${owner.project_id}`, {
     headers: { cookie },
   });
   const html = await project.text();
-  assert.match(html, new RegExp(`/projects/${owner.project_id}/saved`));
+  assert.match(html, new RegExp(`/projects/${owner.project_id}/changes`));
+  assert.match(html, /Change log/);
+  assert.doesNotMatch(html, /What alice\. knows/);
   assert.doesNotMatch(html, /context_id=/);
   assert.doesNotMatch(html, /Create a work context|Work context|Project-wide/);
+});
+
+test("change log renders readable updates with AI sources and browser-local times", async () => {
+  const response = await fetch(`${baseUrl}/projects/${owner.project_id}/changes`, {
+    headers: { cookie },
+  });
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /<h1>Private project<\/h1>/);
+  assert.match(html, /Latest changes/);
+  assert.match(html, /From ChatGPT/);
+  assert.match(html, /From Claude/);
+  assert.match(html, /Visible saved value/);
+  assert.match(html, /Approved launch direction from Claude/);
+  assert.match(html, /Approved<\/dt><dd><p>Yes<\/p>/);
+  assert.match(html, /Next steps/);
+  assert.match(html, /Review launch/);
+  assert.match(html, /<time datetime="\d{4}-\d{2}-\d{2}T[^"]+" data-local-time>/);
+  assert.match(html, /Intl\.DateTimeFormat\(undefined/);
+  assert.doesNotMatch(html, /<pre>|\*\*|&lt;b&gt;|\]\(https:\/\/example\.invalid\)/);
+  assert.doesNotMatch(html, /Evidence receipt|Payload hash|context_id=|Project-wide|>General</);
 });
 
 test("an exact human removal stops consumption without erasing provenance", async () => {
@@ -367,7 +412,7 @@ test("an exact human removal stops consumption without erasing provenance", asyn
     contextBudget: 4_000,
   });
   assert.doesNotMatch(JSON.stringify(context), /Visible saved value/);
-  assert.match(JSON.stringify(context), /Project-wide saved value/);
+  assert.match(JSON.stringify(context), /Approved launch direction/);
 
   const domainPreview = await getRemovalPreview(created.database, {
     userId: owner.id,

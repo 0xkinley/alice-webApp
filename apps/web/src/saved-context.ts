@@ -23,6 +23,111 @@ function renderJson(value) {
   return escapeHtml(JSON.stringify(value, null, 2));
 }
 
+function readableText(value) {
+  const decoded = String(value)
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#39;", "'");
+  return decoded
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<\/?[a-z][^>]*>/gi, " ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/^\s*(?:[-+*]|\d+[.)])\s+/gm, "")
+    .replace(/\*+|~{2,}|`+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function readableLabel(value) {
+  const label = readableText(String(value).replace(/[._-]+/g, " "));
+  return label ? `${label.charAt(0).toUpperCase()}${label.slice(1)}` : "Update";
+}
+
+function renderReadableValue(value, depth = 0) {
+  if (depth > 5) return '<p class="muted">Additional detail omitted.</p>';
+  if (value === null || value === undefined) return '<p class="muted">No value recorded.</p>';
+  if (typeof value === "string") {
+    const text = readableText(value);
+    return `<p>${escapeHtml(text || "No text recorded.")}</p>`;
+  }
+  if (typeof value === "boolean") return `<p>${value ? "Yes" : "No"}</p>`;
+  if (typeof value === "number") return `<p>${escapeHtml(value)}</p>`;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '<p class="muted">No items recorded.</p>';
+    return `<ul class="change-value-list">${value.map((item) => `<li>${renderReadableValue(item, depth + 1)}</li>`).join("")}</ul>`;
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return '<p class="muted">No details recorded.</p>';
+    return `<dl class="change-value-fields">${entries.map(([key, item]) => `<dt>${escapeHtml(readableLabel(key))}</dt><dd>${renderReadableValue(item, depth + 1)}</dd>`).join("")}</dl>`;
+  }
+  return `<p>${escapeHtml(readableText(value))}</p>`;
+}
+
+function changeTimestamp(entry) {
+  return entry.removed_at || entry.accepted_at || entry.created_at;
+}
+
+function localTimestamp(value) {
+  const date = new Date(value);
+  const iso = Number.isNaN(date.getTime()) ? "" : date.toISOString();
+  return `<time datetime="${escapeHtml(iso)}" data-local-time>${escapeHtml(timestampLabel(value))}</time>`;
+}
+
+function localTimeScript() {
+  return `<script>(()=>{const formatter=new Intl.DateTimeFormat(undefined,{year:"numeric",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZoneName:"short"});for(const time of document.querySelectorAll("time[data-local-time]")){const date=new Date(time.dateTime);if(!Number.isNaN(date.getTime()))time.textContent=formatter.format(date)}})();</script>`;
+}
+
+function changeLogCards(entries) {
+  if (entries.length === 0)
+    return '<div class="empty-state"><h2>No changes yet</h2><p>Project updates from your connected AI tools will appear here after review.</p></div>';
+  const labels = { accepted: "Saved", pending: "Proposed", rejected: "Not saved" };
+  return `<div class="change-log-list">${entries
+    .map((entry) => {
+      const state = entry.removed_at
+        ? "Removed"
+        : entry.superseded_by_version
+          ? "Replaced"
+          : labels[entry.status] || "Updated";
+      const reason = readableText(entry.removal_reason || "");
+      return `<article class="change-entry"><div class="change-entry-meta"><span class="badge">${state}</span><span>From ${escapeHtml(hostLabel(entry.client_classification))}</span><span>${localTimestamp(changeTimestamp(entry))}</span></div><h2>${escapeHtml(readableLabel(entry.state_key))}</h2><div class="change-entry-value">${renderReadableValue(entry.value)}</div>${reason ? `<p><strong>Removal reason:</strong> ${escapeHtml(reason)}</p>` : ""}</article>`;
+    })
+    .join("")}</div>`;
+}
+
+async function projectChangeLog(database, userId, initialView) {
+  const entries = new Map();
+  for (const context of initialView.contexts) {
+    const contextView =
+      context.id === initialView.context.id
+        ? initialView
+        : await getSavedContextView(database, {
+            userId,
+            projectId: initialView.project.id,
+            contextId: context.id,
+          });
+    for (const entry of contextView?.history || []) {
+      const current = entries.get(entry.id);
+      if (
+        !current ||
+        new Date(changeTimestamp(entry)).getTime() > new Date(changeTimestamp(current)).getTime()
+      ) {
+        entries.set(entry.id, entry);
+      }
+    }
+  }
+  return [...entries.values()].sort(
+    (left, right) =>
+      new Date(changeTimestamp(right)).getTime() - new Date(changeTimestamp(left)).getTime(),
+  );
+}
+
 function contextLinks(view) {
   return view.contexts
     .map(
@@ -286,66 +391,82 @@ export function createSavedContextRouter({ database }) {
     );
   });
 
-  router.get(["/:projectId/saved", "/:projectId/saved-context"], async (request, response) => {
-    const selected = String(request.query.view || "saved");
-    const projectOnly = !request.query.context_id;
-    if (!VIEWS.has(selected)) {
-      return response
-        .status(400)
-        .type("html")
-        .send(
-          renderStatusPage(
-            "Invalid view",
-            '<h1>Invalid saved-context view</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>',
-          ),
-        );
-    }
-    const view = await getSavedContextView(database, {
-      userId: request.aliceUser!.id,
-      projectId: request.params.projectId,
-      contextId: request.query.context_id ? String(request.query.context_id) : undefined,
-    });
-    if (!view) {
-      return response
-        .status(404)
-        .type("html")
-        .send(
-          renderStatusPage(
-            "Not found",
-            '<h1>Project or context not found</h1><p>The destination may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
-            "neutral",
-          ),
-        );
-    }
+  router.get(
+    ["/:projectId/changes", "/:projectId/saved", "/:projectId/saved-context"],
+    async (request, response) => {
+      const changeLog = request.path.endsWith("/changes") && !request.query.context_id;
+      const selected = String(request.query.view || "saved");
+      const projectOnly = !request.query.context_id;
+      if (!VIEWS.has(selected)) {
+        return response
+          .status(400)
+          .type("html")
+          .send(
+            renderStatusPage(
+              "Invalid view",
+              '<h1>Invalid saved-context view</h1><p>No saved context was changed.</p><p><a href="/">Return to your private workspace</a></p>',
+            ),
+          );
+      }
+      const view = await getSavedContextView(database, {
+        userId: request.aliceUser!.id,
+        projectId: request.params.projectId,
+        contextId: request.query.context_id ? String(request.query.context_id) : undefined,
+      });
+      if (!view) {
+        return response
+          .status(404)
+          .type("html")
+          .send(
+            renderStatusPage(
+              "Not found",
+              '<h1>Project or context not found</h1><p>The destination may be unavailable or outside your access.</p><p><a href="/">Return to your private workspace</a></p>',
+              "neutral",
+            ),
+          );
+      }
 
-    const content =
-      selected === "saved"
-        ? savedCards(view, projectOnly)
-        : selected === "attention"
-          ? attentionCards(view, projectOnly)
-          : selected === "removed"
-            ? removedCards(view, projectOnly)
-            : historyCards(view, projectOnly);
-    if (projectOnly) {
-      return response
+      const content = changeLog
+        ? changeLogCards(await projectChangeLog(database, request.aliceUser!.id, view))
+        : selected === "saved"
+          ? savedCards(view, projectOnly)
+          : selected === "attention"
+            ? attentionCards(view, projectOnly)
+            : selected === "removed"
+              ? removedCards(view, projectOnly)
+              : historyCards(view, projectOnly);
+      if (projectOnly) {
+        if (changeLog) {
+          return response
+            .type("html")
+            .send(
+              renderAppPage(
+                `${view.project.name} change log`,
+                `<div class="project-home"><header class="project-header"><div><p class="eyebrow">Change log</p><h1>${escapeHtml(view.project.name)}</h1><p>Human-readable project changes, where they came from, and when they happened.</p></div><a href="/projects/${encodeURIComponent(view.project.id)}">Back to project</a></header><section><div class="section-heading"><h2>Latest changes</h2><p class="muted">Shown in your local time</p></div>${content}</section></div>${localTimeScript()}`,
+                { email: request.aliceUser!.email, activeSection: "projects" },
+              ),
+            );
+        }
+        return response
+          .type("html")
+          .send(
+            renderAppPage(
+              `${view.project.name} saved information`,
+              `<div class="project-home"><header class="project-header"><div><p class="eyebrow">Saved information</p><h1>${escapeHtml(view.project.name)}</h1><p>Human-approved information that alice. can provide to your connected AI tools.</p></div><a href="/projects/${encodeURIComponent(view.project.id)}">Back to project</a></header><nav aria-label="Saved information views">${viewLinks(view, selected, true)}</nav><section><div class="section-heading"><h2>${selected === "saved" ? "Saved information" : selected === "attention" ? "Needs attention" : selected === "removed" ? "Removed" : "History"}</h2><p class="muted">${selected === "saved" ? "Active and human-approved" : selected === "attention" ? "Awaiting your review" : selected === "removed" ? "Inactive, with provenance preserved" : "Decision history"}</p></div>${content}</section></div>`,
+              { email: request.aliceUser!.email, activeSection: "projects" },
+            ),
+          );
+      }
+      response
         .type("html")
         .send(
-          renderAppPage(
-            `${view.project.name} saved information`,
-            `<div class="project-home"><header class="project-header"><div><p class="eyebrow">Saved information</p><h1>${escapeHtml(view.project.name)}</h1><p>Human-approved information that alice. can provide to your connected AI tools.</p></div><a href="/projects/${encodeURIComponent(view.project.id)}">Back to project</a></header><nav aria-label="Saved information views">${viewLinks(view, selected, true)}</nav><section><div class="section-heading"><h2>${selected === "saved" ? "Saved information" : selected === "attention" ? "Needs attention" : selected === "removed" ? "Removed" : "History"}</h2><p class="muted">${selected === "saved" ? "Active and human-approved" : selected === "attention" ? "Awaiting your review" : selected === "removed" ? "Inactive, with provenance preserved" : "Decision history"}</p></div>${content}</section></div>`,
-            { email: request.aliceUser!.email, activeSection: "projects" },
+          renderPage(
+            `${view.project.name} saved context`,
+            `<nav><a href="/projects/${encodeURIComponent(view.project.id)}">Project</a><a href="/connections">AI connections</a></nav><header class="hero"><p class="eyebrow">Project intelligence</p><h1>${escapeHtml(view.project.name)} / ${escapeHtml(view.context.name)}</h1><p>${escapeHtml(view.context.description)}</p></header><nav aria-label="Project contexts">${contextLinks(view)}</nav><nav aria-label="Context views">${viewLinks(view, selected)}</nav><section><div class="section-heading"><h2>${selected === "saved" ? "Saved context" : selected === "attention" ? "Needs attention" : selected === "removed" ? "Removed" : "History"}</h2><p class="muted">${selected === "saved" ? "Active, human-confirmed context" : selected === "attention" ? "Awaiting exact human review" : selected === "removed" ? "Inactive, with provenance preserved" : "Immutable decision history"}</p></div>${content}</section>`,
           ),
         );
-    }
-    response
-      .type("html")
-      .send(
-        renderPage(
-          `${view.project.name} saved context`,
-          `<nav><a href="/projects/${encodeURIComponent(view.project.id)}">Project</a><a href="/connections">AI connections</a></nav><header class="hero"><p class="eyebrow">Project intelligence</p><h1>${escapeHtml(view.project.name)} / ${escapeHtml(view.context.name)}</h1><p>${escapeHtml(view.context.description)}</p></header><nav aria-label="Project contexts">${contextLinks(view)}</nav><nav aria-label="Context views">${viewLinks(view, selected)}</nav><section><div class="section-heading"><h2>${selected === "saved" ? "Saved context" : selected === "attention" ? "Needs attention" : selected === "removed" ? "Removed" : "History"}</h2><p class="muted">${selected === "saved" ? "Active, human-confirmed context" : selected === "attention" ? "Awaiting exact human review" : selected === "removed" ? "Inactive, with provenance preserved" : "Immutable decision history"}</p></div>${content}</section>`,
-        ),
-      );
-  });
+    },
+  );
 
   return router;
 }

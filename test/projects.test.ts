@@ -76,7 +76,9 @@ test("creates and revisits a project in the authenticated private workspace", as
     detailHtml,
     /Project lifecycle|Project settings|Alpha signals|>Needs attention/,
   );
-  assert.match(detailHtml, /Saved information/);
+  assert.match(detailHtml, /Change log/);
+  assert.match(detailHtml, new RegExp(`/projects/${ownerProjectId}/changes`));
+  assert.doesNotMatch(detailHtml, /What alice\. knows/);
   assert.match(detailHtml, /Not active in ChatGPT/);
   assert.match(detailHtml, /Not active in Claude/);
   assert.doesNotMatch(detailHtml, /Project and work contexts/);

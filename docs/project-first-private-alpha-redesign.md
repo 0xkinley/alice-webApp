@@ -34,7 +34,7 @@ The 2026-09-09 start-of-task audit found a clean working tree on `milestone-06-p
 | Web shell | One shared server-rendered stylesheet, horizontal per-page navigation, large hero panels | Add an authenticated application shell with a collapsible sidebar, improved wordmark/account controls, compact navigation, responsive behavior, focus visibility, and reduced-motion support |
 | Workspace home | Multiple project sections plus two Create project links and an inline name/brief form | Make the initial workspace spacious and project-first, keep one prominent Create project action, and move owned, shared, archived, and AI connection views into the sidebar |
 | Project creation | Requires name and brief; the MCP App also asks for human visibility and ChatGPT/Claude checkboxes | Ask only for project name, then optionally add files; create private owner access and the hidden default internally |
-| Project page | Renders project-wide and named work-context cards plus context creation | Render one project workspace with files and saved information; move Needs Attention, Alpha Signals, Your Access, and Collaborators into the project menu |
+| Project page | Renders project-wide and named work-context cards plus context creation | Render one project workspace with Files and a Change log; keep Your access, owner-only Collaborators, and owner-only Archive project in one compact ellipsis menu |
 | AI connection management | Mixes guided setup, connection records, read receipts, revocation, and project/context selection | Keep Add to ChatGPT, Add to Claude, and Copy MCP address primary; move receipts, revocation, scopes, timestamps, and diagnostics into an advanced view |
 | MCP workspace | Exposes project and work-context selectors, provider checkboxes, context creation, and `<project> / <context>` confirmation | Show a welcome or authoritative active-project state, list only projects, use `Use this project`, and retain the concise connection-wide warning when exact conversation binding is unavailable |
 | Save cards | Correctly require one alice. Save action, but show context names, internal state keys, versions, and JSON-formatted values | Preserve the authority transaction while rendering only the project, readable proposed content, sources, dates, and one Save control |
@@ -82,7 +82,7 @@ When the host does not provide a stable, server-verifiable conversation identity
 
 ## Human-readable rendering contract
 
-One shared renderer will map internal structured values into bounded, escaped user-facing content for the web application and both MCP Apps.
+One shared rendering contract maps internal structured values into bounded, escaped user-facing content for the web application and both MCP Apps.
 
 - Human labels replace state keys; raw state keys remain internal.
 - Strings render as paragraphs; booleans and numbers as labelled values; arrays as lists; flat records as definition lists or tables; nested records as titled sections.
@@ -92,11 +92,13 @@ One shared renderer will map internal structured values into bounded, escaped us
 - Sources render as title, source link or filename, relevant publication/posting date when supplied, retrieval date, and the claims supported. Unsupported or missing fields are omitted rather than invented.
 - Model-visible text uses project names and readable status only. Structured protocol fields may retain bounded identifiers when required for follow-up tool calls, but no internal context name or context concept may appear in model-visible descriptions, text, or user-rendered cards.
 
+The project Change log is the first web adoption of this contract. It aggregates only legacy destinations the current user may access, deduplicates the same underlying proposal, and orders entries by their effective event time. State keys become human labels; strings, values, lists, and records render as semantic prose and fields rather than JSON. HTML elements and Markdown presentation markers supplied inside values are removed before the remaining text is escaped. Each entry identifies its recorded host classification, such as ChatGPT or Claude, while internal receipts, hashes, versions, context names, and identifiers remain hidden. Immutable UTC instants stay authoritative in `datetime`; the browser renders those instants in the current user's locale and time zone.
+
 ## Web experience contract
 
 The authenticated shell contains a collapsible sidebar with Your Projects, Shared with You, Archived Projects, and AI Connections. The header contains the formatted `alice.` wordmark, signed-in account, and sign-out control. Desktop and mobile layouts use the same hierarchy.
 
-The empty workspace has one prominent `Create project` action. Project creation asks for a name and offers an optional Add files action. Add files opens the browser's file chooser in place; it does not submit the form, create a project, or navigate to the separate file-management page. Selected filenames return to the creation form, and the exact files are uploaded through the existing private scan-gated path only after Create project creates their destination. A project menu exposes Needs Attention, Alpha Signals, Your Access, and Collaborators, with badges only when an actionable or informational item exists.
+The empty workspace has one prominent `Create project` action. Project creation asks for a name and offers an optional Add files action. Add files opens the browser's file chooser in place; it does not submit the form, create a project, or navigate to the separate file-management page. Selected filenames return to the creation form, and the exact files are uploaded through the existing private scan-gated path only after Create project creates their destination. The project name stays at the top beside one compact ellipsis menu containing Your access and, for Owners, Collaborators and Archive project. The project workspace contains Change log and Files. Archive opens an explicit confirmation surface and uses a friendly project `/archive` route; the older lifecycle route remains a direct compatibility alias only.
 
 Project cards and project pages show provider-specific active states derived from the signed-in user's committed connection targets: Active in ChatGPT, Active in Claude, or Active in ChatGPT and Claude. Pending form values are not styled as active.
 
