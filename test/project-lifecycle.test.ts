@@ -240,6 +240,8 @@ test("Owner lifecycle controls archive without erasure and export only permitted
     await fetch(`${baseUrl}/archived`, { headers: { cookie: ownerCookie } })
   ).text();
   assert.match(archivedProjectsHtml, /Lifecycle safety project/);
+  assert.match(archivedProjectsHtml, /Archived <time datetime="[^"]+" data-local-time>/);
+  assert.doesNotMatch(archivedProjectsHtml, /Archived [^<]*UTC/);
   assert.doesNotMatch(archivedProjectsHtml, /No archived projects/);
   assert.equal(
     await getProjectInvitationPreview(created.database, ownerUser.id, pendingInvitation.token),
@@ -293,6 +295,9 @@ test("Owner lifecycle controls archive without erasure and export only permitted
   const pendingHtml = await pendingPage.text();
   assert.match(pendingHtml, /has not been permanently deleted/i);
   assert.match(pendingHtml, /provider backups remain present/i);
+  assert.match(pendingHtml, /Requested <time datetime="[^"]+" data-local-time>/);
+  assert.match(pendingHtml, /cooling-off period ends <time datetime="[^"]+" data-local-time>/);
+  assert.doesNotMatch(pendingHtml, /Requested [^<]*UTC|cooling-off period ends [^<]*UTC/);
   const pendingView = await getProjectLifecycle(created.database, {
     userId: ownerUser.id,
     projectId,

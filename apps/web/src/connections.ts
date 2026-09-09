@@ -5,7 +5,7 @@ import {
 } from "@alice/domain";
 import express from "express";
 import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
-import { hostLabel, permissionLabel, timestampLabel } from "./product-copy.ts";
+import { hostLabel, localTimestamp, permissionLabel } from "./product-copy.ts";
 
 const CHATGPT_PLUGIN_DIRECTORY_URL = "https://chatgpt.com/plugins";
 const CLAUDE_CONNECTOR_SETTINGS_URL = "https://claude.ai/customize/connectors";
@@ -24,7 +24,7 @@ function connectionCard(connection) {
   const action = connection.revoked_at
     ? "<p>Reconnect from this host using the alice. MCP address configured for this environment.</p>"
     : `<p>Every project you can access is discoverable through this connection. Only the project named for a task is retrieved.</p><form method="post" action="/connections/${encodeURIComponent(connection.id)}/revoke"><button class="destructive" type="submit">Revoke this connection</button></form>`;
-  return `<article class="connection-card${connection.revoked_at ? " revoked" : ""}"><p class="eyebrow">${escapeHtml(hostLabel(connection.client_classification))}</p><h2>${escapeHtml(connection.client_name)}</h2><p><span class="badge">${status}</span></p><dl><dt>Permissions</dt><dd>${escapeHtml(permissionLabel(connection.granted_scopes))}</dd><dt>Connected</dt><dd>${escapeHtml(timestampLabel(connection.first_connected_at))}</dd><dt>Last used</dt><dd>${escapeHtml(timestampLabel(connection.last_used_at))}</dd></dl>${action}</article>`;
+  return `<article class="connection-card${connection.revoked_at ? " revoked" : ""}"><p class="eyebrow">${escapeHtml(hostLabel(connection.client_classification))}</p><h2>${escapeHtml(connection.client_name)}</h2><p><span class="badge">${status}</span></p><dl><dt>Permissions</dt><dd>${escapeHtml(permissionLabel(connection.granted_scopes))}</dd><dt>Connected</dt><dd>${localTimestamp(connection.first_connected_at)}</dd><dt>Last used</dt><dd>${localTimestamp(connection.last_used_at)}</dd></dl>${action}</article>`;
 }
 
 function readEventCard(event) {
@@ -34,7 +34,7 @@ function readEventCard(event) {
     event.status === "succeeded"
       ? `Succeeded · ${escapeHtml(event.package_utf8_bytes)} bytes delivered`
       : `Failed · ${escapeHtml(String(event.failure_code).replaceAll("_", " "))}`;
-  return `<article><p><strong>${result}</strong></p><p>${escapeHtml(event.client_name)} · ${escapeHtml(hostLabel(event.client_classification))} · ${route}${destination}</p><p class="muted">${escapeHtml(timestampLabel(event.created_at))}</p></article>`;
+  return `<article><p><strong>${result}</strong></p><p>${escapeHtml(event.client_name)} · ${escapeHtml(hostLabel(event.client_classification))} · ${route}${destination}</p><p class="muted">${localTimestamp(event.created_at)}</p></article>`;
 }
 
 function guidedConnectionScript() {

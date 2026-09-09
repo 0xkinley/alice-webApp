@@ -7,7 +7,7 @@ import type { PrivateFileStore } from "@alice/domain";
 import express from "express";
 import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 import { escapeHtml, readableLabel, readableText, renderReadableValue } from "./human-readable.ts";
-import { timestampLabel } from "./product-copy.ts";
+import { localTimestamp } from "./product-copy.ts";
 import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
 function previewPage(preview) {
@@ -25,7 +25,7 @@ function previewPage(preview) {
   const action = preview.expired
     ? '<p class="notice warning"><strong>This Save preview expired.</strong> Ask the host for a new exact preview. Nothing was saved.</p>'
     : `<form method="post" action="/save-previews/${encodeURIComponent(preview.preview_id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><button type="submit">Save</button></form>`;
-  return `<section><div class="section-heading"><div><p class="eyebrow">Exact Save preview</p><h2>Save this to ${escapeHtml(preview.destination.project_name)}?</h2></div></div><p>Only your authenticated Save action can accept this project information. Closing this page does nothing.</p><dl><dt>Project</dt><dd>${escapeHtml(preview.destination.project_name)}</dd><dt>Expires</dt><dd>${escapeHtml(timestampLabel(preview.expires_at))}</dd></dl><h3>${escapeHtml(readableText(preview.payload.summary))}</h3>${claims}${source ? `<details><summary>Supporting information</summary><p>${escapeHtml(readableText(source))}</p></details>` : ""}${action}<p class="muted">Before Save, this is short-lived preview state only. There is no proposed or saved project information.</p></section>`;
+  return `<section><div class="section-heading"><div><p class="eyebrow">Exact Save preview</p><h2>Save this to ${escapeHtml(preview.destination.project_name)}?</h2></div></div><p>Only your authenticated Save action can accept this project information. Closing this page does nothing.</p><dl><dt>Project</dt><dd>${escapeHtml(preview.destination.project_name)}</dd><dt>Expires</dt><dd>${localTimestamp(preview.expires_at)}</dd></dl><h3>${escapeHtml(readableText(preview.payload.summary))}</h3>${claims}${source ? `<details><summary>Supporting information</summary><p>${escapeHtml(readableText(source))}</p></details>` : ""}${action}<p class="muted">Before Save, this is short-lived preview state only. There is no proposed or saved project information.</p></section>`;
 }
 
 export function createCaptureSavePreviewsRouter({

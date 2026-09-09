@@ -22,7 +22,7 @@ import {
   renderStatusPage,
   requireAuthenticatedUser,
 } from "./auth.ts";
-import { hostLabel, roleLabel, timestampLabel } from "./product-copy.ts";
+import { hostLabel, localTimestamp, roleLabel } from "./product-copy.ts";
 import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
 function escapeHtml(value) {
@@ -139,7 +139,7 @@ export function createProjectMembershipRouter({
             status === "Pending" || status === "Expired"
               ? `<div class="actions">${status === "Pending" ? `<form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/invitations/${encodeURIComponent(invitation.id)}/revoke"><button type="submit">Revoke</button></form>` : ""}<form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/invitations/${encodeURIComponent(invitation.id)}/resend"><button type="submit">Create replacement link</button></form></div>`
               : "";
-          return `<article><h3>${escapeHtml(invitation.email)}</h3><p>${escapeHtml(roleLabel(invitation.role))} · ${status}</p><p class="muted">Expires ${escapeHtml(timestampLabel(new Date(Number(invitation.expires_at) * 1_000)))}</p>${controls}</article>`;
+          return `<article><h3>${escapeHtml(invitation.email)}</h3><p>${escapeHtml(roleLabel(invitation.role))} · ${status}</p><p class="muted">Expires ${localTimestamp(new Date(Number(invitation.expires_at) * 1_000))}</p>${controls}</article>`;
         })
         .join("");
       response
@@ -185,13 +185,13 @@ export function createProjectMembershipRouter({
           const projectStatus = connection.targets_this_project
             ? "Active for this project"
             : "Not active for this project";
-          return `<article><h3>${escapeHtml(connection.client_name)}</h3><p>Connected · ${escapeHtml(hostLabel(connection.client_classification))}</p><p><strong>${projectStatus}</strong></p><p class="muted">Last used ${escapeHtml(timestampLabel(connection.last_used_at))}</p></article>`;
+          return `<article><h3>${escapeHtml(connection.client_name)}</h3><p>Connected · ${escapeHtml(hostLabel(connection.client_classification))}</p><p><strong>${projectStatus}</strong></p><p class="muted">Last used ${localTimestamp(connection.last_used_at)}</p></article>`;
         })
         .join("");
       const events = view.security_events
         .map(
           (event) =>
-            `<li><strong>${escapeHtml(event.label)}</strong> · ${escapeHtml(event.actor_label)} · <span class="muted">${escapeHtml(timestampLabel(event.created_at))}</span></li>`,
+            `<li><strong>${escapeHtml(event.label)}</strong> · ${escapeHtml(event.actor_label)} · <span class="muted">${localTimestamp(event.created_at)}</span></li>`,
         )
         .join("");
       response

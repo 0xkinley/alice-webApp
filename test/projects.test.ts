@@ -88,6 +88,7 @@ test("creates and revisits a project in the authenticated private workspace", as
   assert.match(detailHtml, /aria-current="page"[^>]*>Change log/);
   assert.match(detailHtml, /Latest changes/);
   assert.match(detailHtml, /No changes yet/);
+  assert.match(detailHtml, /Intl\.DateTimeFormat\(undefined/);
   assert.doesNotMatch(detailHtml, /What alice\. knows/);
   assert.match(detailHtml, /Not connected to ChatGPT/);
   assert.match(detailHtml, /Not connected to Claude/);
@@ -129,6 +130,8 @@ test("creates and revisits a project in the authenticated private workspace", as
   assert.match(packageHtml, /does not create a read receipt/);
   assert.doesNotMatch(packageHtml, />General</);
   assert.match(packageHtml, /Current as of/);
+  assert.match(packageHtml, /Current as of<\/dt><dd><time datetime="[^"]+" data-local-time>/);
+  assert.doesNotMatch(packageHtml, /Current as of<\/dt><dd>[^<]*UTC/);
   assert.doesNotMatch(
     packageHtml,
     /&quot;version&quot;|&quot;freshness&quot;|context_[0-9a-f]{64}/,

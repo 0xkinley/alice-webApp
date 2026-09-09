@@ -12,7 +12,7 @@ import type { PrivateFileStore } from "@alice/domain";
 import express from "express";
 import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 import { escapeHtml, readableLabel, readableText, renderReadableValue } from "./human-readable.ts";
-import { hostLabel, reviewStatusLabel, timestampLabel } from "./product-copy.ts";
+import { hostLabel, localTimestamp, reviewStatusLabel } from "./product-copy.ts";
 import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
 // Trusted-state acceptance stays behind the human web control plane.
@@ -26,7 +26,7 @@ function reviewProjectIndex(projects) {
   const cards = projects
     .map(
       (project) =>
-        `<article><h2><a href="/review?project_id=${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p><strong>${project.pending_count} need attention</strong> · ${project.accepted_count} saved · ${project.rejected_count} not saved</p>${project.latest_candidate_at ? `<p class="muted">Latest proposal: ${escapeHtml(timestampLabel(project.latest_candidate_at))}</p>` : '<p class="muted">No proposals captured yet.</p>'}</article>`,
+        `<article><h2><a href="/review?project_id=${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p><strong>${project.pending_count} need attention</strong> · ${project.accepted_count} saved · ${project.rejected_count} not saved</p>${project.latest_candidate_at ? `<p class="muted">Latest proposal: ${localTimestamp(project.latest_candidate_at)}</p>` : '<p class="muted">No proposals captured yet.</p>'}</article>`,
     )
     .join("");
   return `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Needs attention</p><h1>Review proposed changes</h1><p>Only your explicit decision can save project information. A connected AI tool can propose an update, but cannot save it for you.</p></div></header><section><div class="section-heading"><h2>Projects with review history</h2><p class="muted">Choose a project to inspect exact proposals.</p></div>${cards || '<div class="empty-state"><h2>No projects need review</h2><p>Create a project and use a connected AI tool to propose an update. Nothing is saved automatically.</p></div>'}</section></div>`;
@@ -49,7 +49,7 @@ function evidenceDetails(candidate) {
   const sourceContext = candidate.source_context
     ? `<details><summary>Supporting information</summary><p>${escapeHtml(readableText(candidate.source_context))}</p></details>`
     : "";
-  return `<details><summary>Source and history</summary><p><strong>Summary:</strong> ${escapeHtml(readableText(candidate.capture_summary || "Not supplied"))}</p>${sourceNote}${fileSourceDetails(candidate.file_source)}${sourceContext}<dl><dt>Source</dt><dd>${escapeHtml(hostLabel(candidate.client_classification))}</dd><dt>Captured</dt><dd>${escapeHtml(timestampLabel(candidate.evidence_created_at))}</dd></dl></details>`;
+  return `<details><summary>Source and history</summary><p><strong>Summary:</strong> ${escapeHtml(readableText(candidate.capture_summary || "Not supplied"))}</p>${sourceNote}${fileSourceDetails(candidate.file_source)}${sourceContext}<dl><dt>Source</dt><dd>${escapeHtml(hostLabel(candidate.client_classification))}</dd><dt>Captured</dt><dd>${localTimestamp(candidate.evidence_created_at)}</dd></dl></details>`;
 }
 
 function candidateCard(candidate) {
@@ -57,7 +57,7 @@ function candidateCard(candidate) {
     ? `<p class="muted">Saved as revision ${candidate.accepted_version}.</p>`
     : "";
   const reviewAudit = candidate.review_audit_id
-    ? `<p class="muted">Decision recorded ${escapeHtml(timestampLabel(candidate.reviewed_at))}.</p>`
+    ? `<p class="muted">Decision recorded ${localTimestamp(candidate.reviewed_at)}.</p>`
     : "";
   const currentTrusted =
     candidate.status === "pending" && candidate.current_accepted_state_id
@@ -94,7 +94,7 @@ function capturePreviewPage(preview) {
   const actions = pending
     ? `<div class="actions"><form method="post" action="/review/captures/${encodeURIComponent(preview.evidence_id)}/confirm"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><button type="submit" aria-label="Save every entry shown in this preview">✓ Save these entries</button></form><form method="post" action="/review/captures/${encodeURIComponent(preview.evidence_id)}/cancel"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><button type="submit" aria-label="Cancel this save preview">× Not now</button></form></div>`
     : `<p><strong>This preview has already been decided.</strong></p>`;
-  return `<section><div class="section-heading"><div><p class="eyebrow">Exact Save preview</p><h2>Save these changes to ${escapeHtml(preview.project.name)}?</h2></div></div><p>Review every item below. Save accepts the complete proposal; Not now makes no change.</p><dl><dt>Project</dt><dd>${escapeHtml(preview.project.name)}</dd><dt>Proposed by</dt><dd>${escapeHtml(hostLabel(preview.client_classification))}</dd><dt>Captured</dt><dd>${escapeHtml(timestampLabel(preview.captured_at))}</dd></dl><p class="notice"><strong>Summary:</strong> ${escapeHtml(readableText(preview.capture_summary || "Not supplied"))}</p>${sourceNote}${fileSourceDetails(preview.file_source)}${sourceContext}<div class="section-heading"><h2>Proposed changes</h2><p class="muted">${preview.candidates.length} item${preview.candidates.length === 1 ? "" : "s"}</p></div>${candidateCards}${actions}</section>`;
+  return `<section><div class="section-heading"><div><p class="eyebrow">Exact Save preview</p><h2>Save these changes to ${escapeHtml(preview.project.name)}?</h2></div></div><p>Review every item below. Save accepts the complete proposal; Not now makes no change.</p><dl><dt>Project</dt><dd>${escapeHtml(preview.project.name)}</dd><dt>Proposed by</dt><dd>${escapeHtml(hostLabel(preview.client_classification))}</dd><dt>Captured</dt><dd>${localTimestamp(preview.captured_at)}</dd></dl><p class="notice"><strong>Summary:</strong> ${escapeHtml(readableText(preview.capture_summary || "Not supplied"))}</p>${sourceNote}${fileSourceDetails(preview.file_source)}${sourceContext}<div class="section-heading"><h2>Proposed changes</h2><p class="muted">${preview.candidates.length} item${preview.candidates.length === 1 ? "" : "s"}</p></div>${candidateCards}${actions}</section>`;
 }
 
 function paginationLinks(queue) {

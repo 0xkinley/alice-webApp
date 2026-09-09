@@ -7,6 +7,7 @@ import {
   userForSession,
 } from "@alice/domain";
 import express from "express";
+import { localTimeScript } from "./product-copy.ts";
 
 const SESSION_COOKIE = "alice_session";
 
@@ -56,7 +57,7 @@ code{padding:.08rem .28rem;border-radius:.25rem;background:#0c141e;color:#d5e6ff
 @media (max-width:52rem){.app-frame,.app-frame.sidebar-collapsed{display:block}.app-sidebar{position:fixed;z-index:80;left:0;width:min(18rem,88vw);transform:translateX(-105%);transition:transform .18s ease;box-shadow:1.5rem 0 4rem rgba(0,0,0,.45)}.app-frame.mobile-sidebar-open .app-sidebar{transform:translateX(0)}.app-frame.mobile-sidebar-open::after{position:fixed;z-index:70;inset:0;background:rgba(0,0,0,.6);content:""}.sidebar-toggle{display:none}.app-topbar{position:sticky;z-index:60;top:0;justify-content:space-between;min-height:4rem;padding:0 .9rem}.mobile-menu,.mobile-wordmark{display:grid}.mobile-wordmark{padding:0;border:0;background:transparent;color:var(--brand);font-size:1.12rem;font-weight:850;letter-spacing:-.05em}.topbar-account{max-width:42vw}.app-main{padding:1.35rem .9rem 3rem}.workspace-toolbar{display:grid;gap:1.4rem;margin-bottom:2.5rem}.project-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1rem}.project-provider-row{align-items:flex-start}.project-file-status{position:static;max-width:12rem}.create-project summary{margin-left:0}.project-grid,.provider-grid{grid-template-columns:1fr}}
 @media (max-width:42rem){body>main{width:min(100% - 1.25rem,72rem);padding-top:1.35rem}nav{align-items:flex-start;gap:.5rem .8rem}nav strong{width:100%;margin-right:0}nav form{width:100%}h1{font-size:2rem}.dashboard-grid,.feature-grid,.workflow{grid-template-columns:1fr}.hero{border-radius:1rem}.public-hero{min-height:auto}article,aside,section>dl,form{padding:1rem;border-radius:.8rem}dl{grid-template-columns:1fr;gap:.15rem}dd{margin:0 0 .55rem}.actions>*{flex:1 1 auto}.actions a,.actions button{display:inline-block;width:100%;text-align:center}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important}}
-</style></head><body><a class="skip-link" href="#main-content">Skip to content</a>${content}</body></html>`;
+</style></head><body><a class="skip-link" href="#main-content">Skip to content</a>${content}${localTimeScript()}</body></html>`;
 }
 
 function sidebarItem({ activeSection, href, icon, key, label }) {

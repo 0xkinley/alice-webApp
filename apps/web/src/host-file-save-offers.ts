@@ -10,7 +10,7 @@ import type { HostFileSaveDecision, PrivateFileStore } from "@alice/domain";
 import express from "express";
 import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 import { escapeHtml } from "./human-readable.ts";
-import { hostLabel, timestampLabel } from "./product-copy.ts";
+import { hostLabel, localTimestamp } from "./product-copy.ts";
 import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
 function optionalFileMetadata(offer) {
@@ -79,7 +79,7 @@ function offerPage(offer, directUploadAvailable: boolean) {
     pending && !unavailable
       ? `<form method="post" action="/file-save-offers/${encodeURIComponent(offer.offer_id)}/decision"><input type="hidden" name="preview_version" value="${escapeHtml(offer.decision_version)}"><input type="hidden" name="decision" value="save_file_only"><button type="submit">Save</button></form>`
       : "";
-  return `<section><div class="section-heading"><div><p class="eyebrow">Exact attachment preview</p><h2>Save this file to ${escapeHtml(offer.destination.project_name)}?</h2></div></div><p>The AI tool cannot decide this for you. Only your authenticated Save action can authorize attachment transfer.</p>${notice}<dl><dt>File</dt><dd>${escapeHtml(offer.file.name)}</dd>${optionalFileMetadata(offer)}<dt>Project</dt><dd>${escapeHtml(offer.destination.project_name)}</dd><dt>Source</dt><dd>${escapeHtml(hostLabel(offer.source_host))}</dd><dt>Expires</dt><dd>${escapeHtml(timestampLabel(offer.expires_at))}</dd></dl>${actions}${transferSection(offer, directUploadAvailable)}<p class="muted">After its security scans pass, the file becomes an untrusted project reference. Its contents do not become trusted project information automatically.</p></section>`;
+  return `<section><div class="section-heading"><div><p class="eyebrow">Exact attachment preview</p><h2>Save this file to ${escapeHtml(offer.destination.project_name)}?</h2></div></div><p>The AI tool cannot decide this for you. Only your authenticated Save action can authorize attachment transfer.</p>${notice}<dl><dt>File</dt><dd>${escapeHtml(offer.file.name)}</dd>${optionalFileMetadata(offer)}<dt>Project</dt><dd>${escapeHtml(offer.destination.project_name)}</dd><dt>Source</dt><dd>${escapeHtml(hostLabel(offer.source_host))}</dd><dt>Expires</dt><dd>${localTimestamp(offer.expires_at)}</dd></dl>${actions}${transferSection(offer, directUploadAvailable)}<p class="muted">After its security scans pass, the file becomes an untrusted project reference. Its contents do not become trusted project information automatically.</p></section>`;
 }
 
 export function createHostFileSaveOffersRouter({

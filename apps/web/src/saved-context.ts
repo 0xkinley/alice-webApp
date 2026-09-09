@@ -3,7 +3,7 @@ import type { PrivateFileStore } from "@alice/domain";
 import express from "express";
 import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 import { escapeHtml, readableLabel, readableText, renderReadableValue } from "./human-readable.ts";
-import { hostLabel, timestampLabel } from "./product-copy.ts";
+import { hostLabel, localTimestamp } from "./product-copy.ts";
 import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
 const VIEWS = new Set(["saved", "attention", "removed", "history"]);
@@ -15,16 +15,6 @@ const REPAIR_TYPES = new Map([
 
 function changeTimestamp(entry) {
   return entry.removed_at || entry.accepted_at || entry.created_at;
-}
-
-function localTimestamp(value) {
-  const date = new Date(value);
-  const iso = Number.isNaN(date.getTime()) ? "" : date.toISOString();
-  return `<time datetime="${escapeHtml(iso)}" data-local-time>${escapeHtml(timestampLabel(value))}</time>`;
-}
-
-function localTimeScript() {
-  return `<script>(()=>{const formatter=new Intl.DateTimeFormat(undefined,{year:"numeric",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZoneName:"short"});for(const time of document.querySelectorAll("time[data-local-time]")){const date=new Date(time.dateTime);if(!Number.isNaN(date.getTime()))time.textContent=formatter.format(date)}})();</script>`;
 }
 
 function changeLogCards(entries) {
@@ -335,7 +325,7 @@ export function createSavedContextRouter({
         .send(
           renderAppPage(
             `${view.project.name} change log`,
-            `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "changes" })}<section><div class="section-heading"><h2>Latest changes</h2><p class="muted">Shown in your local time</p></div>${content}</section></div>${localTimeScript()}`,
+            `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "changes" })}<section><div class="section-heading"><h2>Latest changes</h2><p class="muted">Shown in your local time</p></div>${content}</section></div>`,
             { email: request.aliceUser!.email, activeSection: "projects" },
           ),
         );

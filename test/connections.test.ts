@@ -131,6 +131,9 @@ test("connection center exposes only the current user's safe connection metadata
   assert.match(advancedHtml, /Every project you can access is discoverable/);
   assert.doesNotMatch(advancedHtml, /Active project and work context|Confirm active target/);
   assert.match(advancedHtml, /https:\/\/mcp\.alice\.example\/mcp/);
+  assert.match(advancedHtml, /Connected<\/dt><dd><time datetime="[^"]+" data-local-time>/);
+  assert.match(advancedHtml, /Last used<\/dt><dd><time datetime="[^"]+" data-local-time>/);
+  assert.doesNotMatch(advancedHtml, /Connected<\/dt><dd>[^<]*UTC|Last used<\/dt><dd>[^<]*UTC/);
   assert.doesNotMatch(advancedHtml, /Claude Desktop/);
   assert.doesNotMatch(advancedHtml, /owner-token-hash/);
 });

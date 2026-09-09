@@ -36,7 +36,7 @@ import {
   readableText,
   renderReadableValue,
 } from "./human-readable.ts";
-import { roleLabel, timestampLabel } from "./product-copy.ts";
+import { localTimestamp, roleLabel } from "./product-copy.ts";
 import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 import type { PrivateFileStore } from "@alice/domain";
 
@@ -54,7 +54,7 @@ function packageCollection(title: string, entries: any[]): string {
   return `<section><div class="section-heading"><h3>${escapeHtml(title)}</h3><p class="muted">${entries.length} ${entries.length === 1 ? "item" : "items"}</p></div>${entries
     .map(
       (entry) =>
-        `<article><h3>${escapeReadableHtml(readableLabel(entry.state_key))}</h3><p>${escapeReadableHtml(readableText(entry.summary))}</p><div class="readable-value">${renderReadableValue(entry.value)}</div><p class="muted">Saved ${escapeHtml(timestampLabel(entry.accepted_at))}</p></article>`,
+        `<article><h3>${escapeReadableHtml(readableLabel(entry.state_key))}</h3><p>${escapeReadableHtml(readableText(entry.summary))}</p><div class="readable-value">${renderReadableValue(entry.value)}</div><p class="muted">Saved ${localTimestamp(entry.accepted_at)}</p></article>`,
     )
     .join("")}</section>`;
 }
@@ -64,7 +64,7 @@ function renderPackagePreview(packagePreview): string {
     ? `<section><div class="section-heading"><h3>Files</h3><p class="muted">${packagePreview.file_artifacts.length} ${packagePreview.file_artifacts.length === 1 ? "file" : "files"}</p></div>${packagePreview.file_artifacts
         .map(
           (file) =>
-            `<article><h3>${escapeHtml(file.display_name)}</h3><p>${escapeHtml(file.media_type)} · ${Number(file.byte_size).toLocaleString()} bytes</p><p class="muted">Added ${escapeHtml(timestampLabel(file.referenced_at))}</p></article>`,
+            `<article><h3>${escapeHtml(file.display_name)}</h3><p>${escapeHtml(file.media_type)} · ${Number(file.byte_size).toLocaleString()} bytes</p><p class="muted">Added ${localTimestamp(file.referenced_at)}</p></article>`,
         )
         .join("")}</section>`
     : "";
@@ -159,7 +159,7 @@ export async function createApp({
     const archivedProjectList = archivedProjects
       .map(
         (project) =>
-          `<article class="project-card"><p class="eyebrow">Archived</p><h2><a class="project-link" href="/projects/${encodeURIComponent(project.id)}/archive">${escapeHtml(project.name)}</a></h2><p class="project-meta">Archived ${escapeHtml(timestampLabel(project.archived_at))}</p></article>`,
+          `<article class="project-card"><p class="eyebrow">Archived</p><h2><a class="project-link" href="/projects/${encodeURIComponent(project.id)}/archive">${escapeHtml(project.name)}</a></h2><p class="project-meta">Archived ${localTimestamp(project.archived_at)}</p></article>`,
       )
       .join("");
     const body = `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Private workspace</p><h1>Archived Projects</h1><p>Archived projects stay available for restore or export.</p></div></header><section class="project-section"><div class="section-heading"><h2>Archived projects</h2><p class="muted">${archivedProjects.length} retained</p></div>${
@@ -182,7 +182,7 @@ export async function createApp({
     const projectList = ownedProjects
       .map(
         (project) =>
-          `<article class="project-card"><p class="eyebrow">Your project</p><h2><a class="project-link" href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p class="project-meta">Updated ${escapeHtml(timestampLabel(project.updated_at))}</p></article>`,
+          `<article class="project-card"><p class="eyebrow">Your project</p><h2><a class="project-link" href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p class="project-meta">Updated ${localTimestamp(project.updated_at)}</p></article>`,
       )
       .join("");
     const sharedProjectList = sharedProjects
@@ -233,7 +233,7 @@ export async function createApp({
       .send(
         renderAppPage(
           "Private alpha signals",
-          `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Private alpha</p><h1>Usage signals</h1><p>These aggregate signals use identifiers, status, counts, and timestamps. They do not inspect prompts, model responses, proposed values, evidence payloads, or saved project content.</p></div></header><section><h2>Project retrieval</h2><dl><dt>Observed MCP read attempts</dt><dd>${signals.consumption.observed_attempts}</dd><dt>Successful package reads</dt><dd>${signals.consumption.successful_reads}</dd><dt>Failed package reads</dt><dd>${signals.consumption.failed_reads}</dd><dt>Success among observed attempts</dt><dd>${percentage(signals.consumption.success_rate_percent)}</dd><dt>Successful AI classifications</dt><dd>${signals.consumption.successful_host_surfaces}</dd><dt>Projects reused across AI tools within 7 days</dt><dd>${signals.consumption.projects_reused_across_hosts_within_7_days}</dd><dt>UTC weeks with a successful read</dt><dd>${signals.consumption.active_utc_weeks}</dd><dt>Repeated weekly use</dt><dd>${signals.consumption.repeated_weekly_use ? "Observed" : "Not yet observed"}</dd></dl><p class="muted"><strong>Important limitation:</strong> ${escapeHtml(signals.privacy.limitation)} Therefore this page does not call the observed-attempt success percentage a host invocation rate.</p></section><section><h2>Retained save outcomes</h2><dl><dt>Retained captures</dt><dd>${signals.saving.offers}</dd><dt>Entries in retained captures</dt><dd>${signals.saving.proposals}</dd><dt>Accepted captures</dt><dd>${signals.saving.confirmed_offers}</dd><dt>Historical rejected captures</dt><dd>${signals.saving.cancelled_offers}</dd><dt>Historical pending captures</dt><dd>${signals.saving.pending_offers}</dd><dt>Terminal capture rate</dt><dd>${percentage(signals.saving.completion_rate_percent)}</dd><dt>Average entries per retained capture</dt><dd>${signals.saving.average_proposals_per_offer ?? "Not enough data"}</dd><dt>Median retained review time</dt><dd>${duration(signals.saving.median_decision_seconds)}</dd><dt>Information repairs</dt><dd>${signals.saving.repairs}</dd></dl><p class="muted">Routine Save cards appear here only after Save. Ignored and expired cards are intentionally not retained as project or analytics events.</p></section></div>`,
+          `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Private alpha</p><h1>Usage signals</h1><p>These aggregate signals use identifiers, status, counts, and timestamps. They do not inspect prompts, model responses, proposed values, evidence payloads, or saved project content.</p></div></header><section><h2>Project retrieval</h2><dl><dt>Observed MCP read attempts</dt><dd>${signals.consumption.observed_attempts}</dd><dt>Successful package reads</dt><dd>${signals.consumption.successful_reads}</dd><dt>Failed package reads</dt><dd>${signals.consumption.failed_reads}</dd><dt>Success among observed attempts</dt><dd>${percentage(signals.consumption.success_rate_percent)}</dd><dt>Successful AI classifications</dt><dd>${signals.consumption.successful_host_surfaces}</dd><dt>Projects reused across AI tools within 7 days</dt><dd>${signals.consumption.projects_reused_across_hosts_within_7_days}</dd><dt>Weeks with a successful read</dt><dd>${signals.consumption.active_utc_weeks}</dd><dt>Repeated weekly use</dt><dd>${signals.consumption.repeated_weekly_use ? "Observed" : "Not yet observed"}</dd></dl><p class="muted"><strong>Important limitation:</strong> ${escapeHtml(signals.privacy.limitation)} Therefore this page does not call the observed-attempt success percentage a host invocation rate.</p></section><section><h2>Retained save outcomes</h2><dl><dt>Retained captures</dt><dd>${signals.saving.offers}</dd><dt>Entries in retained captures</dt><dd>${signals.saving.proposals}</dd><dt>Accepted captures</dt><dd>${signals.saving.confirmed_offers}</dd><dt>Historical rejected captures</dt><dd>${signals.saving.cancelled_offers}</dd><dt>Historical pending captures</dt><dd>${signals.saving.pending_offers}</dd><dt>Terminal capture rate</dt><dd>${percentage(signals.saving.completion_rate_percent)}</dd><dt>Average entries per retained capture</dt><dd>${signals.saving.average_proposals_per_offer ?? "Not enough data"}</dd><dt>Median retained review time</dt><dd>${duration(signals.saving.median_decision_seconds)}</dd><dt>Information repairs</dt><dd>${signals.saving.repairs}</dd></dl><p class="muted">Routine Save cards appear here only after Save. Ignored and expired cards are intentionally not retained as project or analytics events.</p></section></div>`,
           { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );
@@ -346,7 +346,7 @@ export async function createApp({
       .send(
         renderAppPage(
           "Host package preview",
-          `<div class="project-home">${renderProjectShell({ shell, fileStore })}<section><div class="section-heading"><div><p class="eyebrow">AI delivery preview</p><h2>What an AI tool would receive</h2></div></div><p>This readable preview shows the bounded project information available for one task. Opening it does not create a read receipt or mean an AI tool consulted alice.</p><form method="post"><label>Task<input name="task" maxlength="2000" value="${escapeHtml(parsed.data.task)}" required></label><label>Information budget<input name="context_budget" type="number" min="2000" max="32000" value="${escapeHtml(parsed.data.context_budget)}" required></label><button type="submit">Refresh preview</button></form><dl><dt>Information included</dt><dd>${escapeHtml(packagePreview.package.budget.used)} of ${escapeHtml(packagePreview.package.budget.limit)} permitted bytes</dd><dt>Current as of</dt><dd>${escapeHtml(timestampLabel(packagePreview.package.freshness.state_as_of))}</dd><dt>Items omitted for size</dt><dd>${escapeHtml(packagePreview.package.omissions.total)}</dd></dl>${renderPackagePreview(packagePreview)}</section></div>`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore })}<section><div class="section-heading"><div><p class="eyebrow">AI delivery preview</p><h2>What an AI tool would receive</h2></div></div><p>This readable preview shows the bounded project information available for one task. Opening it does not create a read receipt or mean an AI tool consulted alice.</p><form method="post"><label>Task<input name="task" maxlength="2000" value="${escapeHtml(parsed.data.task)}" required></label><label>Information budget<input name="context_budget" type="number" min="2000" max="32000" value="${escapeHtml(parsed.data.context_budget)}" required></label><button type="submit">Refresh preview</button></form><dl><dt>Information included</dt><dd>${escapeHtml(packagePreview.package.budget.used)} of ${escapeHtml(packagePreview.package.budget.limit)} permitted bytes</dd><dt>Current as of</dt><dd>${localTimestamp(packagePreview.package.freshness.state_as_of)}</dd><dt>Items omitted for size</dt><dd>${escapeHtml(packagePreview.package.omissions.total)}</dd></dl>${renderPackagePreview(packagePreview)}</section></div>`,
           { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );

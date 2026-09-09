@@ -63,9 +63,31 @@ export function timestampLabel(value) {
   if (value === null || value === undefined || value === "") return "Not yet recorded";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return humanize(value);
-  return `${new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "UTC",
-  }).format(date)} UTC`;
+  }).format(date);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+export function localTimestamp(value) {
+  if (value === null || value === undefined || value === "") {
+    return escapeHtml(timestampLabel(value));
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return escapeHtml(timestampLabel(value));
+  return `<time datetime="${escapeHtml(date.toISOString())}" data-local-time>${escapeHtml(timestampLabel(date))}</time>`;
+}
+
+export function localTimeScript() {
+  return `<script>(()=>{const formatter=new Intl.DateTimeFormat(undefined,{year:"numeric",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZoneName:"short"});for(const time of document.querySelectorAll("time[data-local-time]")){const date=new Date(time.dateTime);if(!Number.isNaN(date.getTime()))time.textContent=formatter.format(date)}})();</script>`;
 }
