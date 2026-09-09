@@ -3,9 +3,22 @@ import test from "node:test";
 import {
   createChangeSetCommand,
   createPrivateAlphaChangeSetPlan,
+  CLOUDFORMATION_TEMPLATE_BODY_LIMIT,
+  minifyCloudFormationTemplate,
   PRIVATE_ALPHA_REGION,
   PRIVATE_ALPHA_STACK,
 } from "../scripts/private-alpha-change-set.mjs";
+
+test("CloudFormation templates are minified within the CLI template-body limit", () => {
+  assert.equal(minifyCloudFormationTemplate('{\n  "Resources": {}\n}\n'), '{"Resources":{}}');
+  assert.throws(
+    () =>
+      minifyCloudFormationTemplate(
+        JSON.stringify({ value: "x".repeat(CLOUDFORMATION_TEMPLATE_BODY_LIMIT) }),
+      ),
+    /exceeds 51200 bytes/,
+  );
+});
 
 test("safe-stop plan disables services and public origins without changing retained values", () => {
   const plan = createPrivateAlphaChangeSetPlan({
@@ -112,6 +125,11 @@ test("hosted-proof plan requires exact Frankfurt Function URL origins", () => {
     PRIVATE_ALPHA_STACK,
   ]);
   assert.ok(command.includes("ParameterKey=OriginsConfigured,ParameterValue=true"));
+
+  const temporaryCommand = createChangeSetCommand(plan, {
+    templatePath: "/tmp/private-files.template.min.json",
+  });
+  assert.ok(temporaryCommand.includes("file:///tmp/private-files.template.min.json"));
 });
 
 test("invitation-operator plan requires one immutable Frankfurt image and stays private", () => {

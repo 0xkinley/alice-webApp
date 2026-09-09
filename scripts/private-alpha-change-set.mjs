@@ -1,9 +1,14 @@
+import { Buffer } from "node:buffer";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { URL, pathToFileURL } from "node:url";
 
 export const PRIVATE_ALPHA_REGION = "eu-central-1";
 export const PRIVATE_ALPHA_STACK = "alice-private-alpha";
 export const PRIVATE_ALPHA_TEMPLATE = "infra/aws/private-files.template.json";
+export const CLOUDFORMATION_TEMPLATE_BODY_LIMIT = 51_200;
 
 const MODES = new Set([
   "private-runtime",
@@ -149,7 +154,17 @@ export function createPrivateAlphaChangeSetPlan({
   return { description, mode, name, parameters, public: mode === "hosted-proof" };
 }
 
-export function createChangeSetCommand(plan) {
+export function minifyCloudFormationTemplate(templateText) {
+  const minified = JSON.stringify(JSON.parse(templateText));
+  if (Buffer.byteLength(minified, "utf8") > CLOUDFORMATION_TEMPLATE_BODY_LIMIT) {
+    throw new Error(
+      `Minified CloudFormation template exceeds ${CLOUDFORMATION_TEMPLATE_BODY_LIMIT} bytes.`,
+    );
+  }
+  return minified;
+}
+
+export function createChangeSetCommand(plan, { templatePath = PRIVATE_ALPHA_TEMPLATE } = {}) {
   return [
     "cloudformation",
     "create-change-set",
@@ -162,7 +177,7 @@ export function createChangeSetCommand(plan) {
     "--change-set-type",
     "UPDATE",
     "--template-body",
-    `file://${PRIVATE_ALPHA_TEMPLATE}`,
+    `file://${templatePath}`,
     "--parameters",
     ...plan.parameters,
     "--capabilities",
@@ -215,22 +230,35 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       const command = createChangeSetCommand(plan);
       console.log(JSON.stringify({ ...plan, command: ["aws", ...command] }, null, 2));
       if (options.create) {
-        if (!runAws(command)) process.exit();
-        runAws([
-          "cloudformation",
-          "wait",
-          "change-set-create-complete",
-          "--region",
-          PRIVATE_ALPHA_REGION,
-          "--stack-name",
-          PRIVATE_ALPHA_STACK,
-          "--change-set-name",
-          plan.name,
-          "--no-cli-pager",
-        ]);
-        console.log(
-          `Review with: aws cloudformation describe-change-set --region ${PRIVATE_ALPHA_REGION} --stack-name ${PRIVATE_ALPHA_STACK} --change-set-name ${plan.name} --no-cli-pager`,
-        );
+        const temporaryDirectory = mkdtempSync(join(tmpdir(), "alice-cloudformation-"));
+        const temporaryTemplate = join(temporaryDirectory, "private-files.template.min.json");
+        try {
+          writeFileSync(
+            temporaryTemplate,
+            minifyCloudFormationTemplate(readFileSync(PRIVATE_ALPHA_TEMPLATE, "utf8")),
+            { mode: 0o600 },
+          );
+          const created = runAws(createChangeSetCommand(plan, { templatePath: temporaryTemplate }));
+          if (created) {
+            runAws([
+              "cloudformation",
+              "wait",
+              "change-set-create-complete",
+              "--region",
+              PRIVATE_ALPHA_REGION,
+              "--stack-name",
+              PRIVATE_ALPHA_STACK,
+              "--change-set-name",
+              plan.name,
+              "--no-cli-pager",
+            ]);
+            console.log(
+              `Review with: aws cloudformation describe-change-set --region ${PRIVATE_ALPHA_REGION} --stack-name ${PRIVATE_ALPHA_STACK} --change-set-name ${plan.name} --no-cli-pager`,
+            );
+          }
+        } finally {
+          rmSync(temporaryDirectory, { recursive: true, force: true });
+        }
       }
     } catch (error) {
       console.error(error instanceof Error ? error.message : "Unable to plan change set.");
