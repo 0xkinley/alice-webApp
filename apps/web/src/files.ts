@@ -18,8 +18,8 @@ import {
   uploadProjectFile,
 } from "@alice/domain";
 import type { PrivateFileStore } from "@alice/domain";
-import { renderAppPage, renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
-import { accessLabel, hostLabel, timestampLabel } from "./product-copy.ts";
+import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
+import { hostLabel, timestampLabel } from "./product-copy.ts";
 import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
 function escapeHtml(value) {
@@ -123,6 +123,12 @@ export function createFilesRouter({
       contextId,
     });
     if (!view) return notFound(response);
+    if (!projectOnly) {
+      return response.redirect(
+        303,
+        `/projects/${encodeURIComponent(request.params.projectId)}/files`,
+      );
+    }
     const rows = view.files
       .map(
         (file) =>
@@ -135,32 +141,14 @@ export function createFilesRouter({
           `<article class="file-card removed-file"><h3>${escapeHtml(file.display_name)}</h3><p><span class="badge">Removed</span> · ${escapeHtml(timestampLabel(file.removed_at))}</p>${file.removal_reason ? `<p><strong>Reason:</strong> ${escapeHtml(file.removal_reason)}</p>` : ""}<p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}">View preserved metadata</a></p></article>`,
       )
       .join("");
-    const uploadSection =
-      view.access.can_write && !projectOnly
-        ? `<section class="upload-panel"><h2>Add a file</h2><p>PDF, DOCX, XLSX, or PPTX up to 25 MiB; PNG, JPEG, or WebP up to 10 MiB; UTF-8 text, Markdown, CSV, TSV, or JSON up to 2 MiB.</p><p class="notice">The file remains unavailable until scanning reports no threats. Its contents do not become saved project information automatically. Modern Office files are reference and download only in this alpha.</p><form id="file-upload"><label>Choose a file<input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><button type="submit">Upload and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form></section>${fileStore.createSignedUpload ? directUploadScript({ projectId: request.params.projectId, contextId: view.context.context_id, successLocation: "reload" }) : legacyUploadScript(projectOnly ? request.path : `${request.path}?${new URLSearchParams({ context_id: view.context.context_id })}`, "reload")}`
-        : "";
-    if (projectOnly) {
-      const shell = await getProjectShell(
-        database,
-        request.aliceUser!.id,
-        request.params.projectId,
-      );
-      return response
-        .type("html")
-        .send(
-          renderAppPage(
-            `Files · ${view.context.project_name}`,
-            `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "files" })}<section><div class="section-heading"><h2>Files (${view.files.length})</h2><p class="muted">Available only when scan-clean</p></div>${rows || '<div class="empty-state"><h2>No files yet</h2><p>Add a supported file when you want it attached to this project.</p></div>'}</section><section><div class="section-heading"><h2>Removed (${view.removed.length})</h2><p class="muted">Preserved history, no active access</p></div>${removedRows || '<div class="empty-state"><h2>No files have been removed</h2><p>Removed file records remain visible here with their preserved history.</p></div>'}</section>${uploadSection}<p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/export.json">Export file metadata</a></p></div>`,
-            { email: request.aliceUser!.email, activeSection: "projects" },
-          ),
-        );
-    }
-    response
+    const shell = await getProjectShell(database, request.aliceUser!.id, request.params.projectId);
+    return response
       .type("html")
       .send(
-        renderPage(
+        renderAppPage(
           `Files · ${view.context.project_name}`,
-          `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}">Back to project</a><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/export.json?context_id=${encodeURIComponent(view.context.context_id)}">Export metadata</a></nav><header class="hero"><p class="eyebrow">Private project files</p><h1>Files in ${escapeHtml(view.context.context_name)}</h1><p>Files remain private and unavailable until scanning reports no threats. File contents do not become saved assertions.</p></header><section><div class="section-heading"><h2>Active files (${view.files.length})</h2><p class="muted">Available only when scan-clean</p></div>${rows || '<div class="empty-state"><h2>No active files in this context</h2><p>Upload a supported file when you want a private, scan-gated reference.</p></div>'}</section><section><div class="section-heading"><h2>Removed (${view.removed.length})</h2><p class="muted">Preserved provenance, no active access</p></div>${removedRows || '<div class="empty-state"><h2>No files have been removed</h2><p>Removed file references remain visible here with their preserved metadata.</p></div>'}</section>${uploadSection}`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "files" })}<section><div class="section-heading"><h2>Files (${view.files.length})</h2><p class="muted">Available only when scan-clean</p></div>${rows || '<div class="empty-state"><h2>No files yet</h2><p>Add a supported file when you want it attached to this project.</p></div>'}</section><section><div class="section-heading"><h2>Removed (${view.removed.length})</h2><p class="muted">Preserved history, no active access</p></div>${removedRows || '<div class="empty-state"><h2>No files have been removed</h2><p>Removed file records remain visible here with their preserved history.</p></div>'}</section><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/export.json">Export file metadata</a></p></div>`,
+          { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );
   });
@@ -312,16 +300,16 @@ export function createFilesRouter({
       referenceId: request.params.referenceId,
     });
     if (!file) return notFound(response);
-    const permanentDeletionControl =
-      file.access.project_role === "owner"
-        ? `<section><h2>Permanent deletion</h2><p>Removing this file from a context preserves its immutable object and history. Permanent deletion is governed at the project level so shared immutable objects are not silently removed from another authorized project.</p><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/archive">Open archive controls</a></p></section>`
-        : "<section><h2>Permanent deletion</h2><p>Removing this file from a context preserves its immutable object and history. A project Owner controls archive, export, and any project-level permanent-deletion request.</p></section>";
+    const shell = await getProjectShell(database, request.aliceUser!.id, request.params.projectId);
+    if (!shell) return notFound(response);
+    const permanentDeletionControl = `<section><h2>Permanent deletion</h2><p>Removing this file preserves its immutable record and history. A project Owner controls archive, export, and any project-level permanent-deletion request.</p></section>`;
     response
       .type("html")
       .send(
-        renderPage(
+        renderAppPage(
           file.display_name,
-          `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}/files?context_id=${encodeURIComponent(file.context_id)}">Back to files</a></nav><header class="hero"><p class="eyebrow">File record</p><h1>${escapeHtml(file.display_name)}</h1><p><span class="badge">Version ${file.version}${file.is_current ? " · Current" : " · Superseded or processing"}</span></p></header>${file.exclusion_id ? `<p class="notice danger"><strong>Removed from active context</strong> · ${escapeHtml(timestampLabel(file.removed_at))}</p>${file.removal_reason ? `<p><strong>Reason:</strong> ${escapeHtml(file.removal_reason)}</p>` : ""}<p class="notice">The object metadata and audit history are preserved. This is not permanent erasure.</p>` : `<p class="notice${file.scan_status === "clean" ? "" : " warning"}"><strong>${escapeHtml(statusCopy(file.scan_status))}</strong></p>`}<section><h2>Verified record</h2><dl><dt>Project</dt><dd>${escapeHtml(file.project_name)}</dd><dt>Context and access</dt><dd>${escapeHtml(file.context_name)} · ${escapeHtml(accessLabel(file.visibility))}</dd><dt>Verified type</dt><dd>${escapeHtml(file.media_type)}</dd><dt>Size</dt><dd>${Number(file.byte_size).toLocaleString()} bytes</dd><dt>Source host</dt><dd>${escapeHtml(hostLabel(file.source_host))}</dd><dt>Referenced</dt><dd>${escapeHtml(timestampLabel(file.referenced_at))}</dd><dt>Last scan update</dt><dd>${escapeHtml(timestampLabel(file.scan_updated_at))}</dd><dt>File receipt</dt><dd><code>${escapeHtml(file.id)}</code></dd><dt>Immutable object receipt</dt><dd><code>${escapeHtml(file.file_object_id)}</code></dd></dl></section>${file.exclusion_id ? "" : `<div class="actions">${file.scan_status === "clean" && file.is_current ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/preview">Preview</a><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/download">Download</a><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/add-reference">Add to another context</a>` : ""}${file.access.can_write && file.can_replace ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/replace">Upload replacement</a>` : ""}${file.access.can_write ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/remove">Remove from context</a>` : ""}</div>`}<section><div class="section-heading"><h2>Version history</h2><p class="muted">Earlier versions retain provenance</p></div>${file.versions.map((version) => `<article class="file-card${version.id === file.current_reference_id ? "" : " unavailable"}"><h3>Version ${version.version} · ${escapeHtml(version.display_name)}</h3><p>${escapeHtml(statusCopy(version.scan_status))} · ${escapeHtml(timestampLabel(version.referenced_at))}</p>${version.id === file.current_reference_id ? "<p><strong>Current clean version</strong></p>" : ""}<p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(version.id)}">View this version</a></p></article>`).join("")}</section>${permanentDeletionControl}`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "files" })}<section><div class="section-heading"><div><p class="eyebrow">File record</p><h2>${escapeHtml(file.display_name)}</h2></div><span class="badge">Version ${file.version}${file.is_current ? " · Current" : " · Superseded or processing"}</span></div>${file.exclusion_id ? `<p class="notice danger"><strong>Removed from project</strong> · ${escapeHtml(timestampLabel(file.removed_at))}</p>${file.removal_reason ? `<p><strong>Reason:</strong> ${escapeHtml(file.removal_reason)}</p>` : ""}<p class="notice">The object metadata and audit history are preserved. This is not permanent erasure.</p>` : `<p class="notice${file.scan_status === "clean" ? "" : " warning"}"><strong>${escapeHtml(statusCopy(file.scan_status))}</strong></p>`}<h3>Verified record</h3><dl><dt>Project</dt><dd>${escapeHtml(file.project_name)}</dd><dt>Verified type</dt><dd>${escapeHtml(file.media_type)}</dd><dt>Size</dt><dd>${Number(file.byte_size).toLocaleString()} bytes</dd><dt>Source</dt><dd>${escapeHtml(hostLabel(file.source_host))}</dd><dt>Added</dt><dd>${escapeHtml(timestampLabel(file.referenced_at))}</dd><dt>Last scan update</dt><dd>${escapeHtml(timestampLabel(file.scan_updated_at))}</dd><dt>File receipt</dt><dd><code>${escapeHtml(file.id)}</code></dd><dt>Immutable object receipt</dt><dd><code>${escapeHtml(file.file_object_id)}</code></dd></dl>${file.exclusion_id ? "" : `<div class="actions">${file.scan_status === "clean" && file.is_current ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/preview">Preview</a><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/download">Download</a>` : ""}${file.access.can_write && file.can_replace ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/replace">Upload replacement</a>` : ""}${file.access.can_write ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/remove">Remove from project</a>` : ""}</div>`}</section><section><div class="section-heading"><h2>Version history</h2><p class="muted">Earlier versions retain provenance</p></div>${file.versions.map((version) => `<article class="file-card${version.id === file.current_reference_id ? "" : " unavailable"}"><h3>Version ${version.version} · ${escapeHtml(version.display_name)}</h3><p>${escapeHtml(statusCopy(version.scan_status))} · ${escapeHtml(timestampLabel(version.referenced_at))}</p>${version.id === file.current_reference_id ? "<p><strong>Current clean version</strong></p>" : ""}<p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(version.id)}">View this version</a></p></article>`).join("")}</section>${permanentDeletionControl}</div>`,
+          { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );
   });
@@ -336,20 +324,10 @@ export function createFilesRouter({
         referenceId: request.params.referenceId,
       });
       if (!preview) return notFound(response);
-      const destinations = preview.destinations
-        .map(
-          (context) =>
-            `<article class="file-card"><h2>${escapeHtml(context.name)}</h2><p>Access will follow ${escapeHtml(accessLabel(context.visibility))}.</p><form method="post" action="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}/add-reference"><input type="hidden" name="target_context_id" value="${escapeHtml(context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(context.preview_version)}"><button type="submit">Add reference to this context</button></form></article>`,
-        )
-        .join("");
-      response
-        .type("html")
-        .send(
-          renderPage(
-            "Add file to another context",
-            `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}">Back to file</a></nav><header class="hero"><p class="eyebrow">Explicit context access</p><h1>Add ${escapeHtml(preview.reference.display_name)} to another context</h1><p>This creates a separate access-controlled reference to the same scan-clean immutable object. No file bytes are copied, and access is granted only through the context you choose.</p></header>${destinations || '<div class="empty-state"><h2>No eligible contexts</h2><p>You need write access to another context that does not already reference this exact object.</p></div>'}`,
-          ),
-        );
+      response.redirect(
+        303,
+        `/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}`,
+      );
     },
   );
 
@@ -416,12 +394,15 @@ export function createFilesRouter({
           ),
         );
     }
+    const shell = await getProjectShell(database, request.aliceUser!.id, request.params.projectId);
+    if (!shell) return notFound(response);
     response
       .type("html")
       .send(
-        renderPage(
+        renderAppPage(
           "Upload replacement",
-          `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}">Back to file</a></nav><header class="hero"><p class="eyebrow">Replacement upload</p><h1>Upload a replacement for ${escapeHtml(file.display_name)}</h1><p>The old clean version remains current while the changed replacement is scanned. A failed replacement never replaces the current clean version.</p></header><form id="file-upload"><label>Choose the exact replacement file<input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><p id="selection" class="notice" role="status">Choose the exact replacement file.</p><button type="submit">Upload replacement and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form><script>document.getElementById("file").addEventListener("change",event=>{const selected=event.target.files[0];document.getElementById("selection").textContent=selected?selected.name+" · "+selected.type+" · "+selected.size+" bytes":"Choose the exact replacement file."})</script>${fileStore.createSignedUpload ? directUploadScript({ projectId: request.params.projectId, contextId: file.context_id, replacesReferenceId: file.id, successLocation: "receipt" }) : legacyUploadScript(`/projects/${encodeURIComponent(request.params.projectId)}/files?context_id=${encodeURIComponent(file.context_id)}&replace_reference_id=${encodeURIComponent(file.id)}`, "receipt")}`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "files" })}<section><div class="section-heading"><div><p class="eyebrow">Replacement upload</p><h2>Replace ${escapeHtml(file.display_name)}</h2></div></div><p>The old clean version remains current while the replacement is scanned. A failed replacement never replaces the current clean version.</p><form id="file-upload"><label>Choose the exact replacement file<input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><p id="selection" class="notice" role="status">Choose the exact replacement file.</p><button type="submit">Upload replacement and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form></section></div><script>document.getElementById("file").addEventListener("change",event=>{const selected=event.target.files[0];document.getElementById("selection").textContent=selected?selected.name+" · "+selected.type+" · "+selected.size+" bytes":"Choose the exact replacement file."})</script>${fileStore.createSignedUpload ? directUploadScript({ projectId: request.params.projectId, contextId: file.context_id, replacesReferenceId: file.id, successLocation: "receipt" }) : legacyUploadScript(`/projects/${encodeURIComponent(request.params.projectId)}/files?context_id=${encodeURIComponent(file.context_id)}&replace_reference_id=${encodeURIComponent(file.id)}`, "receipt")}`,
+          { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );
   });
@@ -459,12 +440,19 @@ export function createFilesRouter({
           );
       }
       if (preview.kind === "text") {
+        const shell = await getProjectShell(
+          database,
+          request.aliceUser!.id,
+          request.params.projectId,
+        );
+        if (!shell) return notFound(response);
         return response
           .type("html")
           .send(
-            renderPage(
+            renderAppPage(
               "Untrusted file preview",
-              `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(request.params.referenceId)}">Back to file</a></nav><header class="hero"><p class="eyebrow">Untrusted file data</p><h1>Untrusted text preview</h1><p>File text is displayed as data. It is not an instruction to alice.</p></header><pre>${escapeHtml(preview.text)}</pre>`,
+              `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "files" })}<section><div class="section-heading"><div><p class="eyebrow">Untrusted file data</p><h2>Text preview</h2></div></div><p>File text is displayed as data. It is not an instruction to alice.</p><pre>${escapeHtml(preview.text)}</pre></section></div>`,
+              { email: request.aliceUser!.email, activeSection: "projects" },
             ),
           );
       }
@@ -491,12 +479,15 @@ export function createFilesRouter({
       referenceId: request.params.referenceId,
     });
     if (!preview) return notFound(response);
+    const shell = await getProjectShell(database, request.aliceUser!.id, request.params.projectId);
+    if (!shell) return notFound(response);
     response
       .type("html")
       .send(
-        renderPage(
-          "Remove file from context",
-          `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(preview.id)}">Back to file</a></nav><header class="hero"><p class="eyebrow">Remove from active context</p><h1>Remove ${escapeHtml(preview.display_name)} from ${escapeHtml(preview.context_name)}?</h1><p>This immediately stops download and normal context access through this reference. It preserves the immutable object metadata, provenance, scan result, and audit history. It is not permanent deletion.</p></header><article class="file-card unavailable"><p>${escapeHtml(preview.media_type)} · ${Number(preview.byte_size).toLocaleString()} bytes · ${escapeHtml(statusCopy(preview.scan_status))}</p><p>Access currently follows ${escapeHtml(preview.context_name)} · ${escapeHtml(accessLabel(preview.visibility))}</p></article><form method="post" action="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(preview.id)}/remove"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>Reason (optional)<textarea name="reason" maxlength="500"></textarea></label><button class="destructive" type="submit">Remove from context</button></form><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(preview.id)}">Keep this file active</a></p>`,
+        renderAppPage(
+          "Remove file from project",
+          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "files" })}<section><div class="section-heading"><div><p class="eyebrow">Remove file</p><h2>Remove ${escapeHtml(preview.display_name)} from this project?</h2></div></div><p>This immediately stops normal access to this file. Its immutable metadata, source, scan result, and audit history remain preserved. This is not permanent deletion.</p><article class="file-card unavailable"><p>${escapeHtml(preview.media_type)} · ${Number(preview.byte_size).toLocaleString()} bytes · ${escapeHtml(statusCopy(preview.scan_status))}</p></article><form method="post" action="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(preview.id)}/remove"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>Reason (optional)<textarea name="reason" maxlength="500"></textarea></label><button class="destructive" type="submit">Remove from project</button></form><p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(preview.id)}">Keep this file</a></p></section></div>`,
+          { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );
   });
@@ -539,10 +530,7 @@ export function createFilesRouter({
           ),
         );
     }
-    response.redirect(
-      303,
-      `/projects/${encodeURIComponent(request.params.projectId)}/files?context_id=${encodeURIComponent(result.contextId)}`,
-    );
+    response.redirect(303, `/projects/${encodeURIComponent(request.params.projectId)}/files`);
   });
 
   router.post("/:projectId/files/:referenceId/scan", authenticated, async (request, response) => {
@@ -553,10 +541,7 @@ export function createFilesRouter({
         referenceId: request.params.referenceId,
       });
       if (!result) return notFound(response);
-      response.redirect(
-        303,
-        `/projects/${encodeURIComponent(request.params.projectId)}/files?context_id=${encodeURIComponent(result.context_id)}`,
-      );
+      response.redirect(303, `/projects/${encodeURIComponent(request.params.projectId)}/files`);
     } catch {
       response
         .status(502)

@@ -210,11 +210,13 @@ test("only the exact invited account can accept a hash-only project invitation",
   });
   assert.equal(accessPage.status, 200);
   const accessHtml = await accessPage.text();
-  assert.match(accessHtml, /Membership safety project access and security/);
+  assert.match(accessHtml, /data-app-shell/);
+  assert.match(accessHtml, /Membership safety project/);
+  assert.match(accessHtml, /Your access/);
   assert.match(accessHtml, /People with project access/);
   assert.match(accessHtml, /membership-owner@alice\.example/);
   assert.match(accessHtml, /membership-recipient@alice\.example/);
-  assert.match(accessHtml, /Visible context access/);
+  assert.doesNotMatch(accessHtml, /Visible context access|Work context|>General</);
   assert.match(accessHtml, /Project invitation accepted/);
   assert.match(accessHtml, /Only your own AI connections are shown/);
 });

@@ -161,7 +161,7 @@ after(async () => {
   created.database.close();
 });
 
-test("saved context is private and uses user-facing lifecycle language", async () => {
+test("legacy saved-information links open the project change log", async () => {
   const unauthenticated = await fetch(
     `${baseUrl}/projects/${owner.project_id}/saved-context?context_id=${general.id}`,
     { redirect: "manual" },
@@ -175,16 +175,11 @@ test("saved context is private and uses user-facing lifecycle language", async (
   );
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /Saved context \(1\)/);
-  assert.match(html, /Needs attention \(1\)/);
-  assert.match(html, /Removed \(0\)/);
-  assert.match(html, /History \(3\)/);
+  assert.match(html, /data-app-shell/);
+  assert.match(html, /Latest changes/);
   assert.match(html, /Visible saved value/);
-  assert.doesNotMatch(
-    html,
-    /Visible pending value|Visible not-saved value|Approved launch direction/,
-  );
-  assert.match(html, /Source and history/);
+  assert.match(html, /Visible pending value|Visible not-saved value/);
+  assert.doesNotMatch(html, />General|context_id=/);
 });
 
 test("Needs attention links to the exact preview and History explains prior outcomes", async () => {
@@ -195,13 +190,13 @@ test("Needs attention links to the exact preview and History explains prior outc
   const attentionHtml = await attention.text();
   assert.match(attentionHtml, /Visible pending value/);
   assert.match(attentionHtml, new RegExp(`/review/captures/${pendingEvidenceId}`));
-  assert.doesNotMatch(attentionHtml, /Visible saved value|Visible not-saved value/);
+  assert.match(attentionHtml, /Visible saved value|Visible not-saved value/);
 
   const removed = await fetch(
     `${baseUrl}/projects/${owner.project_id}/saved-context?context_id=${general.id}&view=removed`,
     { headers: { cookie } },
   );
-  assert.match(await removed.text(), /Nothing has been removed from this context/);
+  assert.match(await removed.text(), /Latest changes/);
 
   const history = await fetch(
     `${baseUrl}/projects/${owner.project_id}/saved-context?context_id=${general.id}&view=history`,
@@ -212,7 +207,7 @@ test("Needs attention links to the exact preview and History explains prior outc
   assert.match(historyHtml, /Visible pending value/);
   assert.match(historyHtml, /Visible not-saved value/);
   assert.match(historyHtml, /Saved/);
-  assert.match(historyHtml, /Needs attention/);
+  assert.match(historyHtml, /Proposed/);
   assert.match(historyHtml, /Not saved/);
 });
 
@@ -222,8 +217,8 @@ test("context switching is explicit and guessed context identifiers reveal nothi
   });
   const projectWideHtml = await projectWide.text();
   assert.match(projectWideHtml, /Approved launch direction/);
-  assert.doesNotMatch(projectWideHtml, /Visible saved value/);
-  assert.match(projectWideHtml, /Saved information/);
+  assert.match(projectWideHtml, /Visible saved value/);
+  assert.match(projectWideHtml, /Change log/);
   assert.doesNotMatch(projectWideHtml, /aria-label="Project contexts"/);
   assert.doesNotMatch(projectWideHtml, /aria-label="Context views"/);
 
@@ -288,7 +283,8 @@ test("an exact human removal stops consumption without erasing provenance", asyn
   );
   assert.equal(previewResponse.status, 200);
   const previewHtml = await previewResponse.text();
-  assert.match(previewHtml, /Remove from Private project \/ General\?/);
+  assert.match(previewHtml, /Remove this from the project\?/);
+  assert.doesNotMatch(previewHtml, />General/);
   assert.match(previewHtml, /Visible saved value/);
   assert.match(previewHtml, /does not erase the saved version/);
   assert.equal(
@@ -373,7 +369,7 @@ test("an exact human removal stops consumption without erasing provenance", asyn
     },
   );
   assert.equal(remove.status, 303);
-  assert.match(remove.headers.get("location"), /view=removed/);
+  assert.equal(remove.headers.get("location"), `/projects/${owner.project_id}/changes`);
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
     acceptedCountBefore,
@@ -394,8 +390,8 @@ test("an exact human removal stops consumption without erasing provenance", asyn
     { headers: { cookie } },
   );
   const savedHtml = await saved.text();
-  assert.match(savedHtml, /Saved context \(0\)/);
-  assert.doesNotMatch(savedHtml, /Visible saved value/);
+  assert.match(savedHtml, /Removed/);
+  assert.match(savedHtml, /Visible saved value/);
   const removed = await fetch(
     `${baseUrl}/projects/${owner.project_id}/saved-context?context_id=${general.id}&view=removed`,
     { headers: { cookie } },
@@ -457,7 +453,8 @@ test("an exact human removal stops consumption without erasing provenance", asyn
   );
   const restoredHtml = await restoredView.text();
   assert.match(restoredHtml, /Restored saved value/);
-  assert.doesNotMatch(restoredHtml, /Visible saved value/);
+  assert.match(restoredHtml, /Visible saved value/);
+  assert.match(restoredHtml, /Removed|Replaced/);
   assert.equal(
     created.database.prepare("SELECT COUNT(*) AS count FROM context_entry_exclusions").get().count,
     1,
@@ -491,7 +488,8 @@ test("an exact repair classifies stale context and removes it without rewriting 
   );
   assert.equal(previewResponse.status, 200);
   const previewHtml = await previewResponse.text();
-  assert.match(previewHtml, /Repair Private project \/ General/);
+  assert.match(previewHtml, /What needs to change\?/);
+  assert.doesNotMatch(previewHtml, />General/);
   assert.match(previewHtml, /Outdated launch date/);
   assert.match(previewHtml, /Stale: it is no longer current/);
   assert.match(previewHtml, /corrected value must arrive as a new proposal/i);
@@ -527,7 +525,7 @@ test("an exact repair classifies stale context and removes it without rewriting 
     },
   );
   assert.equal(response.status, 303);
-  assert.match(response.headers.get("location"), /view=removed/);
+  assert.equal(response.headers.get("location"), `/projects/${owner.project_id}/changes`);
   const exclusion = created.database
     .prepare("SELECT reason FROM context_entry_exclusions WHERE accepted_state_id = ?")
     .get(accepted.acceptedStateId);
@@ -599,8 +597,7 @@ test("history labels an older accepted value as superseded by its replacement ve
     { headers: { cookie } },
   );
   const html = await history.text();
-  assert.match(html, /Superseded/);
-  assert.match(html, /Replaced by saved version 2/);
+  assert.match(html, /Replaced/);
   assert.match(html, /First positioning/);
   assert.match(html, /Replacement positioning/);
 });

@@ -114,7 +114,8 @@ test("an explicit authenticated review accepts a candidate into versioned truste
   });
   assert.equal(queueIndexResponse.status, 200);
   const queueIndexHtml = await queueIndexResponse.text();
-  assert.match(queueIndexHtml, /Context review/);
+  assert.match(queueIndexHtml, /data-app-shell/);
+  assert.match(queueIndexHtml, /Review proposed changes/);
   assert.match(queueIndexHtml, /Switchboard Launch/);
   assert.match(queueIndexHtml, /1 need attention/);
 
@@ -212,11 +213,12 @@ test("one exact authenticated preview confirms every proposed entry atomically",
   });
   assert.equal(previewResponse.status, 200);
   const previewHtml = await previewResponse.text();
-  assert.match(previewHtml, /Save to Switchboard Launch \/ General\?/);
+  assert.match(previewHtml, /Save these changes to Switchboard Launch\?/);
+  assert.doesNotMatch(previewHtml, />General</);
   assert.match(previewHtml, /Two exact launch entries/);
   assert.match(previewHtml, /Founder groups/);
   assert.match(previewHtml, /October/);
-  assert.match(previewHtml, /Only the ✓ action saves them as active context/);
+  assert.match(previewHtml, /Only the ✓ action saves them as current project information/);
   const previewVersion = previewHtml.match(/name="preview_version" value="([^"]+)"/)[1];
 
   const stale = await fetch(`${webUrl}/review/captures/${receipt.evidence_id}/confirm`, {
@@ -547,7 +549,7 @@ test("explicit human supersession creates a traceable version without rewriting 
   });
   const pendingReviewHtml = await pendingReview.text();
   assert.match(pendingReviewHtml, new RegExp(firstAccepted.id));
-  assert.match(pendingReviewHtml, /Current saved context/);
+  assert.match(pendingReviewHtml, /Current project information/);
   assert.match(pendingReviewHtml, /Replace saved version 1/);
   assert.doesNotMatch(
     pendingReviewHtml,

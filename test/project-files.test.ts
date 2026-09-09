@@ -3,6 +3,7 @@ import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
 import {
   createWorkContext,
+  getProjectFileReferencePreview,
   issueAlphaInvitation,
   validateProjectFile,
   validateProjectFileUploadDeclaration,
@@ -393,7 +394,7 @@ test("keeps uploaded bytes unavailable until a clean scan and issues only a shor
     { method: "POST", headers: { cookie: ownerCookie }, redirect: "manual" },
   );
   assert.equal(refreshed.status, 303);
-  assert.match(refreshed.headers.get("location"), /context_id=/);
+  assert.equal(refreshed.headers.get("location"), `/projects/${ownerProjectId}/files`);
 
   const download = await fetch(
     `${baseUrl}/projects/${ownerProjectId}/files/${receipt.file_reference_id}/download`,
@@ -412,7 +413,9 @@ test("keeps uploaded bytes unavailable until a clean scan and issues only a shor
   const html = await page.text();
   assert.match(html, /notes\.md/);
   assert.match(html, /Ready/);
-  assert.match(html, /contents do not become saved assertions/);
+  assert.match(html, /data-app-shell/);
+  assert.match(html, />Add files</);
+  assert.doesNotMatch(html, /Upload and scan|saved assertions|>General</);
 });
 
 test("deduplicates exact bytes only inside the workspace while keeping context references distinct", async () => {
@@ -453,7 +456,7 @@ test("keeps the old clean version current until a changed replacement scans clea
   );
   assert.equal(initialPreview.status, 200);
   const initialPreviewHtml = await initialPreview.text();
-  assert.match(initialPreviewHtml, /Untrusted text preview/);
+  assert.match(initialPreviewHtml, /Text preview/);
   assert.match(initialPreviewHtml, /not an instruction to alice/);
 
   const replacePage = await fetch(
@@ -881,7 +884,7 @@ test("an exact human removal disables access without erasing file provenance", a
     },
   );
   assert.equal(removed.status, 303);
-  assert.match(removed.headers.get("location"), /context_id=/);
+  assert.equal(removed.headers.get("location"), `/projects/${ownerProjectId}/files`);
 
   const download = await fetch(
     `${baseUrl}/projects/${ownerProjectId}/files/${cleanReferenceId}/download`,
@@ -893,7 +896,7 @@ test("an exact human removal disables access without erasing file provenance", a
   });
   assert.equal(details.status, 200);
   const detailsHtml = await details.text();
-  assert.match(detailsHtml, /Removed from active context/);
+  assert.match(detailsHtml, /Removed from project/);
   assert.match(detailsHtml, /No longer active in this context/);
   assert.match(detailsHtml, /not permanent erasure/i);
   assert.match(detailsHtml, /Permanent deletion/);
@@ -905,7 +908,9 @@ test("an exact human removal disables access without erasing file provenance", a
     { headers: { cookie: ownerCookie } },
   );
   const listHtml = await list.text();
-  assert.match(listHtml, /Active files \(0\)/);
+  assert.match(listHtml, /data-app-shell/);
+  assert.match(listHtml, /Files \(/);
+  assert.doesNotMatch(listHtml, /Active files|>General</);
   assert.match(listHtml, /Removed \(1\)/);
   assert.match(listHtml, /notes-v3\.md/);
   const exactReupload = await upload(
@@ -981,10 +986,16 @@ test("references one clean immutable object from another authorized context with
   );
   assert.equal(preview.status, 200);
   const previewHtml = await preview.text();
-  assert.match(previewHtml, /same scan-clean immutable object/i);
-  assert.match(previewHtml, /Owner private evidence/);
-  assert.doesNotMatch(previewHtml, />General</);
-  const previewVersion = previewHtml.match(/name="preview_version" value="([^"]+)"/)?.[1];
+  assert.match(previewHtml, /data-app-shell/);
+  assert.doesNotMatch(previewHtml, /Owner private evidence|>General|another context/);
+  const referencePreview = await getProjectFileReferencePreview(created.database, {
+    userId: owner.id,
+    projectId: ownerProjectId,
+    referenceId: source.id,
+  });
+  const previewVersion = referencePreview.destinations.find(
+    ({ id }) => id === personal.id,
+  )?.preview_version;
   assert.match(previewVersion, /^file_reference_link_preview_[0-9a-f]{64}$/);
 
   const stale = await fetch(

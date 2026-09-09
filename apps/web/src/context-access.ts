@@ -6,8 +6,7 @@ import {
   grantContextAccess,
   updateContextAccessRole,
 } from "@alice/domain";
-import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
-import { roleLabel } from "./product-copy.ts";
+import { renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -48,16 +47,6 @@ function actionError(response, error) {
     );
 }
 
-function roleOptions(member, selected = "viewer") {
-  const roles = member.project_role === "viewer" ? ["viewer"] : ["viewer", "editor", "manager"];
-  return roles
-    .map(
-      (role) =>
-        `<option value="${role}"${role === selected ? " selected" : ""}>${role.charAt(0).toUpperCase()}${role.slice(1)}</option>`,
-    )
-    .join("");
-}
-
 export function createContextAccessRouter({ database }) {
   const router = express.Router();
   router.use(requireAuthenticatedUser(database));
@@ -69,28 +58,7 @@ export function createContextAccessRouter({ database }) {
       contextId: request.params.contextId,
     });
     if (!view) return notFound(response);
-    const members = view.members
-      .map((member) => {
-        const creator = member.user_id === view.context.created_by_user_id;
-        let controls: string;
-        if (creator) {
-          controls = "<p><strong>Manager</strong> · context creator</p>";
-        } else if (member.grant_id) {
-          controls = `<form method="post" action="/projects/${encodeURIComponent(view.project.id)}/contexts/${encodeURIComponent(view.context.id)}/access/${encodeURIComponent(member.grant_id)}/role"><label>Context role<select name="role">${roleOptions(member, member.context_role)}</select></label><button type="submit">Update access</button></form><form method="post" action="/projects/${encodeURIComponent(view.project.id)}/contexts/${encodeURIComponent(view.context.id)}/access/${encodeURIComponent(member.grant_id)}/end"><button type="submit">End context access</button></form>`;
-        } else {
-          controls = `<form method="post" action="/projects/${encodeURIComponent(view.project.id)}/contexts/${encodeURIComponent(view.context.id)}/access"><input type="hidden" name="membership_id" value="${escapeHtml(member.membership_id)}"><label>Context role<select name="role">${roleOptions(member)}</select></label><button type="submit">Grant context access</button></form>`;
-        }
-        return `<article><h2>${escapeHtml(member.email)}</h2><p>Project role: ${escapeHtml(roleLabel(member.project_role))}</p>${controls}</article>`;
-      })
-      .join("");
-    response
-      .type("html")
-      .send(
-        renderPage(
-          `Access · ${view.context.name}`,
-          `<nav><a href="/projects/${encodeURIComponent(view.project.id)}">Back to project</a></nav><h1>${escapeHtml(view.context.name)} access</h1><p><strong>${escapeHtml(view.project.name)}</strong></p><p>This context is restricted to explicitly selected members. Project Owners cannot read it unless they created it or receive a grant here.</p><h2>Project members</h2>${members}`,
-        ),
-      );
+    response.redirect(303, `/projects/${encodeURIComponent(view.project.id)}/access`);
   });
 
   router.post("/:projectId/contexts/:contextId/access", async (request, response) => {

@@ -178,11 +178,12 @@ test("Owner lifecycle controls archive without erasure and export only permitted
   assert.match(projectHtml, /class="project-menu-action" method="post"/);
   assert.doesNotMatch(projectHtml, new RegExp(`href="/projects/${projectId}/archive"`));
 
-  const ownerView = await fetch(lifecycleUrl, { headers: { cookie: ownerCookie } });
-  assert.equal(ownerView.status, 200);
-  const ownerHtml = await ownerView.text();
-  assert.match(ownerHtml, /Status: Active/);
-  assert.match(ownerHtml, /does not erase project data/i);
+  const ownerView = await fetch(lifecycleUrl, {
+    headers: { cookie: ownerCookie },
+    redirect: "manual",
+  });
+  assert.equal(ownerView.status, 303);
+  assert.equal(ownerView.headers.get("location"), `/projects/${projectId}`);
 
   const editorView = await fetch(lifecycleUrl, { headers: { cookie: editorCookie } });
   const outsiderView = await fetch(lifecycleUrl, { headers: { cookie: outsiderCookie } });

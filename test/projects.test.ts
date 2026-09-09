@@ -121,8 +121,10 @@ test("creates and revisits a project in the authenticated private workspace", as
   });
   assert.equal(packagePreview.status, 200);
   const packageHtml = await packagePreview.text();
-  assert.match(packageHtml, /Exact host package preview/);
-  assert.match(packageHtml, /does not create a host-read receipt/);
+  assert.match(packageHtml, /data-app-shell/);
+  assert.match(packageHtml, /Exact project package/);
+  assert.match(packageHtml, /does not create a read receipt/);
+  assert.doesNotMatch(packageHtml, />General</);
   assert.match(packageHtml, /&quot;version&quot;/);
   assert.match(packageHtml, /&quot;freshness&quot;/);
   assert.equal(
@@ -142,7 +144,9 @@ test("creates and revisits a project in the authenticated private workspace", as
     }),
   });
   assert.equal(preview.status, 200);
-  assert.match(await preview.text(), /Confirm new work context/);
+  const previewHtml = await preview.text();
+  assert.match(previewHtml, /data-app-shell/);
+  assert.match(previewHtml, /Confirm new work area/);
 
   const createContext = await fetch(`${baseUrl}${location}/contexts`, {
     method: "POST",
@@ -200,9 +204,10 @@ test("creates and revisits a project in the authenticated private workspace", as
   const signals = await fetch(`${baseUrl}/signals`, { headers: { cookie: revisitingCookie } });
   assert.equal(signals.status, 200);
   const signalsHtml = await signals.text();
-  assert.match(signalsHtml, /Private alpha signals/);
+  assert.match(signalsHtml, /data-app-shell/);
+  assert.match(signalsHtml, /Usage signals/);
   assert.match(signalsHtml, /cannot observe host turns where the host never called alice/);
-  assert.match(signalsHtml, /do not inspect prompts, model responses, candidate values/);
+  assert.match(signalsHtml, /do not inspect prompts, model responses, proposed values/);
 });
 
 test("does not reveal a guessed project identifier to another user", async () => {

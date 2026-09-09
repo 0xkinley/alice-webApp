@@ -14,13 +14,16 @@ import {
   transferProjectOwnership,
   updateProjectMemberRole,
 } from "@alice/domain";
+import type { PrivateFileStore } from "@alice/domain";
 import {
   authenticatedUser,
+  renderAppPage,
   renderPage,
   renderStatusPage,
   requireAuthenticatedUser,
 } from "./auth.ts";
-import { accessLabel, hostLabel, roleLabel, timestampLabel } from "./product-copy.ts";
+import { hostLabel, roleLabel, timestampLabel } from "./product-copy.ts";
+import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -92,7 +95,15 @@ function requireInvitationRecipient(database) {
   };
 }
 
-export function createProjectMembershipRouter({ database, publicUrl }) {
+export function createProjectMembershipRouter({
+  database,
+  publicUrl,
+  fileStore,
+}: {
+  database: any;
+  publicUrl: string;
+  fileStore?: PrivateFileStore | undefined;
+}) {
   const router = express.Router();
 
   router.get(
@@ -105,6 +116,12 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
         request.params.projectId,
       );
       if (!view) return notFound(response);
+      const shell = await getProjectShell(
+        database,
+        request.aliceUser!.id,
+        request.params.projectId,
+      );
+      if (!shell) return notFound(response);
       const members = view.members
         .map((member) => {
           const isCurrentUser = member.user_id === request.aliceUser!.id;
@@ -128,9 +145,10 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
       response
         .type("html")
         .send(
-          renderPage(
+          renderAppPage(
             `Collaborators · ${view.project.name}`,
-            `<nav><a href="/projects/${encodeURIComponent(view.project.project_id)}">Back to project</a></nav><h1>Collaborators</h1><p><strong>${escapeHtml(view.project.name)}</strong></p><p>Owners administer project access. Editors can change permitted contexts; Viewers can read permitted contexts. Context visibility is enforced separately and never broadens because of a project role.</p><h2>People with access</h2>${members}<h2>Invite a collaborator</h2><form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/invitations"><label>Email<input type="email" name="email" maxlength="254" required></label><label>Project role<select name="role"><option value="editor">Editor</option><option value="viewer">Viewer</option></select></label><button type="submit">Create private invitation link</button></form><p class="muted">alice. does not send email in this local foundation. Deliver the one-time link privately to the exact recipient.</p><h2>Invitation history</h2>${invitations || "<p>No project invitations yet.</p>"}<h2>Ownership safety</h2><p>Ownership transfer is atomic: the selected member becomes Owner before your role changes to Editor. Restricted and personal context visibility is not broadened by transfer.</p>`,
+            `<div class="project-home">${renderProjectShell({ shell, fileStore })}<section><div class="section-heading"><div><p class="eyebrow">Project settings</p><h2>Collaborators</h2></div></div><p>Owners manage who can open and work in this project. Editors can add and update project information; Viewers can read it.</p><h3>People with access</h3>${members}<h3>Invite a collaborator</h3><form method="post" action="/projects/${encodeURIComponent(view.project.project_id)}/invitations"><label>Email<input type="email" name="email" maxlength="254" required></label><label>Project role<select name="role"><option value="editor">Editor</option><option value="viewer">Viewer</option></select></label><button type="submit">Create private invitation link</button></form><p class="muted">alice. does not send email in this local foundation. Deliver the one-time link privately to the exact recipient.</p><h3>Invitation history</h3>${invitations || "<p>No project invitations yet.</p>"}<h3>Ownership safety</h3><p>Ownership transfer is atomic: the selected member becomes Owner before your role changes to Editor.</p></section></div>`,
+            { email: request.aliceUser!.email, activeSection: "projects" },
           ),
         );
     },
@@ -146,6 +164,8 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
       });
       if (!view) return notFound(response);
       const membership = view.project;
+      const shell = await getProjectShell(database, request.aliceUser!.id, membership.id);
+      if (!shell) return notFound(response);
       const ownerLinks =
         membership.current_user_role === "owner"
           ? ` · <a href="/projects/${encodeURIComponent(membership.id)}/collaborators">Manage collaborators</a>`
@@ -160,41 +180,27 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
             `<li>${escapeHtml(member.email)}${member.user_id === request.aliceUser!.id ? " (you)" : ""} · ${escapeHtml(roleLabel(member.role))}</li>`,
         )
         .join("");
-      const contexts = view.contexts
-        .map((context) => {
-          const accessList = context.members
-            .map(
-              (member) =>
-                `<li>${escapeHtml(member.email)}${member.user_id === request.aliceUser!.id ? " (you)" : ""} · ${escapeHtml(roleLabel(member.context_role))}</li>`,
-            )
-            .join("");
-          const manageLink =
-            context.visibility === "selected_members" && context.can_manage
-              ? `<p><a href="/projects/${encodeURIComponent(membership.id)}/contexts/${encodeURIComponent(context.id)}/access">Manage this context's access</a></p>`
-              : "";
-          return `<article><h3>${escapeHtml(context.name)}</h3><p>${context.context_kind === "project_wide" ? "Project-wide" : "Work context"} · ${escapeHtml(accessLabel(context.visibility))} · your role: ${escapeHtml(roleLabel(context.current_user_role))}</p><ul>${accessList}</ul>${manageLink}</article>`;
-        })
-        .join("");
       const connections = view.connections
         .map((connection) => {
-          const target = connection.context_name
-            ? `${escapeHtml(connection.project_name)} / ${escapeHtml(connection.context_name)}`
-            : "No active target";
-          return `<article><h3>${escapeHtml(connection.client_name)}</h3><p>Connected · ${escapeHtml(hostLabel(connection.client_classification))}</p><p><strong>Active target:</strong> ${target}${connection.targets_this_project ? " · this project" : ""}</p><p class="muted">Last used ${escapeHtml(timestampLabel(connection.last_used_at))}</p></article>`;
+          const projectStatus = connection.targets_this_project
+            ? "Active for this project"
+            : "Not active for this project";
+          return `<article><h3>${escapeHtml(connection.client_name)}</h3><p>Connected · ${escapeHtml(hostLabel(connection.client_classification))}</p><p><strong>${projectStatus}</strong></p><p class="muted">Last used ${escapeHtml(timestampLabel(connection.last_used_at))}</p></article>`;
         })
         .join("");
       const events = view.security_events
         .map(
           (event) =>
-            `<li><strong>${escapeHtml(event.label)}</strong>${event.context_name ? ` · ${escapeHtml(event.context_name)}` : ""} · ${escapeHtml(event.actor_label)} · <span class="muted">${escapeHtml(timestampLabel(event.created_at))}</span></li>`,
+            `<li><strong>${escapeHtml(event.label)}</strong> · ${escapeHtml(event.actor_label)} · <span class="muted">${escapeHtml(timestampLabel(event.created_at))}</span></li>`,
         )
         .join("");
       response
         .type("html")
         .send(
-          renderPage(
+          renderAppPage(
             `Project access · ${membership.name}`,
-            `<nav><a href="/">Projects</a><a href="/projects/${encodeURIComponent(membership.id)}">Open project</a><a href="/connections">AI connections</a></nav><h1>${escapeHtml(membership.name)} access and security</h1><p>Your project role: <strong>${escapeHtml(roleLabel(membership.current_user_role))}</strong>${ownerLinks}</p><section><h2>People with project access</h2><ul>${members}</ul><p>Project membership alone never reveals a restricted or personal context.</p>${leaveControl}</section><section><h2>Visible context access</h2><p>Only contexts you may know exist appear here. Each card lists the people who can currently read that context.</p>${contexts || "<p>No context is visible to you.</p>"}</section><section><h2>Your active AI connections</h2><p>${escapeHtml(view.privacy.connection_scope)} Collaborators never inherit these credentials or permissions.</p>${connections || "<p>No active AI connection is attached to your account.</p>"}<p><a href="/connections">Review or revoke AI connections</a></p></section><section><h2>Recent security activity</h2><p>${escapeHtml(view.privacy.history_scope)}</p><ul>${events || "<li>No relevant security action has been recorded.</li>"}</ul></section>`,
+            `<div class="project-home">${renderProjectShell({ shell, fileStore })}<section><div class="section-heading"><div><p class="eyebrow">Project settings</p><h2>Your access</h2></div></div><p>You have <strong>${escapeHtml(roleLabel(membership.current_user_role))}</strong> access to this project${ownerLinks}.</p><h3>People with project access</h3><ul>${members}</ul>${leaveControl}</section><section><h2>Your AI connections</h2><p>${escapeHtml(view.privacy.connection_scope)} Collaborators never inherit your credentials or permissions.</p>${connections || "<p>No active AI connection is attached to your account.</p>"}<p><a href="/connections">Review or revoke AI connections</a></p></section><section><h2>Recent security activity</h2><p>Security history shows the action, who performed it, and when it happened. Stored technical metadata is not displayed.</p><ul>${events || "<li>No relevant security action has been recorded.</li>"}</ul></section></div>`,
+            { email: request.aliceUser!.email, activeSection: "projects" },
           ),
         );
     },
@@ -216,9 +222,10 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
         response
           .type("html")
           .send(
-            renderPage(
+            renderAppPage(
               "Project invitation created",
-              `<nav><a href="/projects/${encodeURIComponent(invitation.project_id)}/collaborators">Back to collaborators</a></nav><h1>Private invitation link created</h1><p>Share this link only with <strong>${escapeHtml(invitation.email)}</strong>. It grants ${escapeHtml(roleLabel(invitation.role))} access after that exact alice. account accepts.</p><pre>${escapeHtml(link)}</pre><p>This is the only time alice. displays this token. Only its hash is stored.</p>`,
+              `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Collaborator invitation</p><h1>Private invitation link created</h1><p>Share this link only with <strong>${escapeHtml(invitation.email)}</strong>. It grants ${escapeHtml(roleLabel(invitation.role))} access after that exact alice. account accepts.</p></div></header><section><pre>${escapeHtml(link)}</pre><p>This is the only time alice. displays this token. Only its hash is stored.</p><p><a href="/projects/${encodeURIComponent(invitation.project_id)}/collaborators">Back to collaborators</a></p></section></div>`,
+              { email: request.aliceUser!.email, activeSection: "projects" },
             ),
           );
       } catch (error) {
@@ -258,9 +265,10 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
         response
           .type("html")
           .send(
-            renderPage(
+            renderAppPage(
               "Replacement invitation created",
-              `<nav><a href="/projects/${encodeURIComponent(invitation.project_id)}/collaborators">Back to collaborators</a></nav><h1>Replacement invitation link</h1><p>The previous link is revoked. Share this new link only with <strong>${escapeHtml(invitation.email)}</strong>.</p><pre>${escapeHtml(invitationLink(publicUrl, invitation.token))}</pre><p>Only the new token hash is stored.</p>`,
+              `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Collaborator invitation</p><h1>Replacement invitation link</h1><p>The previous link is revoked. Share this new link only with <strong>${escapeHtml(invitation.email)}</strong>.</p></div></header><section><pre>${escapeHtml(invitationLink(publicUrl, invitation.token))}</pre><p>Only the new token hash is stored.</p><p><a href="/projects/${encodeURIComponent(invitation.project_id)}/collaborators">Back to collaborators</a></p></section></div>`,
+              { email: request.aliceUser!.email, activeSection: "projects" },
             ),
           );
       } catch (error) {
@@ -357,9 +365,10 @@ export function createProjectMembershipRouter({ database, publicUrl }) {
       response
         .type("html")
         .send(
-          renderPage(
+          renderAppPage(
             `Project invitation · ${invitation.project_name}`,
-            `<nav><a href="/">Projects</a></nav><h1>Project invitation</h1><article><h2>${escapeHtml(invitation.project_name)}</h2><p>Role: <strong>${escapeHtml(roleLabel(invitation.role))}</strong></p></article><p>Accepting grants project membership to this signed-in email. It does not share your AI connections, and restricted contexts still require separate context access.</p><div class="actions"><form method="post" action="/project-invitations/${encodeURIComponent(request.params.token)}/accept"><button type="submit">Accept invitation</button></form><form method="post" action="/project-invitations/${encodeURIComponent(request.params.token)}/decline"><button type="submit">Decline</button></form></div>`,
+            `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Project invitation</p><h1>${escapeHtml(invitation.project_name)}</h1><p>You were invited as a <strong>${escapeHtml(roleLabel(invitation.role))}</strong>.</p></div></header><section><p>Accepting gives this signed-in account access to the project. It never shares your personal AI connections.</p><div class="actions"><form method="post" action="/project-invitations/${encodeURIComponent(request.params.token)}/accept"><button type="submit">Accept invitation</button></form><form method="post" action="/project-invitations/${encodeURIComponent(request.params.token)}/decline"><button type="submit">Decline</button></form></div></section></div>`,
+            { email: request.aliceUser!.email, activeSection: "shared" },
           ),
         );
     },

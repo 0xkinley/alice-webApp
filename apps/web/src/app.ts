@@ -94,7 +94,7 @@ export async function createApp({
   });
   app.use("/auth", createAuthRouter({ database, publicUrl }));
   app.use("/connections", createConnectionsRouter({ database, mcpPublicUrl }));
-  app.use(createProjectMembershipRouter({ database, publicUrl }));
+  app.use(createProjectMembershipRouter({ database, publicUrl, fileStore }));
   app.use(createProjectLifecycleRouter({ database }));
   app.use("/projects", createContextAccessRouter({ database }));
   app.get("/", requireAuthenticatedUser(database), async (request, response) => {
@@ -155,9 +155,10 @@ export async function createApp({
     response
       .type("html")
       .send(
-        renderPage(
+        renderAppPage(
           "Private alpha signals",
-          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a></nav><h1>Private alpha signals</h1><p>These aggregate signals use identifiers, status, counts, and timestamps. They do not inspect prompts, model responses, candidate values, evidence payloads, or saved project content.</p><section><h2>Context retrieval</h2><dl><dt>Observed MCP read attempts</dt><dd>${signals.consumption.observed_attempts}</dd><dt>Successful package reads</dt><dd>${signals.consumption.successful_reads}</dd><dt>Failed package reads</dt><dd>${signals.consumption.failed_reads}</dd><dt>Success among observed attempts</dt><dd>${percentage(signals.consumption.success_rate_percent)}</dd><dt>Successful host classifications</dt><dd>${signals.consumption.successful_host_surfaces}</dd><dt>Projects reused across hosts within 7 days</dt><dd>${signals.consumption.projects_reused_across_hosts_within_7_days}</dd><dt>UTC weeks with a successful read</dt><dd>${signals.consumption.active_utc_weeks}</dd><dt>Repeated weekly use</dt><dd>${signals.consumption.repeated_weekly_use ? "Observed" : "Not yet observed"}</dd></dl><p class="muted"><strong>Important limitation:</strong> ${escapeHtml(signals.privacy.limitation)} Therefore this page does not call the observed-attempt success percentage a host invocation rate.</p></section><section><h2>Retained save outcomes</h2><dl><dt>Retained captures</dt><dd>${signals.saving.offers}</dd><dt>Entries in retained captures</dt><dd>${signals.saving.proposals}</dd><dt>Accepted captures</dt><dd>${signals.saving.confirmed_offers}</dd><dt>Historical rejected captures</dt><dd>${signals.saving.cancelled_offers}</dd><dt>Historical pending captures</dt><dd>${signals.saving.pending_offers}</dd><dt>Terminal capture rate</dt><dd>${percentage(signals.saving.completion_rate_percent)}</dd><dt>Average entries per retained capture</dt><dd>${signals.saving.average_proposals_per_offer ?? "Not enough data"}</dd><dt>Median retained review time</dt><dd>${duration(signals.saving.median_decision_seconds)}</dd><dt>Saved-context repairs</dt><dd>${signals.saving.repairs}</dd></dl><p class="muted">Routine Save cards appear here only after Save. Ignored and expired cards are intentionally not retained as project or analytics events.</p></section>`,
+          `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Private alpha</p><h1>Usage signals</h1><p>These aggregate signals use identifiers, status, counts, and timestamps. They do not inspect prompts, model responses, proposed values, evidence payloads, or saved project content.</p></div></header><section><h2>Project retrieval</h2><dl><dt>Observed MCP read attempts</dt><dd>${signals.consumption.observed_attempts}</dd><dt>Successful package reads</dt><dd>${signals.consumption.successful_reads}</dd><dt>Failed package reads</dt><dd>${signals.consumption.failed_reads}</dd><dt>Success among observed attempts</dt><dd>${percentage(signals.consumption.success_rate_percent)}</dd><dt>Successful AI classifications</dt><dd>${signals.consumption.successful_host_surfaces}</dd><dt>Projects reused across AI tools within 7 days</dt><dd>${signals.consumption.projects_reused_across_hosts_within_7_days}</dd><dt>UTC weeks with a successful read</dt><dd>${signals.consumption.active_utc_weeks}</dd><dt>Repeated weekly use</dt><dd>${signals.consumption.repeated_weekly_use ? "Observed" : "Not yet observed"}</dd></dl><p class="muted"><strong>Important limitation:</strong> ${escapeHtml(signals.privacy.limitation)} Therefore this page does not call the observed-attempt success percentage a host invocation rate.</p></section><section><h2>Retained save outcomes</h2><dl><dt>Retained captures</dt><dd>${signals.saving.offers}</dd><dt>Entries in retained captures</dt><dd>${signals.saving.proposals}</dd><dt>Accepted captures</dt><dd>${signals.saving.confirmed_offers}</dd><dt>Historical rejected captures</dt><dd>${signals.saving.cancelled_offers}</dd><dt>Historical pending captures</dt><dd>${signals.saving.pending_offers}</dd><dt>Terminal capture rate</dt><dd>${percentage(signals.saving.completion_rate_percent)}</dd><dt>Average entries per retained capture</dt><dd>${signals.saving.average_proposals_per_offer ?? "Not enough data"}</dd><dt>Median retained review time</dt><dd>${duration(signals.saving.median_decision_seconds)}</dd><dt>Information repairs</dt><dd>${signals.saving.repairs}</dd></dl><p class="muted">Routine Save cards appear here only after Save. Ignored and expired cards are intentionally not retained as project or analytics events.</p></section></div>`,
+          { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );
   });
@@ -298,12 +299,17 @@ export async function createApp({
           ),
         );
     }
+    const shell = await getProjectShell(database, request.aliceUser!.id, request.params.projectId);
+    if (!shell) {
+      return response.status(404).end();
+    }
     response
       .type("html")
       .send(
-        renderPage(
+        renderAppPage(
           "Host package preview",
-          `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}">Back to project</a></nav><h1>Exact host package preview</h1><p>This is the deterministic JSON alice. would return for this task and byte budget. Opening this preview does not create a host-read receipt and does not mean an AI host consulted alice.</p><form method="post"><input type="hidden" name="context_id" value="${escapeHtml(parsed.data.context_id || "")}"><label>Task<input name="task" maxlength="2000" value="${escapeHtml(parsed.data.task)}" required></label><label>UTF-8 byte budget<input name="context_budget" type="number" min="2000" max="32000" value="${escapeHtml(parsed.data.context_budget)}" required></label><button type="submit">Refresh preview</button></form><dl><dt>Package version</dt><dd>${escapeHtml(packagePreview.package.version)}</dd><dt>Budget</dt><dd>${escapeHtml(packagePreview.package.budget.used)} of ${escapeHtml(packagePreview.package.budget.limit)} UTF-8 bytes</dd><dt>Freshness</dt><dd><pre>${escapeHtml(JSON.stringify(packagePreview.package.freshness, null, 2))}</pre></dd><dt>Omitted entries</dt><dd>${escapeHtml(packagePreview.package.omissions.total)}</dd></dl><pre>${escapeHtml(JSON.stringify(packagePreview, null, 2))}</pre>`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore })}<section><div class="section-heading"><div><p class="eyebrow">AI delivery preview</p><h2>Exact project package</h2></div></div><p>This is the deterministic JSON alice. would return for this task and byte budget. Opening this preview does not create a read receipt or mean an AI tool consulted alice.</p><form method="post"><input type="hidden" name="context_id" value="${escapeHtml(parsed.data.context_id || "")}"><label>Task<input name="task" maxlength="2000" value="${escapeHtml(parsed.data.task)}" required></label><label>UTF-8 byte budget<input name="context_budget" type="number" min="2000" max="32000" value="${escapeHtml(parsed.data.context_budget)}" required></label><button type="submit">Refresh preview</button></form><dl><dt>Package version</dt><dd>${escapeHtml(packagePreview.package.version)}</dd><dt>Budget</dt><dd>${escapeHtml(packagePreview.package.budget.used)} of ${escapeHtml(packagePreview.package.budget.limit)} UTF-8 bytes</dd><dt>Freshness</dt><dd><pre>${escapeHtml(JSON.stringify(packagePreview.package.freshness, null, 2))}</pre></dd><dt>Omitted entries</dt><dd>${escapeHtml(packagePreview.package.omissions.total)}</dd></dl><pre>${escapeHtml(JSON.stringify(packagePreview, null, 2))}</pre></section></div>`,
+          { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );
   };
@@ -348,12 +354,21 @@ export async function createApp({
               )
               .join("")}`
           : "<p>No similar work context was found.</p>";
+        const shell = await getProjectShell(
+          database,
+          request.aliceUser!.id,
+          request.params.projectId,
+        );
+        if (!shell) {
+          return response.status(404).end();
+        }
         response
           .type("html")
           .send(
-            renderPage(
+            renderAppPage(
               "Confirm work context",
-              `<nav><a href="/projects/${encodeURIComponent(request.params.projectId)}">Back to project</a></nav><h1>Confirm new work context</h1>${similar}<article><h2>${escapeHtml(request.body.name)}</h2><p>${escapeHtml(request.body.description)}</p><p>Visibility: ${escapeHtml(accessLabel(request.body.visibility))}</p></article><form method="post" action="/projects/${encodeURIComponent(request.params.projectId)}/contexts"><input type="hidden" name="name" value="${escapeHtml(request.body.name)}"><input type="hidden" name="description" value="${escapeHtml(request.body.description)}"><input type="hidden" name="visibility" value="${escapeHtml(request.body.visibility)}"><button type="submit">Create this work context</button></form>`,
+              `<div class="project-home">${renderProjectShell({ shell, fileStore })}<section><div class="section-heading"><div><p class="eyebrow">Advanced project organization</p><h2>Confirm new work area</h2></div></div>${similar}<article><h3>${escapeHtml(request.body.name)}</h3><p>${escapeHtml(request.body.description)}</p><p>Access: ${escapeHtml(accessLabel(request.body.visibility))}</p></article><form method="post" action="/projects/${encodeURIComponent(request.params.projectId)}/contexts"><input type="hidden" name="name" value="${escapeHtml(request.body.name)}"><input type="hidden" name="description" value="${escapeHtml(request.body.description)}"><input type="hidden" name="visibility" value="${escapeHtml(request.body.visibility)}"><button type="submit">Create this work area</button></form></section></div>`,
+              { email: request.aliceUser!.email, activeSection: "projects" },
             ),
           );
       } catch (error) {
@@ -419,7 +434,7 @@ export async function createApp({
     );
     app.use("/projects", createFilesRouter({ database, fileStore, publicUrl }));
   }
-  app.use("/review", createReviewRouter({ database }));
+  app.use("/review", createReviewRouter({ database, fileStore }));
 
   return { app, database };
 }

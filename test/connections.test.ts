@@ -174,7 +174,8 @@ test("a user explicitly selects one permitted target for all active AI connectio
   );
   assert.equal(accessPage.status, 200);
   const accessHtml = await accessPage.text();
-  assert.match(accessHtml, /Your active AI connections/);
+  assert.match(accessHtml, /Your AI connections/);
+  assert.doesNotMatch(accessHtml, /Visible context access|>General/);
   assert.match(accessHtml, /ChatGPT web/);
   assert.match(accessHtml, /Claude web/);
   assert.match(accessHtml, /AI connection target changed/);
