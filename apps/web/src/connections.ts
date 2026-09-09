@@ -6,7 +6,7 @@ import {
   setActiveConnectionTarget,
 } from "@alice/domain";
 import express from "express";
-import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
+import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 import { hostLabel, permissionLabel, timestampLabel } from "./product-copy.ts";
 
 const CHATGPT_PLUGIN_DIRECTORY_URL = "https://chatgpt.com/plugins";
@@ -64,11 +64,59 @@ for(const link of document.querySelectorAll("[data-copy-mcp-address]")){link.add
 </script>`;
 }
 
+function providerStatusCard({ name, setupUrl, endpoint, connected }) {
+  const status = connected
+    ? '<span class="provider-light connected"><span class="visually-hidden">Connected</span></span>'
+    : '<span class="provider-light"><span class="visually-hidden">Not connected</span></span>';
+  const action = connected
+    ? ""
+    : `<a class="button-link" href="${escapeHtml(setupUrl)}" target="_blank" rel="noopener noreferrer" data-copy-mcp-address="${escapeHtml(endpoint)}" aria-describedby="mcp-copy-status">Connect ${escapeHtml(name)} <span aria-hidden="true">↗</span></a>`;
+  return `<article class="provider-status${connected ? " connected" : ""}"><div class="provider-name">${status}<h2>${escapeHtml(name)}</h2></div>${action}</article>`;
+}
+
 export function createConnectionsRouter({ database, mcpPublicUrl }) {
   const router = express.Router();
   router.use(requireAuthenticatedUser(database));
 
   router.get("/", async (request, response) => {
+    const connections = await listIntegrationConnections(database, request.aliceUser!.id);
+    const endpoint = new URL("/mcp", mcpPublicUrl).href;
+    const claudeSetupUrl = new URL(CLAUDE_CONNECTOR_SETTINGS_URL);
+    claudeSetupUrl.searchParams.set("modal", "add-custom-connector");
+    claudeSetupUrl.searchParams.set("connectorName", "alice.");
+    claudeSetupUrl.searchParams.set("connectorUrl", endpoint);
+    const activeProviders = new Set(
+      connections
+        .filter(({ revoked_at: revokedAt }) => !revokedAt)
+        .map(({ client_classification: provider }) => provider),
+    );
+    const providers = [
+      {
+        name: "ChatGPT",
+        setupUrl: CHATGPT_PLUGIN_DIRECTORY_URL,
+        connected: activeProviders.has("chatgpt"),
+      },
+      {
+        name: "Claude",
+        setupUrl: claudeSetupUrl.href,
+        connected: activeProviders.has("claude"),
+      },
+    ];
+    const providerCards = providers
+      .map((provider) => providerStatusCard({ ...provider, endpoint }))
+      .join("");
+    response
+      .type("html")
+      .send(
+        renderAppPage(
+          "AI connections",
+          `<div class="connections-home"><header class="workspace-toolbar"><div><p class="eyebrow">AI connections</p><h1>Connect your AI tools.</h1><p>A green light means that provider has an active alice. connection for your account.</p></div></header><section class="provider-grid" aria-label="AI provider status">${providerCards}</section><p id="mcp-copy-status" class="notice" role="status" aria-live="polite">When you connect a provider, alice. copies the exact MCP address and opens its setup page. You review and approve the connection there.</p><a class="advanced-link" href="/connections/advanced">Advanced connection settings</a>${guidedConnectionScript()}</div>`,
+          { email: request.aliceUser!.email, activeSection: "connections" },
+        ),
+      );
+  });
+
+  router.get("/advanced", async (request, response) => {
     const [connections, projects, readEvents] = await Promise.all([
       listIntegrationConnections(database, request.aliceUser!.id),
       listSelectableProjectContexts(database, request.aliceUser!.id),
@@ -81,11 +129,6 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
     );
     const endpoint = new URL("/mcp", mcpPublicUrl).href;
     const escapedEndpoint = escapeHtml(endpoint);
-    const claudeSetupUrl = new URL(CLAUDE_CONNECTOR_SETTINGS_URL);
-    claudeSetupUrl.searchParams.set("modal", "add-custom-connector");
-    claudeSetupUrl.searchParams.set("connectorName", "alice.");
-    claudeSetupUrl.searchParams.set("connectorUrl", endpoint);
-    const escapedClaudeSetupUrl = escapeHtml(claudeSetupUrl.href);
     const cards = connections
       .map((connection) => connectionCard(connection, projects, expectedVersions))
       .join("");
@@ -95,9 +138,10 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
     response
       .type("html")
       .send(
-        renderPage(
-          "AI connections",
-          `<nav><a href="/">Projects</a></nav><header class="hero"><p class="eyebrow">Your connections</p><h1>Add alice. to the AI tools you use.</h1><p>Choose a provider below. alice. copies this environment's exact MCP address and opens the provider in a new tab. You still review and approve the connection there.</p></header><section class="connection-setup"><div class="section-heading"><h2>Your alice. MCP address</h2><p class="muted">One address for your account connections</p></div><pre id="mcp-address"><code>${escapedEndpoint}</code></pre><p id="mcp-copy-status" class="notice" role="status" aria-live="polite">Choose a provider to copy the address and continue.</p><div class="dashboard-grid"><section><p class="eyebrow">OpenAI</p><h2>Add alice. to ChatGPT</h2><p>In ChatGPT Customize, open Plugins and add a custom app. Paste the copied address, then choose Connect.</p><a class="button-link" href="${CHATGPT_PLUGIN_DIRECTORY_URL}" target="_blank" rel="noopener noreferrer" data-copy-mcp-address="${escapedEndpoint}" aria-describedby="mcp-copy-status">Add alice. to ChatGPT <span aria-hidden="true">↗</span></a></section><section><p class="eyebrow">Anthropic</p><h2>Add alice. to Claude</h2><p>Claude opens Add custom connector with alice. and this MCP address filled in. Review them, then choose Add and Connect.</p><a class="button-link" href="${escapedClaudeSetupUrl}" target="_blank" rel="noopener noreferrer" data-copy-mcp-address="${escapedEndpoint}" aria-describedby="mcp-copy-status">Add alice. to Claude <span aria-hidden="true">↗</span></a></section></div><p class="muted">The address stays visible above if you need to paste it manually. Complete alice. sign-in and review the requested read and propose-for-review permissions. Provider availability still depends on the exact account, plan, workspace, region, and client surface.</p></section><section><div class="section-heading"><h2>Connection status</h2><p class="muted">${connections.filter(({ revoked_at: revokedAt }) => !revokedAt).length} active</p></div>${cards || '<div class="empty-state"><h2>No AI host is connected</h2><p>Use a guided setup above when this environment is ready for a supported host connection.</p></div>'}</section><section><div class="section-heading"><h2>Your recent host reads</h2><p class="muted">Immutable, content-free receipts</p></div><p>These receipts distinguish successful retrieval from failure. Success does not prove that a host used the returned context in its answer.</p>${readActivity}</section>${guidedConnectionScript()}`,
+        renderAppPage(
+          "Advanced AI connection settings",
+          `<header class="hero"><p class="eyebrow">Advanced settings</p><h1>Connection details and activity</h1><p>Review individual OAuth connections, routing, revocation, and content-free read receipts.</p><p><a href="/connections">Back to AI connections</a></p></header><section class="connection-setup"><div class="section-heading"><h2>Your alice. MCP address</h2><p class="muted">One address for your account connections</p></div><pre id="mcp-address"><code>${escapedEndpoint}</code></pre></section><section><div class="section-heading"><h2>Individual connections</h2><p class="muted">${connections.filter(({ revoked_at: revokedAt }) => !revokedAt).length} active</p></div>${cards || '<div class="empty-state"><h2>No connection records</h2><p>Return to AI connections to add ChatGPT or Claude.</p></div>'}</section><section><div class="section-heading"><h2>Your recent host reads</h2><p class="muted">Immutable, content-free receipts</p></div><p>These receipts distinguish successful retrieval from failure. Success does not prove that a host used the returned context in its answer.</p>${readActivity}</section>`,
+          { email: request.aliceUser!.email, activeSection: "connections" },
         ),
       );
   });

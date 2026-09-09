@@ -8,6 +8,7 @@ import { createTestIdentity } from "./helpers.ts";
 let baseUrl;
 let cookie;
 let created;
+let disconnectedCookie;
 let owner;
 let other;
 let server;
@@ -21,6 +22,10 @@ before(async () => {
   other = await createTestIdentity(database, {
     email: "connection-other@alice.example",
     projectId: "project_connection_other",
+  });
+  const disconnected = await createTestIdentity(database, {
+    email: "connection-new@alice.example",
+    projectId: "project_connection_new",
   });
   const now = new Date().toISOString();
   database
@@ -85,6 +90,8 @@ before(async () => {
   baseUrl = `http://127.0.0.1:${server.address().port}`;
   const session = await createUserSession(database, owner.id);
   cookie = `alice_session=${encodeURIComponent(session.token)}`;
+  const disconnectedSession = await createUserSession(database, disconnected.id);
+  disconnectedCookie = `alice_session=${encodeURIComponent(disconnectedSession.token)}`;
 });
 
 after(async () => {
@@ -98,28 +105,44 @@ test("connection center exposes only the current user's safe connection metadata
   const response = await fetch(`${baseUrl}/connections`, { headers: { cookie } });
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /ChatGPT web/);
-  assert.match(html, /Claude web/);
-  assert.match(html, /https:\/\/mcp\.alice\.example\/mcp/);
-  assert.match(html, /Add alice\. to ChatGPT/);
-  assert.match(html, /Add alice\. to Claude/);
+  assert.match(html, /<aside class="app-sidebar"/);
+  assert.match(html, /AI provider status/);
+  assert.match(html, /ChatGPT/);
+  assert.match(html, /Claude/);
+  assert.equal(html.match(/provider-light connected/g)?.length, 2);
+  assert.doesNotMatch(html, />Connect ChatGPT/);
+  assert.doesNotMatch(html, />Connect Claude/);
+  assert.match(html, /Advanced connection settings/);
+
+  const advanced = await fetch(`${baseUrl}/connections/advanced`, { headers: { cookie } });
+  assert.equal(advanced.status, 200);
+  const advancedHtml = await advanced.text();
+  assert.match(advancedHtml, /ChatGPT web/);
+  assert.match(advancedHtml, /Claude web/);
+  assert.match(advancedHtml, /Active project and work context/);
+  assert.match(advancedHtml, /https:\/\/mcp\.alice\.example\/mcp/);
+  assert.doesNotMatch(advancedHtml, /Claude Desktop/);
+  assert.doesNotMatch(advancedHtml, /owner-token-hash/);
+});
+
+test("disconnected providers each show one connect action", async () => {
+  const response = await fetch(`${baseUrl}/connections`, {
+    headers: { cookie: disconnectedCookie },
+  });
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, />Connect ChatGPT/);
+  assert.match(html, />Connect Claude/);
+  assert.equal(html.match(/provider-light connected/g)?.length || 0, 0);
   assert.match(html, /href="https:\/\/chatgpt\.com\/plugins"/);
-  assert.match(html, /In ChatGPT Customize, open Plugins and add a custom app/);
   assert.match(
     html,
     /href="https:\/\/claude\.ai\/customize\/connectors\?modal=add-custom-connector&amp;connectorName=alice\.&amp;connectorUrl=https%3A%2F%2Fmcp\.alice\.example%2Fmcp"/,
-  );
-  assert.match(
-    html,
-    /Claude opens Add custom connector with alice\. and this MCP address filled in/,
   );
   assert.match(html, /target="_blank" rel="noopener noreferrer"/);
   assert.match(html, /data-copy-mcp-address="https:\/\/mcp\.alice\.example\/mcp"/);
   assert.match(html, /The address is copied\. Paste it and choose Connect/);
   assert.match(html, /Copy the address above, paste it and choose Connect/);
-  assert.match(html, /Active project and work context/);
-  assert.doesNotMatch(html, /Claude Desktop/);
-  assert.doesNotMatch(html, /owner-token-hash/);
 });
 
 test("a user explicitly selects one permitted target for all active AI connections", async () => {
@@ -182,7 +205,7 @@ test("a user explicitly selects one permitted target for all active AI connectio
     2,
   );
 
-  const page = await fetch(`${baseUrl}/connections`, { headers: { cookie } });
+  const page = await fetch(`${baseUrl}/connections/advanced`, { headers: { cookie } });
   assert.match(await page.text(), /Active target:<\/strong> Private project \/ General/);
 });
 
@@ -211,7 +234,7 @@ test("connection center shows private immutable host-read receipts without packa
       general.id,
       new Date().toISOString(),
     );
-  const response = await fetch(`${baseUrl}/connections`, { headers: { cookie } });
+  const response = await fetch(`${baseUrl}/connections/advanced`, { headers: { cookie } });
   const html = await response.text();
   assert.match(html, /Your recent host reads/);
   assert.match(html, /ChatGPT web/);

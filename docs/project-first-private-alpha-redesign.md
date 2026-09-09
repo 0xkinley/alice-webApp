@@ -125,6 +125,8 @@ If an exact host surface cannot transfer original bytes, the same card opens an 
 
 alice.-controlled screens use the product name `alice.`. Provider-controlled connector names or dialogs are documented as external limitations when they cannot be changed.
 
+The primary AI Connections view contains exactly one ChatGPT row and one Claude row. A provider with no current non-revoked connection shows `Connect ChatGPT` or `Connect Claude`. A provider with at least one current non-revoked connection shows only its provider name and a green connected light; duplicate connection records do not create duplicate provider rows. Technical connection records, MCP address details, active-target controls, content-free read receipts, and revocation stay in the separate advanced view.
+
 The OAuth authorization endpoint will create a bounded, short-lived transaction and continue at the alice. web origin. A valid alice. web session supplies the account identity; otherwise the user signs in and returns to the same transaction. The consent view still requires an explicit Authorize action for every new ChatGPT or Claude connection and shows the account plus readable `Read projects` and `Propose updates` permissions. Authorization code, PKCE challenge, host state, tokens, and transaction authority remain server-side or hash-only as appropriate. The callback must render or redirect to one unambiguous completed state.
 
 ## Sequenced implementation plan
