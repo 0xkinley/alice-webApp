@@ -5,10 +5,8 @@ import {
   createProject,
   createWorkContext,
   getReviewQueue,
-  getProject,
   getProjectContext,
   getPrivateAlphaSignals,
-  listIntegrationConnections,
   listArchivedProjects,
   listSharedProjects,
   listProjects,
@@ -35,6 +33,7 @@ import { privateAlphaAboutBody } from "./public-site.ts";
 import { createReviewRouter } from "./review.ts";
 import { createSavedContextRouter } from "./saved-context.ts";
 import { accessLabel, roleLabel, timestampLabel } from "./product-copy.ts";
+import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 import type { PrivateFileStore } from "@alice/domain";
 
 function escapeHtml(value) {
@@ -205,8 +204,8 @@ export async function createApp({
     }
   });
   app.get("/projects/:projectId", requireAuthenticatedUser(database), async (request, response) => {
-    const project = await getProject(database, request.aliceUser!.id, request.params.projectId);
-    if (!project) {
+    const shell = await getProjectShell(database, request.aliceUser!.id, request.params.projectId);
+    if (!shell) {
       return response
         .status(404)
         .type("html")
@@ -218,56 +217,24 @@ export async function createApp({
           ),
         );
     }
+    const project = shell.project;
     const canWrite = project.project_role === "owner" || project.project_role === "editor";
-    const isOwner = project.project_role === "owner";
-    const [connections, reviewQueue] = await Promise.all([
-      listIntegrationConnections(database, request.aliceUser!.id),
-      canWrite
-        ? getReviewQueue(database, {
-            userId: request.aliceUser!.id,
-            projectId: project.id,
-            status: "pending",
-            page: 1,
-            pageSize: 1,
-          })
-        : undefined,
-    ]);
-    const activeProviders = new Set(
-      connections
-        .filter(
-          ({ project_id: projectId, revoked_at: revokedAt }) =>
-            projectId === project.id && !revokedAt,
-        )
-        .map(({ client_classification: provider }) => provider),
-    );
-    const providerStatus = [
-      ["chatgpt", "ChatGPT"],
-      ["claude", "Claude"],
-    ]
-      .map(([provider, label]) => {
-        const active = activeProviders.has(provider);
-        return `<span class="project-provider"><span class="provider-light${active ? " connected" : ""}"><span class="visually-hidden">${active ? "Active" : "Not active"}</span></span>${active ? "Active in" : "Not active in"} ${label}</span>`;
-      })
-      .join("");
+    const reviewQueue = canWrite
+      ? await getReviewQueue(database, {
+          userId: request.aliceUser!.id,
+          projectId: project.id,
+          status: "pending",
+          page: 1,
+          pageSize: 1,
+        })
+      : undefined;
     const pendingCount = reviewQueue?.counts.pending || 0;
-    const menuItems = [
-      `<a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>`,
-      isOwner
-        ? `<a href="/projects/${encodeURIComponent(project.id)}/collaborators">Collaborators</a>`
-        : "",
-      isOwner
-        ? `<a class="destructive" href="/projects/${encodeURIComponent(project.id)}/archive">Archive project</a>`
-        : "",
-    ].join("");
-    const filesCard = fileStore
-      ? `<a class="project-workspace-card" href="/projects/${encodeURIComponent(project.id)}/files"><span class="eyebrow">Files</span><strong>Project files</strong><span>Add, review, and manage the files attached to this project.</span></a>`
-      : "";
     response
       .type("html")
       .send(
         renderAppPage(
           project.name,
-          `<div class="project-home"><header class="project-header"><div><p class="eyebrow">Project · ${escapeHtml(roleLabel(project.project_role))}</p><h1>${escapeHtml(project.name)}</h1><p>Files and information you choose to save stay together in this project.</p><div class="project-providers" aria-label="Project AI status">${providerStatus}</div></div><details class="project-menu"><summary aria-label="Project options"><span aria-hidden="true">…</span><span class="visually-hidden">Project options</span></summary><nav aria-label="Project options">${menuItems}</nav></details></header><section class="project-workspace-grid" aria-label="Project workspace"><a class="project-workspace-card" href="/projects/${encodeURIComponent(project.id)}/changes"><span class="eyebrow">Project history</span><strong>Change log</strong><span>Read project changes, their AI source, and when they happened.</span>${pendingCount ? `<span class="count-badge">${pendingCount} need${pendingCount === 1 ? "s" : ""} attention</span>` : ""}</a>${filesCard}</section></div>`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore, pendingCount })}</div>`,
           { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );
@@ -443,7 +410,7 @@ export async function createApp({
       }
     },
   );
-  app.use("/projects", createSavedContextRouter({ database }));
+  app.use("/projects", createSavedContextRouter({ database, fileStore }));
   app.use("/save-previews", createCaptureSavePreviewsRouter({ database, publicUrl }));
   if (fileStore) {
     app.use(

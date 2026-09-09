@@ -1,7 +1,9 @@
 import { getRemovalPreview, getSavedContextView, removeSavedContextEntry } from "@alice/domain";
+import type { PrivateFileStore } from "@alice/domain";
 import express from "express";
 import { renderAppPage, renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 import { hostLabel, timestampLabel } from "./product-copy.ts";
+import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
 const VIEWS = new Set(["saved", "attention", "removed", "history"]);
 const REPAIR_TYPES = new Map([
@@ -213,7 +215,13 @@ function repairPreviewPage(preview) {
   return `<nav><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Back to Saved context</a></nav><header class="hero"><p class="eyebrow">Repair saved context</p><h1>Repair ${escapeHtml(preview.project.name)} / ${escapeHtml(preview.context.name)}</h1><p>Classify what is wrong, then remove this exact version from active context. Its value, evidence, provenance, and history remain unchanged. A corrected value must arrive as a new proposal and receive its own exact human confirmation.</p></header><article><h2>${escapeHtml(preview.entry.state_key)}</h2><pre>${renderJson(preview.entry.value)}</pre><p>${escapeHtml(preview.entry.summary)}</p>${provenance(preview.entry)}</article><form method="post" action="/projects/${encodeURIComponent(preview.project.id)}/saved-context/${encodeURIComponent(preview.entry.id)}/repair"><input type="hidden" name="context_id" value="${escapeHtml(preview.context.id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><label>What is wrong?<select name="repair_type" required><option value="stale">Stale: it is no longer current</option><option value="contradicted">Contradicted: reliable information now conflicts with it</option><option value="wrong">Wrong: it should not have been saved as stated</option></select></label><label>Explanation (optional)<textarea name="note" maxlength="450"></textarea></label><button class="destructive" type="submit">Confirm repair and remove from active context</button></form><p><a href="/projects/${encodeURIComponent(preview.project.id)}/saved-context?context_id=${encodeURIComponent(preview.context.id)}">Keep the current saved context</a></p>`;
 }
 
-export function createSavedContextRouter({ database }) {
+export function createSavedContextRouter({
+  database,
+  fileStore,
+}: {
+  database: unknown;
+  fileStore?: PrivateFileStore | undefined;
+}) {
   const router = express.Router();
   router.use(requireAuthenticatedUser(database));
 
@@ -437,12 +445,17 @@ export function createSavedContextRouter({ database }) {
               : historyCards(view, projectOnly);
       if (projectOnly) {
         if (changeLog) {
+          const shell = await getProjectShell(
+            database,
+            request.aliceUser!.id,
+            String(request.params.projectId),
+          );
           return response
             .type("html")
             .send(
               renderAppPage(
                 `${view.project.name} change log`,
-                `<div class="project-home"><header class="project-header"><div><p class="eyebrow">Change log</p><h1>${escapeHtml(view.project.name)}</h1><p>Human-readable project changes, where they came from, and when they happened.</p></div><a href="/projects/${encodeURIComponent(view.project.id)}">Back to project</a></header><section><div class="section-heading"><h2>Latest changes</h2><p class="muted">Shown in your local time</p></div>${content}</section></div>${localTimeScript()}`,
+                `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "changes" })}<section><div class="section-heading"><h2>Latest changes</h2><p class="muted">Shown in your local time</p></div>${content}</section></div>${localTimeScript()}`,
                 { email: request.aliceUser!.email, activeSection: "projects" },
               ),
             );

@@ -20,6 +20,7 @@ import {
 import type { PrivateFileStore } from "@alice/domain";
 import { renderAppPage, renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 import { accessLabel, hostLabel, timestampLabel } from "./product-copy.ts";
+import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -134,16 +135,22 @@ export function createFilesRouter({
           `<article class="file-card removed-file"><h3>${escapeHtml(file.display_name)}</h3><p><span class="badge">Removed</span> · ${escapeHtml(timestampLabel(file.removed_at))}</p>${file.removal_reason ? `<p><strong>Reason:</strong> ${escapeHtml(file.removal_reason)}</p>` : ""}<p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}">View preserved metadata</a></p></article>`,
       )
       .join("");
-    const uploadSection = view.access.can_write
-      ? `<section class="upload-panel"><h2>Add a file</h2><p>PDF, DOCX, XLSX, or PPTX up to 25 MiB; PNG, JPEG, or WebP up to 10 MiB; UTF-8 text, Markdown, CSV, TSV, or JSON up to 2 MiB.</p><p class="notice">The file remains unavailable until scanning reports no threats. Its contents do not become saved project information automatically. Modern Office files are reference and download only in this alpha.</p><form id="file-upload"><label>Choose a file<input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><button type="submit">Upload and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form></section>${fileStore.createSignedUpload ? directUploadScript({ projectId: request.params.projectId, contextId: view.context.context_id, successLocation: "reload" }) : legacyUploadScript(projectOnly ? request.path : `${request.path}?${new URLSearchParams({ context_id: view.context.context_id })}`, "reload")}`
-      : "";
+    const uploadSection =
+      view.access.can_write && !projectOnly
+        ? `<section class="upload-panel"><h2>Add a file</h2><p>PDF, DOCX, XLSX, or PPTX up to 25 MiB; PNG, JPEG, or WebP up to 10 MiB; UTF-8 text, Markdown, CSV, TSV, or JSON up to 2 MiB.</p><p class="notice">The file remains unavailable until scanning reports no threats. Its contents do not become saved project information automatically. Modern Office files are reference and download only in this alpha.</p><form id="file-upload"><label>Choose a file<input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><button type="submit">Upload and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form></section>${fileStore.createSignedUpload ? directUploadScript({ projectId: request.params.projectId, contextId: view.context.context_id, successLocation: "reload" }) : legacyUploadScript(projectOnly ? request.path : `${request.path}?${new URLSearchParams({ context_id: view.context.context_id })}`, "reload")}`
+        : "";
     if (projectOnly) {
+      const shell = await getProjectShell(
+        database,
+        request.aliceUser!.id,
+        request.params.projectId,
+      );
       return response
         .type("html")
         .send(
           renderAppPage(
             `Files · ${view.context.project_name}`,
-            `<div class="project-home"><header class="project-header"><div><p class="eyebrow">Project files</p><h1>${escapeHtml(view.context.project_name)}</h1><p>Files stay private and unavailable until scanning reports no threats.</p></div><a href="/projects/${encodeURIComponent(request.params.projectId)}">Back to project</a></header><section><div class="section-heading"><h2>Files (${view.files.length})</h2><p class="muted">Available only when scan-clean</p></div>${rows || '<div class="empty-state"><h2>No files yet</h2><p>Add a supported file when you want it attached to this project.</p></div>'}</section><section><div class="section-heading"><h2>Removed (${view.removed.length})</h2><p class="muted">Preserved history, no active access</p></div>${removedRows || '<div class="empty-state"><h2>No files have been removed</h2><p>Removed file records remain visible here with their preserved history.</p></div>'}</section>${uploadSection}<p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/export.json">Export file metadata</a></p></div>`,
+            `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "files" })}<section><div class="section-heading"><h2>Files (${view.files.length})</h2><p class="muted">Available only when scan-clean</p></div>${rows || '<div class="empty-state"><h2>No files yet</h2><p>Add a supported file when you want it attached to this project.</p></div>'}</section><section><div class="section-heading"><h2>Removed (${view.removed.length})</h2><p class="muted">Preserved history, no active access</p></div>${removedRows || '<div class="empty-state"><h2>No files have been removed</h2><p>Removed file records remain visible here with their preserved history.</p></div>'}</section>${uploadSection}<p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/export.json">Export file metadata</a></p></div>`,
             { email: request.aliceUser!.email, activeSection: "projects" },
           ),
         );

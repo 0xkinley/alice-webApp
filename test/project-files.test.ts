@@ -175,14 +175,36 @@ after(async () => {
 });
 
 test("opens files from the project without exposing the internal destination", async () => {
+  const projectResponse = await fetch(`${baseUrl}/projects/${ownerProjectId}`, {
+    headers: { cookie: ownerCookie },
+  });
+  const projectHtml = await projectResponse.text();
+  assert.match(projectHtml, /<nav class="project-tabs" aria-label="Project content">/);
+  assert.match(projectHtml, new RegExp(`/projects/${ownerProjectId}/changes`));
+  assert.match(projectHtml, new RegExp(`/projects/${ownerProjectId}/files`));
+  assert.match(projectHtml, /id="project-add-files"[^>]*>Add files</);
+  assert.match(projectHtml, /id="project-file-picker" type="file"[^>]+multiple hidden/);
+  assert.match(projectHtml, /button\.addEventListener\("click",\(\)=>input\.click\(\)\)/);
+
+  const changeResponse = await fetch(`${baseUrl}/projects/${ownerProjectId}/changes`, {
+    headers: { cookie: ownerCookie },
+  });
+  const changeHtml = await changeResponse.text();
+  assert.match(changeHtml, /<a[^>]+aria-current="page">Change log<\/a>/);
+  assert.match(changeHtml, />Files<\/a>/);
+  assert.match(changeHtml, /id="project-add-files"[^>]*>Add files</);
+
   const response = await fetch(`${baseUrl}/projects/${ownerProjectId}/files`, {
     headers: { cookie: ownerCookie },
   });
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /Project files/);
+  assert.match(html, /Files \(0\)/);
+  assert.match(html, /<a[^>]+aria-current="page">Files<\/a>/);
+  assert.match(html, />Change log</);
+  assert.match(html, /id="project-add-files"[^>]*>Add files</);
   assert.match(html, /No files yet/);
-  assert.match(html, /Add a file/);
+  assert.doesNotMatch(html, /Add a file|Choose a file|Upload and scan/);
   assert.doesNotMatch(html, /Files in General/);
   assert.doesNotMatch(html, /No active files in this context/);
   assert.doesNotMatch(html, /context_id=/);
