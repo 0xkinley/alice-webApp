@@ -98,7 +98,7 @@ The project Change log is the first web adoption of this contract. It aggregates
 
 ## Web experience contract
 
-The authenticated shell contains a collapsible sidebar with Your Projects, Shared with You, Archived Projects, and AI Connections. The header contains the formatted `alice.` wordmark, signed-in account, and sign-out control. Desktop and mobile layouts use the same hierarchy.
+The authenticated shell contains a collapsible sidebar with Your Projects, Shared with You, Archived Projects, and AI Connections. Shared with You and Archived Projects are real destinations rather than home-page anchors, and each renders a clear empty state when it contains no projects. The home page renders active owned projects and active shared projects only when those groups contain entries; archived project cards appear only on Archived Projects. The header contains the formatted `alice.` wordmark, signed-in account, and sign-out control. Desktop and mobile layouts use the same hierarchy.
 
 The empty workspace has one prominent `Create project` action. Project creation asks for a name and offers an optional Add files action. Add files opens the browser's file chooser in place; it does not submit the form, create a project, or navigate to the separate file-management page. Selected filenames return to the creation form, and the exact files are uploaded through the existing private scan-gated path only after Create project creates their destination.
 

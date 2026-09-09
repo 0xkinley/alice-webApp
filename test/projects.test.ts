@@ -197,10 +197,28 @@ test("creates and revisits a project in the authenticated private workspace", as
   assert.match(workspaceHtml, /Your Projects/);
   assert.match(workspaceHtml, /Shared with You/);
   assert.match(workspaceHtml, /Archived Projects/);
+  assert.match(workspaceHtml, /href="\/shared"/);
+  assert.match(workspaceHtml, /href="\/archived"/);
   assert.match(workspaceHtml, /AI Connections/);
+  assert.doesNotMatch(workspaceHtml, /id="shared-projects"|id="archived-projects"/);
+  assert.doesNotMatch(workspaceHtml, /No projects shared with you|No archived projects/);
   assert.equal(workspaceHtml.match(/<details class="create-project"/g)?.length, 1);
   assert.equal(workspaceHtml.match(/>Create project</g)?.length, 1);
   assert.doesNotMatch(workspaceHtml, /Brief|Plan the private alpha/);
+  const sharedPage = await fetch(`${baseUrl}/shared`, {
+    headers: { cookie: revisitingCookie },
+  });
+  assert.equal(sharedPage.status, 200);
+  const sharedPageHtml = await sharedPage.text();
+  assert.match(sharedPageHtml, /aria-current="page"/);
+  assert.match(sharedPageHtml, /No projects shared with you/);
+  const archivedPage = await fetch(`${baseUrl}/archived`, {
+    headers: { cookie: revisitingCookie },
+  });
+  assert.equal(archivedPage.status, 200);
+  const archivedPageHtml = await archivedPage.text();
+  assert.match(archivedPageHtml, /aria-current="page"/);
+  assert.match(archivedPageHtml, /No archived projects/);
   const signals = await fetch(`${baseUrl}/signals`, { headers: { cookie: revisitingCookie } });
   assert.equal(signals.status, 200);
   const signalsHtml = await signals.text();

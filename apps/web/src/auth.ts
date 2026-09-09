@@ -71,8 +71,8 @@ export function renderAppPage(title, body, { email, activeSection = "projects" }
       .charAt(0) || "a";
   const navigation = [
     { key: "projects", href: "/", icon: "□", label: "Your Projects" },
-    { key: "shared", href: "/#shared-projects", icon: "◇", label: "Shared with You" },
-    { key: "archived", href: "/#archived-projects", icon: "◷", label: "Archived Projects" },
+    { key: "shared", href: "/shared", icon: "◇", label: "Shared with You" },
+    { key: "archived", href: "/archived", icon: "◷", label: "Archived Projects" },
     { key: "connections", href: "/connections", icon: "⌁", label: "AI Connections" },
   ]
     .map((item) => sidebarItem({ activeSection, ...item }))

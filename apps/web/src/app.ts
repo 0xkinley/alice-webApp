@@ -97,10 +97,49 @@ export async function createApp({
   app.use(createProjectMembershipRouter({ database, publicUrl, fileStore }));
   app.use(createProjectLifecycleRouter({ database }));
   app.use("/projects", createContextAccessRouter({ database }));
+  app.get("/shared", requireAuthenticatedUser(database), async (request, response) => {
+    const sharedProjects = await listSharedProjects(database, request.aliceUser!.id);
+    const sharedProjectList = sharedProjects
+      .map(
+        (project) =>
+          `<article class="project-card"><p class="eyebrow">Shared project</p><h2><a class="project-link" href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p class="project-meta">Your access · ${escapeHtml(roleLabel(project.role))}</p></article>`,
+      )
+      .join("");
+    const body = `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Private workspace</p><h1>Shared with You</h1><p>Projects another owner has invited you to appear here.</p></div></header><section class="project-section"><div class="section-heading"><h2>Shared projects</h2><p class="muted">${sharedProjects.length} available</p></div>${
+      sharedProjectList
+        ? `<div class="project-grid">${sharedProjectList}</div>`
+        : '<div class="empty-state"><h2>No projects shared with you</h2><p>When another project owner gives you access, the project will appear here.</p></div>'
+    }</section></div>`;
+    response.type("html").send(
+      renderAppPage("Shared with You", body, {
+        email: request.aliceUser!.email,
+        activeSection: "shared",
+      }),
+    );
+  });
+  app.get("/archived", requireAuthenticatedUser(database), async (request, response) => {
+    const archivedProjects = await listArchivedProjects(database, request.aliceUser!.id);
+    const archivedProjectList = archivedProjects
+      .map(
+        (project) =>
+          `<article class="project-card"><p class="eyebrow">Archived</p><h2><a class="project-link" href="/projects/${encodeURIComponent(project.id)}/archive">${escapeHtml(project.name)}</a></h2><p class="project-meta">Archived ${escapeHtml(timestampLabel(project.archived_at))}</p></article>`,
+      )
+      .join("");
+    const body = `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Private workspace</p><h1>Archived Projects</h1><p>Archived projects stay available for restore or export.</p></div></header><section class="project-section"><div class="section-heading"><h2>Archived projects</h2><p class="muted">${archivedProjects.length} retained</p></div>${
+      archivedProjectList
+        ? `<div class="project-grid">${archivedProjectList}</div>`
+        : '<div class="empty-state"><h2>No archived projects</h2><p>Projects you archive will appear here.</p></div>'
+    }</section></div>`;
+    response.type("html").send(
+      renderAppPage("Archived Projects", body, {
+        email: request.aliceUser!.email,
+        activeSection: "archived",
+      }),
+    );
+  });
   app.get("/", requireAuthenticatedUser(database), async (request, response) => {
     const projects = await listProjects(database, request.aliceUser!.id);
     const sharedProjects = await listSharedProjects(database, request.aliceUser!.id);
-    const archivedProjects = await listArchivedProjects(database, request.aliceUser!.id);
     const sharedProjectIds = new Set(sharedProjects.map(({ id }) => id));
     const ownedProjects = projects.filter(({ id }) => !sharedProjectIds.has(id));
     const projectList = ownedProjects
@@ -115,18 +154,18 @@ export async function createApp({
           `<article class="project-card"><p class="eyebrow">Shared project</p><h2><a class="project-link" href="/projects/${encodeURIComponent(project.id)}">${escapeHtml(project.name)}</a></h2><p class="project-meta">Your access · ${escapeHtml(roleLabel(project.role))}</p></article>`,
       )
       .join("");
-    const archivedProjectList = archivedProjects
-      .map(
-        (project) =>
-          `<article class="project-card"><p class="eyebrow">Archived</p><h3><a class="project-link" href="/projects/${encodeURIComponent(project.id)}/archive">${escapeHtml(project.name)}</a></h3><p class="project-meta">Archived ${escapeHtml(timestampLabel(project.archived_at))}</p></article>`,
-      )
-      .join("");
     const projectForm = projectCreationForm(fileStore);
     const createProjectControl = `<details class="create-project" id="create-project"><summary>New project</summary>${projectForm}</details>`;
-    const hasAnyProject = projects.length > 0 || archivedProjects.length > 0;
+    const hasAnyProject = projects.length > 0;
+    const ownedSection = ownedProjects.length
+      ? `<section class="project-section"><div class="section-heading"><h2>Your Projects</h2><p class="muted">${ownedProjects.length} available</p></div><div class="project-grid">${projectList}</div></section>`
+      : "";
+    const sharedSection = sharedProjects.length
+      ? `<section class="project-section"><div class="section-heading"><h2>Shared with You</h2><p class="muted">${sharedProjects.length} available</p></div><div class="project-grid">${sharedProjectList}</div></section>`
+      : "";
     const workspaceBody = `<div class="workspace-home"><header class="workspace-toolbar"><div><p class="eyebrow">Private workspace</p><h1>Your projects</h1><p>Create a project, add files, connect the AI tools you trust, and approve anything saved back to it.</p></div>${hasAnyProject ? createProjectControl : ""}</header>${
       hasAnyProject
-        ? `<section class="project-section"><div class="section-heading"><h2>Your Projects</h2><p class="muted">${ownedProjects.length} available</p></div><div class="project-grid">${projectList || '<p class="section-empty">No projects of your own yet.</p>'}</div></section><section class="project-section" id="shared-projects"><div class="section-heading"><h2>Shared with You</h2><p class="muted">${sharedProjects.length} available</p></div><div class="project-grid">${sharedProjectList || '<p class="section-empty">Projects appear here after an Owner gives you access.</p>'}</div></section><section class="project-section" id="archived-projects"><div class="section-heading"><h2>Archived Projects</h2><p class="muted">${archivedProjects.length} retained</p></div><p class="muted">Archived projects you own remain available for restore, export, or the separate deletion-request process.</p><div class="project-grid">${archivedProjectList || '<p class="section-empty">No archived projects.</p>'}</div></section>`
+        ? `${ownedSection}${sharedSection}`
         : `<section class="workspace-empty"><div><p class="eyebrow">Start here</p><h2>Create your first project</h2><p>Give your work one clear home. Files, AI connections, and anything you choose to save will stay attached to the project.</p>${projectForm}</div></section>`
     }</div>`;
     response.type("html").send(

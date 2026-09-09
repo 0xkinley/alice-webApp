@@ -131,7 +131,7 @@ export function createProjectLifecycleRouter({ database }) {
           projectId: request.params.projectId,
           expectedPreviewVersion: request.body.expected_preview_version,
         }),
-      () => "/#archived-projects",
+      () => "/archived",
     ),
   );
   router.post(

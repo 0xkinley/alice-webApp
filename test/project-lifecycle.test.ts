@@ -228,14 +228,19 @@ test("Owner lifecycle controls archive without erasure and export only permitted
     expected_preview_version: initial.preview_version,
   });
   assert.equal(archived.status, 303);
-  assert.equal(archived.headers.get("location"), "/#archived-projects");
+  assert.equal(archived.headers.get("location"), "/archived");
   assert.equal(
     (await fetch(`${baseUrl}/projects/${projectId}`, { headers: { cookie: ownerCookie } })).status,
     404,
   );
   const homeHtml = await (await fetch(baseUrl, { headers: { cookie: ownerCookie } })).text();
-  assert.match(homeHtml, /Archived projects you own/);
-  assert.match(homeHtml, /Lifecycle safety project/);
+  assert.doesNotMatch(homeHtml, /Lifecycle safety project|Archived projects you own/);
+  assert.match(homeHtml, /Create your first project/);
+  const archivedProjectsHtml = await (
+    await fetch(`${baseUrl}/archived`, { headers: { cookie: ownerCookie } })
+  ).text();
+  assert.match(archivedProjectsHtml, /Lifecycle safety project/);
+  assert.doesNotMatch(archivedProjectsHtml, /No archived projects/);
   assert.equal(
     await getProjectInvitationPreview(created.database, ownerUser.id, pendingInvitation.token),
     undefined,
