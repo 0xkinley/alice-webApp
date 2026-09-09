@@ -39,7 +39,7 @@ test("private-alpha evaluation covers every required capability and exact host s
     ["scripts/evaluate-private-alpha-capabilities.mjs"],
     { cwd: new URL("..", import.meta.url), encoding: "utf8" },
   );
-  assert.match(output, /27\/27 expected outcomes/);
-  assert.match(output, /22 compliant traces, 5 correctly rejected traces/);
+  assert.match(output, /28\/28 expected outcomes/);
+  assert.match(output, /23 compliant traces, 5 correctly rejected traces/);
   assert.match(output, /7 surfaces, 49 explicit capability results, 0 advertised surfaces/);
 });

@@ -5,6 +5,7 @@ import {
   projectScopeForConnection,
   tenantScopeForConnection,
 } from "./authorization.ts";
+import { projectDestinationForConnection } from "./project-routing.ts";
 
 type EvidenceFileSource = {
   sourceContextId: string;
@@ -182,22 +183,9 @@ export async function saveCandidateUpdate(
   if (!tenant || tenant.clientId !== clientId) {
     return { error: "Authenticated tenant context is missing." };
   }
-  const activeTarget = await database
-    .prepare(
-      `SELECT project_workspace_id, project_id, context_id FROM active_connection_targets
-       WHERE connection_id = ? AND user_id = ? AND workspace_id = ?`,
-    )
-    .get(connectionId, tenant.userId, tenant.workspaceId);
-  if (
-    activeTarget &&
-    ((payload.project_id && payload.project_id !== activeTarget.project_id) ||
-      (payload.context_id && payload.context_id !== activeTarget.context_id))
-  ) {
-    return { error: "The requested destination does not match this connection's active target." };
-  }
-  const projectId = activeTarget?.project_id || payload.project_id;
+  const projectId = payload.project_id;
   if (!projectId) {
-    return { error: "Select an active alice. project and work context before saving." };
+    return { error: "An exact alice. project is required before saving." };
   }
   const project = await projectScopeForConnection(database, {
     userId,
@@ -209,29 +197,23 @@ export async function saveCandidateUpdate(
     return { error: "Project not found in the authenticated workspace." };
   }
 
-  const targetContextRow = await database
-    .prepare(
-      `SELECT id
-       FROM work_contexts
-       WHERE workspace_id = ? AND project_id = ? AND archived_at IS NULL
-         AND ${activeTarget?.context_id || payload.context_id ? "id = ?" : "context_kind = 'project_wide'"}`,
-    )
-    .get(
-      project.projectWorkspaceId,
-      project.projectId,
-      ...(activeTarget?.context_id || payload.context_id
-        ? [activeTarget?.context_id || payload.context_id]
-        : []),
-    );
-  if (!targetContextRow) return { error: "Context not found in the authenticated project." };
+  const destination = payload.context_id
+    ? { contextId: payload.context_id }
+    : await projectDestinationForConnection(database, {
+        userId,
+        connectionId,
+        projectId,
+        capability: "write",
+      });
+  if (!destination) return { error: "Project not found in the authenticated workspace." };
   const targetContext = await contextScopeForConnection(database, {
     userId,
     connectionId,
     projectId: project.projectId,
-    contextId: targetContextRow.id,
+    contextId: destination.contextId,
     capability: "write",
   });
-  if (!targetContext) return { error: "Context not found in the authenticated project." };
+  if (!targetContext) return { error: "Project not found in the authenticated workspace." };
 
   const evidenceFileSourceIsValid = async () => {
     if (!evidenceFileSource) return true;

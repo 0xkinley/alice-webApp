@@ -623,6 +623,7 @@ test("PostgreSQL persists one exact host-file offer and one human decision immut
     connectionId,
     publicUrl: "https://app.alice.example",
     payload: {
+      project_id: owner.project_id,
       file_name: "postgres-host-file.md",
       declared_media_type: "text/markdown",
       declared_byte_size: 128,
@@ -696,6 +697,7 @@ test("PostgreSQL consumes one confirmed host-file offer exactly once under concu
     connectionId,
     publicUrl: "https://app.alice.example",
     payload: {
+      project_id: owner.project_id,
       file_name: "postgres-host-transfer.md",
       declared_media_type: "text/markdown",
       declared_byte_size: bytes.length,
@@ -809,6 +811,7 @@ test("one concurrent exact-preview confirmation wins and accepts the whole captu
     publicUrl: "https://app.alice.example",
     userId: owner.id,
     payload: {
+      project_id: owner.project_id,
       summary: "Atomic exact-preview fixture",
       candidate_claims: [
         { state_key: "preview.first", value: "A", summary: "First preview value" },
@@ -1412,7 +1415,7 @@ test("PostgreSQL serves only current authorized clean text as bounded untrusted 
     contextBudget: 4_000,
     fileTextReadAvailable: true,
   });
-  assert.equal(packageResult.contract_version, "2.2");
+  assert.equal(packageResult.contract_version, "2.3");
   assert.equal(packageResult.file_artifacts.length, 1);
   assert.equal(packageResult.file_artifacts[0].file_reference_id, reference.id);
   assert.equal(packageResult.file_artifacts[0].handling, "reference_only_untrusted");

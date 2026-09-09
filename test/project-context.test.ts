@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
-import { setActiveConnectionTarget } from "@alice/domain";
+import { createProject } from "@alice/domain";
 import { createApp } from "../apps/mcp/src/app.ts";
 import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
 
@@ -10,7 +10,6 @@ let baseUrl;
 let created;
 let fixtureTimestamp;
 let identity;
-let connectionId;
 let server;
 
 before(async () => {
@@ -29,7 +28,6 @@ before(async () => {
   const now = new Date().toISOString();
   fixtureTimestamp = now;
   const connection = created.database.prepare("SELECT id FROM integration_connections").get();
-  connectionId = connection.id;
   created.database
     .prepare(
       `INSERT INTO evidence_events
@@ -138,7 +136,7 @@ test("lists only projects in the authenticated workspace", async () => {
     arguments: {},
   });
   assert.equal(response.status, 200);
-  assert.equal(payload.result.structuredContent.contract_version, "2.2");
+  assert.equal(payload.result.structuredContent.contract_version, "2.3");
   assert.deepEqual(
     payload.result.structuredContent.projects.map((project) => project.id),
     ["project_switchboard_launch"],
@@ -149,54 +147,17 @@ test("lists only projects in the authenticated workspace", async () => {
     payload.result.structuredContent.projects[0].accepted_state_updated_at,
     fixtureTimestamp,
   );
-  assert.deepEqual(
-    payload.result.structuredContent.projects[0].contexts.map(({ name }) => name),
-    ["General"],
-  );
-  assert.equal(payload.result.structuredContent.active_target, null);
+  assert.equal(payload.result.structuredContent.projects[0].contexts, undefined);
+  assert.equal(payload.result.structuredContent.active_target, undefined);
 });
 
-test("uses the per-connection active project and work context without target arguments", async () => {
-  const beforeSelection = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "get_active_context",
-    arguments: { task: "Continue launch planning" },
-  });
-  assert.equal(beforeSelection.payload.result.isError, true);
-  assert.match(beforeSelection.payload.result.content[0].text, /no active/i);
-  assert.deepEqual(
-    created.database
-      .prepare(
-        `SELECT status, failure_code, requested_via, project_id, context_id
-         FROM context_read_events ORDER BY created_at, id`,
-      )
-      .all()
-      .map((row) => ({ ...row })),
-    [
-      {
-        status: "failed",
-        failure_code: "no_active_target",
-        requested_via: "active_target",
-        project_id: null,
-        context_id: null,
-      },
-    ],
-  );
-
+test("uses the only accessible project without a stored active target", async () => {
   const general = created.database
     .prepare(
       `SELECT id FROM work_contexts
        WHERE workspace_id = ? AND project_id = ? AND context_kind = 'work'`,
     )
     .get(identity.workspace_id, identity.project_id);
-  const selected = await setActiveConnectionTarget(created.database, {
-    userId: identity.id,
-    connectionId,
-    projectId: identity.project_id,
-    contextId: general.id,
-    expectedVersions: { [connectionId]: null },
-  });
-  assert.equal(selected.conflict, false);
-
   const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "get_active_context",
     arguments: { task: "Continue launch planning" },
@@ -204,9 +165,7 @@ test("uses the per-connection active project and work context without target arg
   const context = payload.result.structuredContent;
   assert.equal(context.project.brief, undefined);
   assert.equal(context.project.id, identity.project_id);
-  assert.equal(context.context.id, general.id);
-  assert.equal(context.context.name, "General");
-  assert.equal(context.context.includes_project_wide, true);
+  assert.equal(context.context, undefined);
   assert.equal(context.accepted_decisions[0].state_key, "launch.icp");
   const receipt = created.database
     .prepare(
@@ -238,12 +197,6 @@ test("uses the per-connection active project and work context without target arg
         ),
     /append-only|immutable/i,
   );
-
-  const listing = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "list_projects",
-    arguments: {},
-  });
-  assert.equal(listing.payload.result.structuredContent.active_target.context_id, general.id);
 });
 
 test("advertises least-privilege OAuth scopes in ChatGPT-compatible tool metadata", async () => {
@@ -272,7 +225,7 @@ test("advertises least-privilege OAuth scopes in ChatGPT-compatible tool metadat
   assert.match(toolsByName.get_project_context.description, /cannot mutate project/i);
   assert.equal(toolsByName.get_active_context.inputSchema.properties.project_id, undefined);
   assert.equal(toolsByName.get_active_context.inputSchema.properties.context_id, undefined);
-  assert.match(toolsByName.get_active_context.description, /exact AI connection/i);
+  assert.match(toolsByName.get_active_context.description, /exactly one accessible/i);
   assert.deepEqual(toolsByName.save_project_update._meta.securitySchemes, [
     { type: "oauth2", scopes: ["mcp:write"] },
   ]);
@@ -331,9 +284,9 @@ test("returns accepted context with provenance and excludes pending candidates",
     evidence_captured_at: fixtureTimestamp,
   });
   assert.doesNotMatch(JSON.stringify(context), /must not leak/);
-  assert.equal(context.contract_version, "2.2");
+  assert.equal(context.contract_version, "2.3");
   assert.equal(context.package.selection_strategy, "deterministic_full_text_v2");
-  assert.equal(context.context.includes_project_wide, true);
+  assert.equal(context.context, undefined);
   assert.equal(context.package.budget.unit, "utf8_bytes");
   assert.equal(context.package.budget.limit, 2_000);
   assert.equal(Buffer.byteLength(JSON.stringify(context), "utf8"), context.package.budget.used);
@@ -359,12 +312,6 @@ test("records an inaccessible explicit read without retaining foreign target met
     password: "foreign context read private password",
     projectId: "project_foreign_context_read",
   });
-  const foreignContext = created.database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'work'`,
-    )
-    .get(foreign.workspace_id, foreign.project_id);
   const before = created.database
     .prepare("SELECT COUNT(*) AS count FROM context_read_events")
     .get().count;
@@ -372,7 +319,6 @@ test("records an inaccessible explicit read without retaining foreign target met
     name: "get_project_context",
     arguments: {
       project_id: foreign.project_id,
-      context_id: foreignContext.id,
       task: "Attempt inaccessible read",
     },
   });
@@ -401,10 +347,11 @@ test("records an inaccessible explicit read without retaining foreign target met
   );
 });
 
-test("active-target saves need no destination and explicit mismatches fail closed", async () => {
+test("saves require an exact accessible project and no active target", async () => {
   const saved = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "save_project_update",
     arguments: {
+      project_id: identity.project_id,
       summary: "Remember the launch channel",
       candidate_claims: [
         {
@@ -418,10 +365,8 @@ test("active-target saves need no destination and explicit mismatches fail close
   });
   assert.equal(saved.payload.result.isError, undefined);
   const preview = saved.payload.result.structuredContent;
-  const active = created.database
-    .prepare("SELECT context_id FROM active_connection_targets WHERE connection_id = ?")
-    .get(connectionId);
-  assert.equal(preview.destination.context_id, active.context_id);
+  assert.equal(preview.destination.project_id, identity.project_id);
+  assert.equal(preview.destination.context_id, undefined);
   assert.equal(
     created.database
       .prepare("SELECT COUNT(*) AS count FROM candidate_claims WHERE state_key = 'launch.channel'")
@@ -436,7 +381,7 @@ test("active-target saves need no destination and explicit mismatches fail close
       authority_token: saved.payload.result._meta["alice/saveAuthority"].token,
     },
   });
-  assert.equal(committed.payload.result.structuredContent.context_id, active.context_id);
+  assert.equal(committed.payload.result.structuredContent.context_id, undefined);
 
   const mismatched = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "save_project_update",
@@ -448,7 +393,7 @@ test("active-target saves need no destination and explicit mismatches fail close
     },
   });
   assert.equal(mismatched.payload.result.isError, true);
-  assert.match(mismatched.payload.result.content[0].text, /does not match/i);
+  assert.match(mismatched.payload.result.content[0].text, /unavailable/i);
 });
 
 test("fails closed for a project outside the authenticated workspace", async () => {
@@ -458,4 +403,20 @@ test("fails closed for a project outside the authenticated workspace", async () 
   });
   assert.equal(payload.result.isError, true);
   assert.match(payload.result.content[0].text, /not found/i);
+});
+
+test("asks for an exact project when more than one accessible project exists", async () => {
+  const secondProject = await createProject(created.database, identity.id, {
+    name: "Second accessible project",
+  });
+  assert.ok(secondProject);
+
+  const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "get_active_context",
+    arguments: { task: "Continue the work" },
+  });
+
+  assert.equal(payload.result.isError, true);
+  assert.match(payload.result.content[0].text, /several alice\. projects/i);
+  assert.match(payload.result.content[0].text, /project named|which project/i);
 });

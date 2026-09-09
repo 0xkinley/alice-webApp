@@ -1,17 +1,13 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
-import { createWorkContext, setActiveConnectionTarget } from "@alice/domain";
 import { createApp as createMcpApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
 import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
 
 let accessToken;
-let connection;
 let cookie;
 let database;
-let general;
 let identity;
 let mcpBaseUrl;
 let mcpServer;
@@ -47,27 +43,6 @@ before(async () => {
     password: "single save private password",
     clientName: "ChatGPT single Save card test",
   }));
-  connection = database
-    .prepare(
-      `SELECT connection_id AS id FROM oauth_access_tokens
-       WHERE token_hash = ?`,
-    )
-    .get(createHash("sha256").update(accessToken).digest("hex"));
-  general = database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
-    )
-    .get(identity.project_id);
-  const selected = await setActiveConnectionTarget(database, {
-    userId: identity.id,
-    connectionId: connection.id,
-    projectId: identity.project_id,
-    contextId: general.id,
-    expectedVersions: { [connection.id]: null },
-  });
-  assert.equal(selected.conflict, false);
-
   const web = await createWebApp({ database, publicUrl: "http://127.0.0.1" });
   webServer = web.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => webServer.once("listening", resolve));
@@ -101,6 +76,7 @@ async function prepare(key: string, value: string) {
   return callMcp(mcpBaseUrl, accessToken, "tools/call", {
     name: "save_project_update",
     arguments: {
+      project_id: identity.project_id,
       summary: "Save the exact launch message",
       candidate_claims: [{ state_key: "launch.message", value, summary: "Launch message" }],
       source_context: `The exact proposed message is ${value}.`,
@@ -131,7 +107,7 @@ test("the authenticated web fallback has one Save action and atomically accepts 
   const html = await page.text();
   assert.match(html, /Save this to alice\.\?/);
   assert.match(html, /Keep the plot/);
-  assert.match(html, /General/);
+  assert.doesNotMatch(html, /General|Work context/);
   assert.match(html, />Save</);
   assert.doesNotMatch(html, />Cancel|value="cancelled"/i);
   assert.deepEqual(projectStateCounts(), before);
@@ -158,36 +134,15 @@ test("an ignored or stale card creates no additional project state", async () =>
 
   const stale = await prepare("single-save-stale-001", "Stale value");
   const stalePreview = stale.payload.result.structuredContent;
-  const other = await createWorkContext(database, {
-    userId: identity.id,
-    projectId: identity.project_id,
-    input: {
-      name: "Other exact destination",
-      description: "Makes the earlier card stale.",
-      visibility: "personal",
-    },
-    providerAvailability: { chatgpt: true, claude: false },
-  });
-  const current = database
-    .prepare("SELECT selection_version FROM active_connection_targets WHERE connection_id = ?")
-    .get(connection.id);
-  const changed = await setActiveConnectionTarget(database, {
-    userId: identity.id,
-    connectionId: connection.id,
-    projectId: identity.project_id,
-    contextId: other.id,
-    expectedVersions: { [connection.id]: current.selection_version },
-  });
-  assert.equal(changed.conflict, false);
   const denied = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
     name: "alice_commit_capture_save",
     arguments: {
       preview_id: stalePreview.preview_id,
-      preview_version: stalePreview.preview_version,
+      preview_version: "0".repeat(64),
       authority_token: stale.payload.result._meta["alice/saveAuthority"].token,
     },
   });
   assert.equal(denied.payload.result.isError, true);
-  assert.match(denied.payload.result.content[0].text, /destination or provider access changed/i);
+  assert.match(denied.payload.result.content[0].text, /preview changed/i);
   assert.deepEqual(projectStateCounts(), before);
 });

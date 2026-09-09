@@ -5,7 +5,7 @@ import {
 } from "@alice/domain";
 import express from "express";
 import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
-import { accessLabel, timestampLabel } from "./product-copy.ts";
+import { timestampLabel } from "./product-copy.ts";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -37,7 +37,7 @@ function previewPage(preview) {
     : `<form method="post" action="/save-previews/${encodeURIComponent(preview.preview_id)}"><input type="hidden" name="preview_version" value="${escapeHtml(preview.preview_version)}"><button type="submit">Save</button></form>`;
   return renderPage(
     "Exact alice. Save preview",
-    `<nav><a href="/">Private workspace</a></nav><header class="hero"><p class="eyebrow">Exact Save preview</p><h1>Save this to alice.?</h1><p>Only your authenticated Save action can create accepted context. Closing this page does nothing.</p></header><section><h2>Destination</h2><dl><dt>Project</dt><dd>${escapeHtml(preview.destination.project_name)}</dd><dt>Work context</dt><dd>${escapeHtml(preview.destination.context_name)}</dd><dt>Access</dt><dd>${escapeHtml(accessLabel(preview.destination.access))}</dd><dt>Expires</dt><dd>${escapeHtml(timestampLabel(preview.expires_at))}</dd></dl></section><section><h2>${escapeHtml(preview.payload.summary)}</h2>${claims}${source ? `<details><summary>Source material included in this save</summary><pre>${escapeHtml(source)}</pre></details>` : ""}</section>${action}<p class="muted">Before Save, this is short-lived preview state only. There is no candidate, Needs attention item, or accepted state.</p>`,
+    `<nav><a href="/">Private workspace</a></nav><header class="hero"><p class="eyebrow">Exact Save preview</p><h1>Save this to alice.?</h1><p>Only your authenticated Save action can accept this project information. Closing this page does nothing.</p></header><section><h2>Project</h2><dl><dt>Name</dt><dd>${escapeHtml(preview.destination.project_name)}</dd><dt>Expires</dt><dd>${escapeHtml(timestampLabel(preview.expires_at))}</dd></dl></section><section><h2>${escapeHtml(preview.payload.summary)}</h2>${claims}${source ? `<details><summary>Supporting information</summary><pre>${escapeHtml(source)}</pre></details>` : ""}</section>${action}<p class="muted">Before Save, this is short-lived preview state only. There is no Needs attention item or accepted project information.</p>`,
   );
 }
 

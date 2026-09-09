@@ -1,8 +1,8 @@
 {
-  "version": "2026-09-07.1",
-  "policy": "A routine host save call may create only short-lived exact preview state. Only the authenticated human's single Save action may atomically create evidence and accepted context or authorize a file transfer. Closing, ignoring, or expiry creates no candidate, Needs attention item, accepted state, or file reference. Every denied path is non-disclosing and mutation-free.",
+  "version": "2026-09-10.1",
+  "policy": "A connected provider may discover the same permission-filtered project catalog, but alice. never stores an active target or returns several projects' contents together. One accessible project may resolve automatically; otherwise the host must name one exact project or ask. A routine host save call may create only short-lived exact preview state. Only the authenticated human's single Save action may atomically create evidence and accepted project information or authorize a file transfer. Closing, ignoring, or expiry creates no candidate, Needs attention item, accepted state, or file reference. Every denied path is non-disclosing and mutation-free.",
   "capabilities": [
-    "project_context_selection",
+    "project_routing",
     "read_fetch",
     "save_offer",
     "one_confirmation_activation",
@@ -16,7 +16,7 @@
     "cross_host_reuse"
   ],
   "runtime_evidence": {
-    "project_context_selection": ["test/context-selection.test.ts"],
+    "project_routing": ["test/project-context.test.ts", "test/mcp-app-workspace.test.ts"],
     "read_fetch": ["test/project-context.test.ts", "test/file-retrieval.test.ts"],
     "save_offer": ["test/candidate-updates.test.ts", "test/single-action-save-card.test.ts"],
     "one_confirmation_activation": [
@@ -41,19 +41,24 @@
   },
   "cases": [
     {
-      "id": "human_selects_exact_target",
-      "capability": "project_context_selection",
+      "id": "connected_provider_discovers_accessible_projects_without_target_mutation",
+      "capability": "project_routing",
       "host": "provider-neutral",
-      "trace": ["human.preview_target", "human.select_target", "state.active_target_changed"],
+      "trace": [
+        "host.provider-neutral.list_projects",
+        "state.accessible_projects_returned",
+        "state.no_mutation"
+      ],
       "assertions": {
-        "ordered": ["human.preview_target", "human.select_target", "state.active_target_changed"],
-        "absent": ["state.accepted_created"]
+        "ordered": ["host.provider-neutral.list_projects", "state.accessible_projects_returned"],
+        "absent": ["state.active_target_changed", "state.accepted_created"],
+        "required": ["state.no_mutation"]
       },
       "expected_policy_result": "pass"
     },
     {
       "id": "host_cannot_select_target",
-      "capability": "project_context_selection",
+      "capability": "project_routing",
       "host": "chatgpt",
       "trace": ["host.chatgpt.select_target", "state.active_target_changed"],
       "assertions": { "required": ["host.chatgpt.select_target"] },
@@ -71,6 +76,26 @@
       "assertions": {
         "ordered": ["host.claude.get_active_context", "state.accepted_context_returned"],
         "required": ["state.no_mutation"]
+      },
+      "expected_policy_result": "pass"
+    },
+    {
+      "id": "multiple_projects_require_exact_project",
+      "capability": "project_routing",
+      "host": "claude",
+      "trace": [
+        "host.claude.get_active_context",
+        "state.multiple_projects_requires_disambiguation",
+        "state.no_project_contents_returned",
+        "state.no_mutation"
+      ],
+      "assertions": {
+        "required": [
+          "state.multiple_projects_requires_disambiguation",
+          "state.no_project_contents_returned",
+          "state.no_mutation"
+        ],
+        "absent": ["state.accepted_context_returned", "state.active_target_changed"]
       },
       "expected_policy_result": "pass"
     },

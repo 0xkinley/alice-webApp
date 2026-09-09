@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
-import { setContextProviderAvailability } from "@alice/domain";
 import { createApp } from "../apps/mcp/src/app.ts";
 import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
 
@@ -51,14 +50,18 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   );
   for (const name of [
     "alice_workspace_snapshot",
-    "alice_update_context_providers",
-    "alice_select_workspace_context",
     "alice_create_workspace_project",
-    "alice_create_workspace_context",
-    "alice_attach_workspace_file",
     "alice_commit_capture_save",
   ]) {
     assert.deepEqual(byName[name]._meta.ui.visibility, ["app"]);
+  }
+  for (const removed of [
+    "alice_update_context_providers",
+    "alice_select_workspace_context",
+    "alice_create_workspace_context",
+    "alice_attach_workspace_file",
+  ]) {
+    assert.equal(byName[removed], undefined);
   }
 
   const resource = await callMcp(baseUrl, accessToken, "resources/read", {
@@ -76,7 +79,7 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   assert.doesNotMatch(saveResource.payload.result.contents[0].text, />Cancel</);
 });
 
-test("provider availability is independent, deny-by-default, and filters discovery", async () => {
+test("project discovery is governed by Alice permissions, not provider toggles", async () => {
   const general = created.database
     .prepare(
       `SELECT id FROM work_contexts
@@ -96,46 +99,59 @@ test("provider availability is independent, deny-by-default, and filters discove
          WHERE user_id = ? AND context_id = ? ORDER BY provider`,
       )
       .all(identity.id, contextId);
-    const versions = Object.fromEntries(current.map((row) => [row.provider, row.version]));
-    const changed = await setContextProviderAvailability(created.database, {
-      userId: identity.id,
-      projectId: identity.project_id,
-      contextId,
-      chatgpt: false,
-      claude: true,
-      expectedVersions: versions,
-    });
-    assert.equal(changed.conflict, false);
+    for (const row of current) {
+      created.database
+        .prepare(
+          `UPDATE context_provider_authorizations
+           SET enabled = 0, version = ?, updated_at = ?
+           WHERE user_id = ? AND context_id = ? AND provider = ?`,
+        )
+        .run(row.version + 1, new Date().toISOString(), identity.id, contextId, row.provider);
+    }
   }
 
   const discovery = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "list_projects",
     arguments: {},
   });
-  assert.deepEqual(discovery.payload.result.structuredContent.projects, []);
+  assert.deepEqual(
+    discovery.payload.result.structuredContent.projects.map(({ id }) => id),
+    [identity.project_id],
+  );
+
+  const {
+    tokens: { access_token: claudeAccessToken },
+  } = await authorize(baseUrl, {
+    email: "workspace-app@alice.example",
+    password: "workspace app private password",
+    clientName: "Claude workspace app test",
+  });
+  const claudeDiscovery = await callMcp(baseUrl, claudeAccessToken, "tools/call", {
+    name: "list_projects",
+    arguments: {},
+  });
+  assert.deepEqual(
+    claudeDiscovery.payload.result.structuredContent.projects,
+    discovery.payload.result.structuredContent.projects,
+  );
 
   const snapshot = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "alice_workspace_snapshot",
     arguments: {},
   });
   assert.equal(snapshot.payload.result.structuredContent.projects[0].id, identity.project_id);
-  assert.equal(
-    snapshot.payload.result.structuredContent.projects[0].contexts[0].provider_availability.chatgpt,
-    false,
-  );
-  assert.equal(snapshot.payload.result.structuredContent.routing.scope, "connection");
-  assert.match(snapshot.payload.result.structuredContent.routing.warning, /every conversation/);
+  assert.equal(snapshot.payload.result.structuredContent.projects[0].contexts, undefined);
+  assert.equal(snapshot.payload.result.structuredContent.routing, undefined);
 
   const deniedRead = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "get_project_context",
     arguments: {
       project_id: identity.project_id,
-      context_id: general.id,
       task: "Provider denial",
       context_budget: 4_000,
     },
   });
-  assert.equal(deniedRead.payload.result.isError, true);
+  assert.equal(deniedRead.payload.result.isError, undefined);
 
   const beforeCapture = created.database
     .prepare(
@@ -147,7 +163,8 @@ test("provider availability is independent, deny-by-default, and filters discove
   const deniedCapture = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "save_project_update",
     arguments: {
-      summary: "This provider-disabled capture must not persist",
+      project_id: identity.project_id,
+      summary: "This permission-governed capture remains preview-only",
       candidate_claims: [
         {
           state_key: "workspace.provider_denial",
@@ -158,7 +175,7 @@ test("provider availability is independent, deny-by-default, and filters discove
       idempotency_key: "workspace-provider-denial-001",
     },
   });
-  assert.equal(deniedCapture.payload.result.isError, true);
+  assert.equal(deniedCapture.payload.result.isError, undefined);
   assert.deepEqual(
     created.database
       .prepare(
@@ -171,7 +188,7 @@ test("provider availability is independent, deny-by-default, and filters discove
   );
 });
 
-test("the app creates a name-only project for the active provider", async () => {
+test("the app creates a name-only project that is immediately discoverable", async () => {
   const beforeRejectedBrief = created.database
     .prepare("SELECT COUNT(*) AS count FROM projects")
     .get().count;
@@ -205,35 +222,9 @@ test("the app creates a name-only project for the active provider", async () => 
     .get(projectId);
   assert.equal(general.visibility, "all_members");
 
-  const selected = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "alice_select_workspace_context",
-    arguments: {
-      project_id: projectId,
-      context_id: general.id,
-      expected_selection_version: null,
-    },
+  const discovery = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "list_projects",
+    arguments: {},
   });
-  assert.equal(selected.payload.result.structuredContent.context_id, general.id);
-
-  const createdContext = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "alice_create_workspace_context",
-    arguments: {
-      project_id: projectId,
-      name: "Friends",
-      description: "Visible to selected project members.",
-      visibility: "selected_members",
-      chatgpt: false,
-      claude: true,
-    },
-  });
-  assert.equal(createdContext.payload.result.structuredContent.visibility, "selected_members");
-  const deniedSelection = await callMcp(baseUrl, accessToken, "tools/call", {
-    name: "alice_select_workspace_context",
-    arguments: {
-      project_id: projectId,
-      context_id: createdContext.payload.result.structuredContent.id,
-      expected_selection_version: selected.payload.result.structuredContent.selection_version,
-    },
-  });
-  assert.equal(deniedSelection.payload.result.isError, true);
+  assert.ok(discovery.payload.result.structuredContent.projects.some(({ id }) => id === projectId));
 });

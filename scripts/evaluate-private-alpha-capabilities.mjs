@@ -73,12 +73,8 @@ function scoreTrustInvariants(evaluationCase) {
     failures.push(`A host attempted a human-only action: ${forbiddenAuthorityEvent}.`);
   }
 
-  if (
-    trace.includes("state.active_target_changed") &&
-    (first("human.select_target") === -1 ||
-      first("human.select_target") > first("state.active_target_changed"))
-  ) {
-    failures.push("An active target changed without prior authenticated human selection.");
+  if (trace.includes("state.active_target_changed")) {
+    failures.push("The private-alpha project routing contract must not store an active target.");
   }
 
   if (trace.includes("state.accepted_created")) {

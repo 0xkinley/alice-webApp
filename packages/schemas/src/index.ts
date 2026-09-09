@@ -15,7 +15,7 @@ export const captureValidationLimits = Object.freeze({
   payloadBytes: 32 * 1_024,
 });
 
-export const consumptionContractVersion = "2.2";
+export const consumptionContractVersion = "2.3";
 export const fileTextReadContractVersion = "1.0";
 export const pdfFileReadContractVersion = "1.0";
 export const pdfExtractionVersion = "pdfjs_embedded_text_v1";
@@ -91,52 +91,9 @@ export const createWorkContextSchema = z
 
 export const openAliceWorkspaceSchema = z.object({}).strict();
 
-export const updateContextProviderAvailabilitySchema = z
-  .object({
-    project_id: projectIdSchema,
-    context_id: contextIdSchema,
-    chatgpt: z.boolean(),
-    claude: z.boolean(),
-    expected_versions: z
-      .object({
-        chatgpt: z.string().nullable(),
-        claude: z.string().nullable(),
-      })
-      .strict(),
-  })
-  .strict();
-
-export const selectAliceWorkspaceContextSchema = z
-  .object({
-    project_id: projectIdSchema,
-    context_id: contextIdSchema,
-    expected_selection_version: z.string().nullable(),
-  })
-  .strict();
-
 export const createAliceWorkspaceProjectSchema = z
   .object({
     name: z.string().trim().min(1).max(120),
-  })
-  .strict();
-
-export const createAliceWorkspaceContextSchema = z
-  .object({
-    project_id: projectIdSchema,
-    name: z.string().trim().min(1).max(120),
-    description: z.string().trim().min(1).max(2_000),
-    visibility: z.enum(["all_members", "selected_members", "personal"]),
-    chatgpt: z.boolean(),
-    claude: z.boolean(),
-  })
-  .strict();
-
-export const attachAliceWorkspaceFileSchema = z
-  .object({
-    project_id: projectIdSchema,
-    source_reference_id: z.string().trim().min(1).max(200).regex(boundedIdentifierPattern),
-    target_context_id: contextIdSchema,
-    expected_preview_version: z.string().trim().min(1).max(200),
   })
   .strict();
 
@@ -207,8 +164,9 @@ export const candidateClaimSchema = z
 
 export const saveProjectUpdateSchema = z
   .object({
-    project_id: projectIdSchema.optional(),
-    context_id: contextIdSchema.optional(),
+    project_id: projectIdSchema.describe(
+      "Exact project identifier from list_projects; required for every save preview",
+    ),
     summary: z.string().trim().min(1).max(captureValidationLimits.summaryCharacters),
     candidate_claims: z
       .array(candidateClaimSchema)
@@ -262,7 +220,6 @@ export const listProjectsSchema = z.object({}).strict();
 export const getProjectContextSchema = z
   .object({
     project_id: projectIdSchema,
-    context_id: contextIdSchema.optional(),
     task: z
       .string()
       .trim()
@@ -280,9 +237,7 @@ export const getProjectContextSchema = z
   })
   .strict();
 
-export const getActiveContextSchema = getProjectContextSchema
-  .omit({ project_id: true, context_id: true })
-  .strict();
+export const getActiveContextSchema = getProjectContextSchema.omit({ project_id: true }).strict();
 
 export const readProjectFileTextSchema = z
   .object({
@@ -399,6 +354,9 @@ export const projectFileMediaTypes = [
 
 export const hostFileSaveOfferSchema = z
   .object({
+    project_id: projectIdSchema.describe(
+      "Exact project identifier from list_projects; required for every attachment save preview",
+    ),
     file_name: z.string().min(1).max(180),
     declared_media_type: z.enum(projectFileMediaTypes).optional(),
     declared_byte_size: z
@@ -477,33 +435,6 @@ const projectIdentitySchema = z
   })
   .strict();
 
-const workContextIdentitySchema = z
-  .object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string(),
-    visibility: z.enum(["all_members", "selected_members", "personal"]),
-    created_at: z.string(),
-    updated_at: z.string(),
-  })
-  .strict();
-
-const activeTargetSchema = z
-  .object({
-    connection_id: z.string(),
-    surface: z.string(),
-    project_id: z.string(),
-    project_name: z.string(),
-    context_id: z.string(),
-    context_name: z.string(),
-    context_description: z.string(),
-    visibility: z.enum(["all_members", "selected_members", "personal"]),
-    selection_version: z.string(),
-    selected_at: z.string(),
-    updated_at: z.string(),
-  })
-  .strict();
-
 const acceptedProvenanceSchema = z
   .object({
     accepted_state_id: z.string(),
@@ -552,11 +483,9 @@ export const listProjectsOutputSchema = z
         .extend({
           accepted_state_count: z.number().int().nonnegative(),
           accepted_state_updated_at: z.string().nullable(),
-          contexts: z.array(workContextIdentitySchema),
         })
         .strict(),
     ),
-    active_target: activeTargetSchema.nullable(),
   })
   .strict();
 
@@ -564,10 +493,6 @@ export const getProjectContextOutputSchema = z
   .object({
     contract_version: z.literal(consumptionContractVersion),
     project: projectIdentitySchema,
-    context: workContextIdentitySchema
-      .pick({ id: true, name: true, description: true, visibility: true, updated_at: true })
-      .extend({ includes_project_wide: z.literal(true) })
-      .strict(),
     task: z.string(),
     accepted_decisions: z.array(acceptedContextItemSchema),
     open_questions: z.array(
@@ -584,7 +509,7 @@ export const getProjectContextOutputSchema = z
         })
         .strict(),
     ),
-    file_artifacts: z.array(fileArtifactSchema),
+    file_artifacts: z.array(fileArtifactSchema.omit({ context_id: true, context_scope: true })),
     unresolved_conflicts: z.array(
       z
         .object({
@@ -618,7 +543,6 @@ export const getProjectContextOutputSchema = z
         freshness: z
           .object({
             project_updated_at: z.string(),
-            context_updated_at: z.string(),
             accepted_state_as_of: z.string().nullable(),
             evidence_as_of: z.string().nullable(),
             file_reference_as_of: z.string().nullable(),
@@ -652,7 +576,13 @@ export const readProjectFileTextOutputSchema = z
   .object({
     contract_version: z.literal(fileTextReadContractVersion),
     file: fileArtifactSchema
-      .omit({ context_scope: true, handling: true, text_read_tool: true, pdf_read_tool: true })
+      .omit({
+        context_id: true,
+        context_scope: true,
+        handling: true,
+        text_read_tool: true,
+        pdf_read_tool: true,
+      })
       .extend({ project_id: z.string() })
       .strict(),
     excerpt: z
@@ -697,7 +627,13 @@ export const readProjectFilePdfTextOutputSchema = z
   .object({
     contract_version: z.literal(pdfFileReadContractVersion),
     file: fileArtifactSchema
-      .omit({ context_scope: true, handling: true, text_read_tool: true, pdf_read_tool: true })
+      .omit({
+        context_id: true,
+        context_scope: true,
+        handling: true,
+        text_read_tool: true,
+        pdf_read_tool: true,
+      })
       .extend({ project_id: z.string(), media_type: z.literal("application/pdf") })
       .strict(),
     extraction: z

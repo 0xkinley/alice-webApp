@@ -1,6 +1,6 @@
 # Project-First Private-Alpha Redesign
 
-Status: Approved for Milestone 06; implementation in progress
+Status: Approved for Milestone 06; project-level MCP routing implemented locally
 
 Decision date: 2026-09-09
 
@@ -36,14 +36,14 @@ The 2026-09-09 start-of-task audit found a clean working tree on `milestone-06-p
 | Project creation | Requires name and brief; the MCP App also asks for human visibility and ChatGPT/Claude checkboxes | Ask only for project name, then optionally add files; create private owner access and the hidden default internally |
 | Project page | Renders project-wide and named work-context cards plus context creation | Render one shared project header followed by Change log and Files tabs; keep Add files beside the compact ellipsis menu, with Your access, owner-only Collaborators, and owner-only Archive project inside that menu |
 | AI connection management | Mixes guided setup, connection records, read receipts, revocation, and project/context selection | Keep Add to ChatGPT, Add to Claude, and Copy MCP address primary; move receipts, revocation, scopes, timestamps, and diagnostics into an advanced view |
-| MCP workspace | Exposes project and work-context selectors, provider checkboxes, context creation, and `<project> / <context>` confirmation | Show a welcome or authoritative active-project state, list only projects, use `Use this project`, and retain the concise connection-wide warning when exact conversation binding is unavailable |
+| MCP workspace | Exposes project and work-context selectors, provider checkboxes, context creation, and `<project> / <context>` confirmation | List the permission-filtered projects, show the connected provider, allow project creation and Add files, and store no active project target |
 | Save cards | Correctly require one alice. Save action, but show context names, internal state keys, versions, and JSON-formatted values | Preserve the authority transaction while rendering only the project, readable proposed content, sources, dates, and one Save control |
 | File surfaces | Preserve strong transfer and scan gates, but render context destinations, hashes, opaque receipts, and internal object identifiers in several views | Keep the state machine and provenance internally; expose only readable file, project, source, date, transfer, scan, and availability states |
 | Project-package preview | Renders raw deterministic JSON, internal keys, hashes, versions, and identifiers | Replace it with a shared readable renderer while retaining the exact structured package internally for MCP and deterministic verification |
 | OAuth | Uses alice. branding but always asks for credentials at the MCP origin | Route authorization through a short-lived alice. consent transaction that reuses a valid web session and still requires explicit authorization for each new host connection |
 | Durable docs | Several documents still describe the superseded two-action Save flow or context-first product | Update each contract as its corresponding implementation phase lands; retain dated historical evidence rather than rewriting it |
 
-The audit also found that user-facing terminology is not isolated to templates. Work-context names and identifiers flow through project listing, active-target selection, provider authorization, context packages, save previews, attachment offers, file routes, access views, tests, evaluations, and MCP tool descriptions. A copy-only change would be unsafe and incomplete.
+The audit also found that user-facing terminology is not isolated to templates. Work-context names and identifiers flow through project listing, legacy target storage, provider-authorization records, context packages, save previews, attachment offers, file routes, access views, tests, evaluations, and MCP tool descriptions. A copy-only change would be unsafe and incomplete.
 
 ## Internal project-default compatibility decision
 
@@ -53,17 +53,17 @@ A versioned PostgreSQL migration will add an explicit project-to-default-context
 
 New projects create exactly one hidden default context and designate it in that mapping. They do not create a visible `General`, `Project-wide`, research, feature, or other named context. The hidden default is used for new files, saved updates, permissions, AI retrieval, capture, review, removal, export, archive, and erasure. Project creation stores an empty internal brief until project description editing is separately admitted; the creation form does not ask for a brief.
 
-Product-owner correction on 2026-09-09 makes the creation contract exact: Project name, optional Add files, and Create project are the only controls. The web and shared ChatGPT/Claude embedded form must not request human/provider options or any brief. A host-created project authorizes the currently authenticated provider internally; the ordinary web path retains the existing deny-by-default provider state. Project lists, detail views, invitations, review summaries, confirmation data, exports, and model-visible packages omit the legacy brief field.
+Product-owner correction on 2026-09-09 makes the creation contract exact: Project name, optional Add files, and Create project are the only controls. The web and shared ChatGPT/Claude embedded form must not request human/provider options or any brief. Project lists, detail views, invitations, review summaries, confirmation data, exports, and model-visible packages omit the legacy brief field.
 
 Product-owner correction later that day extends the project-first shell to every ordinary authenticated web destination. Project access and collaborator pages render the same sidebar, project header, provider state, Add files action, ellipsis menu, and Change log / Files tabs as the project landing page. The access view presents only project membership, the signed-in user's AI connections, and security activity; it never renders the legacy project-wide or `General` records, work-context roles, context names, or context access links. File records, replacement, text preview, removal, review queues, exact Save previews, saved-information repair/removal, package preview, usage signals, invitation confirmations, and archived-project management use the authenticated application shell instead of the pre-redesign standalone layout. Old context-addressed Files, Saved information, and context-access GET routes authorize first and then redirect to the corresponding project-level surface without exposing a context identifier in the final URL. Active-project archive compatibility links return to the project because the ellipsis confirmation is the only ordinary archive entry point; already archived projects retain restore, export, and deletion-request management in the new shell.
 
-The hidden default uses project membership as its human-access boundary. A new project has one Owner and no collaborators, so it is private to its creator. Adding a collaborator later is the only ordinary way to broaden human project access. Per-user ChatGPT and Claude authorization remains separate from human membership.
+The hidden default uses project membership as its human-access boundary. A new project has one Owner and no collaborators, so it is private to its creator. Adding a collaborator later is the only ordinary way to broaden human project access. In the private alpha, a current authenticated ChatGPT or Claude MCP connection may discover the same project list the connection owner can access in alice.; the retained per-context provider-authorization rows do not filter that list or gate project operations.
 
 ### Legacy projects and records
 
 Migration must not rename, move, rewrite, merge, or delete an existing context, candidate target, accepted entry, file reference, grant, active-target history row, provider-authorization row, evidence event, or audit event. Each existing project receives a new empty hidden default mapping for future writes; legacy rows remain attached to their original internal contexts.
 
-Project-level reads may assemble legacy information only after rechecking the requesting human's current project/context capability and, for MCP, that exact connection owner's current provider authorization for each source context. A hidden project presentation never makes an inaccessible selected-members or personal record discoverable. Counts, freshness, filenames, provenance, and conflict existence from an inaccessible source remain undisclosed.
+Project-level reads may assemble legacy information only after rechecking the requesting human's current project/context capability. For MCP, the exact non-revoked connection and required read or write scope are checked as well. A hidden project presentation never makes an inaccessible selected-members or personal record discoverable. Counts, freshness, filenames, provenance, and conflict existence from an inaccessible source remain undisclosed.
 
 Legacy current values are resolved without silent merging:
 
@@ -74,13 +74,13 @@ Legacy current values are resolved without silent merging:
 
 Current, scan-clean legacy file references may appear in the project file view only when the same per-reference human and provider checks pass. Duplicate immutable objects may be presented once, but every underlying reference and authorization boundary remains intact. No hash lookup or deduplication result is exposed.
 
-### Routing and provider authorization
+### Project routing and provider availability
 
-The visible active selection is a project. Internally, new capture and file operations resolve that project to its hidden default. Existing active targets are migrated to their project's hidden default through a recorded content-free compatibility event; their legacy context rows and history are left unchanged.
+For the private alpha, connecting alice.'s MCP makes every project currently accessible to that alice. user discoverable on that provider. ChatGPT and Claude therefore receive the same permission-filtered project catalog. A provider connection does not copy or proactively send project contents, and the retained provider-authorization and active-target tables remain compatibility records rather than gates for this flow.
 
-`Use this project` is an explicit connection-scoped human action. For the current provider only, it may atomically enable that user's project-default provider authorization and commit the active project target. It never enables the other provider, never changes a collaborator's connection, and never authorizes an inaccessible legacy source. The selected value is shown as active only after the server commits the expected-version-checked change.
+There is no user-selected active target in alice. If exactly one accessible project exists, the compatibility `get_active_context` tool may resolve it automatically. If more than one exists, alice. retrieves only the project explicitly named in the conversation; when the name is missing or ambiguous, the host must ask which project and make no project read. `get_project_context` requires the exact project identifier obtained from the permission-filtered catalog and never aggregates or transmits every project's contents.
 
-When the host does not provide a stable, server-verifiable conversation identity, the UI says that the choice affects every conversation using that connection. alice. does not trust a caller-supplied conversation label or identifier as routing authority.
+Every capture, attachment offer, file transfer, and file-backed suggestion must identify one exact accessible project. Internally, new capture and file operations resolve that project to its hidden default while retaining the authorization and provenance of legacy records. A tool call may create only an exact, short-lived preview or transfer authority; trusted project information still changes only after the authenticated human chooses `Save` on the alice.-controlled preview. Connecting another provider, naming a project, or reading a project never changes trusted state.
 
 ## Human-readable rendering contract
 
@@ -106,18 +106,13 @@ Every ordinary project view reuses one project header. The project name and sign
 
 Within the shared status row, provider states stay grouped on the left and Add files aligns to the far end of the available line.
 
-Project pages show provider-specific connection states derived from the signed-in user's current non-revoked MCP connections, using the same rule as AI Connections. A connected ChatGPT or Claude provider has a green light even before it selects a project target; a revoked or absent provider remains gray. Project-target state stays available in advanced and access details but does not control the header light. Pending form values are not styled as connected.
+Project pages show provider-specific connection states derived from the signed-in user's current non-revoked MCP connections, using the same rule as AI Connections. A connected ChatGPT or Claude provider has a green light because all currently accessible projects are discoverable through that provider; a revoked or absent provider remains gray. No project-target state appears in the primary, advanced, or access views. Pending form values are not styled as connected.
 
 ## ChatGPT and Claude contract
 
-When alice. opens without a selected project, the card says:
+The shared ChatGPT and Claude workspace card shows the connected provider with a green light and the same permission-filtered project list. It contains no provider checkbox, project-target picker, context selector, `Use this project` control, active-target state, or connection-wide routing warning. Its project-creation form contains only Project name, optional Add files, and Create project.
 
-> Welcome to alice.<br>
-> Create a project or choose where you want to work.
-
-It provides Create project and Choose project actions plus these examples: `Open alice.`, `Create a project.`, `Add this file to my project.`, and `Save this.` The card does not repeat a full welcome after a committed project is available in the current app session.
-
-After selection, it says `Working in: <project name>` and `Active in ChatGPT` or `Active in Claude`. The picker contains no provider checkbox and no context selector. Its commit action is `Use this project`. A connection-wide warning remains visible when exact conversation binding is unavailable.
+With one project, the host may use that project automatically. With several projects, the host uses an unambiguous project name from the conversation or asks the user which project they mean. The host must not fetch every project to resolve ambiguity. Project cards may open the exact project's alice. page or Add files action; they do not commit routing state.
 
 Natural `save this` requests target the latest relevant conclusion. More specific scopes remain distinct: a request to save one response verbatim and summarize earlier responses cannot be collapsed into one generic summary. Rejected or superseded ideas are excluded. The host response surrounding a preview uses time-neutral copy: `Review the alice. card above. Nothing is stored unless you choose Save.` The card itself becomes the authoritative saved or transfer state after the action.
 
@@ -133,7 +128,7 @@ If an exact host surface cannot transfer original bytes, the same card opens an 
 
 alice.-controlled screens use the product name `alice.`. Provider-controlled connector names or dialogs are documented as external limitations when they cannot be changed.
 
-The primary AI Connections view contains exactly one ChatGPT row and one Claude row. A provider with no current non-revoked connection shows `Connect ChatGPT` or `Connect Claude`. A provider with at least one current non-revoked connection shows only its provider name and a green connected light; duplicate connection records do not create duplicate provider rows. Technical connection records, MCP address details, active-target controls, content-free read receipts, and revocation stay in the separate advanced view.
+The primary AI Connections view contains exactly one ChatGPT row and one Claude row. A provider with no current non-revoked connection shows `Connect ChatGPT` or `Connect Claude`. A provider with at least one current non-revoked connection shows only its provider name and a green connected light; duplicate connection records do not create duplicate provider rows. Technical connection records, MCP address details, content-free read receipts, and revocation stay in the separate advanced view. Retained active-target compatibility records are not presented or editable.
 
 The OAuth authorization endpoint will create a bounded, short-lived transaction and continue at the alice. web origin. A valid alice. web session supplies the account identity; otherwise the user signs in and returns to the same transaction. The consent view still requires an explicit Authorize action for every new ChatGPT or Claude connection and shows the account plus readable `Read projects` and `Propose updates` permissions. Authorization code, PKCE challenge, host state, tokens, and transaction authority remain server-side or hash-only as appropriate. The callback must render or redirect to one unambiguous completed state.
 
@@ -145,8 +140,8 @@ Every completed phase receives focused tests, a `MILESTONES.md` update, and its 
 2. Build the shared visual tokens and authenticated collapsible application shell. Redesign the workspace home and stop for visual checkpoint 1.
 3. Redesign project creation and the project page, including the project menu, badges, project-level file/saved-information entry points, and provider-specific active indicators. Stop for visual checkpoint 2.
 4. Remove Work Context terminology and internal destinations from every remaining web route, copy module, error, status, receipt, access view, and disclosure without changing authorization.
-5. Add the versioned hidden project-default migration and domain routing layer. Preserve legacy source scope, conflict behavior, provenance, provider authorization, erasure dependencies, and negative tests.
-6. Redesign the portable MCP workspace for the welcome, project-only picker, `Use this project`, authoritative active state, and connection-wide fallback warning.
+5. Add the versioned hidden project-default migration and domain routing layer. Preserve legacy source scope, conflict behavior, provenance, erasure dependencies, and negative tests.
+6. Redesign the portable MCP workspace for one shared project catalog, connected-provider status, automatic single-project resolution, and explicit multi-project disambiguation without an active target.
 7. Implement and adopt the shared human-readable renderer for project-package previews, Save previews, file previews, review/history surfaces, and both MCP Apps.
 8. Update conversation Save scope/provenance handling and post-Save status while preserving the exact authenticated authority transaction. Redesign the MCP Save card and stop for visual checkpoint 3.
 9. Repair provider-neutral attachment state presentation and the exact preselected browser fallback. Add synthetic ChatGPT and Claude transfer-path tests without using personal files.
@@ -161,8 +156,8 @@ Every completed phase receives focused tests, a `MILESTONES.md` update, and its 
 - No user-facing or model-visible `Work Context`, `General`, research-context, `project/context`, or `<project> / <context>` wording remains.
 - No user-facing preview or status view renders raw JSON, internal state keys, opaque identifiers, hashes, storage identifiers, or internal context names.
 - New projects create one hidden default mapping and all new project activity resolves through it.
-- Legacy entries and files remain retrievable only within their prior human and provider authorization boundaries; divergent legacy values cannot be silently selected or merged.
-- ChatGPT and Claude project selections are independent, expected-version checked, and reflected only after commit.
+- Legacy entries and files remain retrievable only within their prior human authorization boundaries; divergent legacy values cannot be silently selected or merged.
+- ChatGPT and Claude expose the same permission-filtered project catalog, store no active project selection, and retrieve only one exact project per request.
 - One alice. Save action remains the only authority that activates conversation-derived project information.
 - Ignored/closed/expired previews produce no evidence, candidate, accepted state, file reference, or misleading durable analytics event.
 - File availability is impossible before exact-byte validation, immutable storage, clean security gates, authorization, and reference creation.

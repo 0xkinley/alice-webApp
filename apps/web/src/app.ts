@@ -282,8 +282,6 @@ export async function createApp({
   const renderContextPreview = async (request, response, input) => {
     const parsed = getProjectContextSchema.safeParse({
       project_id: request.params.projectId,
-      context_id:
-        typeof input.context_id === "string" && input.context_id ? input.context_id : undefined,
       task:
         typeof input.task === "string" && input.task.trim()
           ? input.task
@@ -307,7 +305,7 @@ export async function createApp({
       packagePreview = await getProjectContext(database, {
         userId: request.aliceUser!.id,
         projectId: parsed.data.project_id,
-        contextId: parsed.data.context_id,
+        contextId: undefined,
         task: parsed.data.task,
         contextBudget: parsed.data.context_budget,
         fileTextReadAvailable: Boolean(fileStore),
@@ -347,7 +345,7 @@ export async function createApp({
       .send(
         renderAppPage(
           "Host package preview",
-          `<div class="project-home">${renderProjectShell({ shell, fileStore })}<section><div class="section-heading"><div><p class="eyebrow">AI delivery preview</p><h2>Exact project package</h2></div></div><p>This is the deterministic JSON alice. would return for this task and byte budget. Opening this preview does not create a read receipt or mean an AI tool consulted alice.</p><form method="post"><input type="hidden" name="context_id" value="${escapeHtml(parsed.data.context_id || "")}"><label>Task<input name="task" maxlength="2000" value="${escapeHtml(parsed.data.task)}" required></label><label>UTF-8 byte budget<input name="context_budget" type="number" min="2000" max="32000" value="${escapeHtml(parsed.data.context_budget)}" required></label><button type="submit">Refresh preview</button></form><dl><dt>Package version</dt><dd>${escapeHtml(packagePreview.package.version)}</dd><dt>Budget</dt><dd>${escapeHtml(packagePreview.package.budget.used)} of ${escapeHtml(packagePreview.package.budget.limit)} UTF-8 bytes</dd><dt>Freshness</dt><dd><pre>${escapeHtml(JSON.stringify(packagePreview.package.freshness, null, 2))}</pre></dd><dt>Omitted entries</dt><dd>${escapeHtml(packagePreview.package.omissions.total)}</dd></dl><pre>${escapeHtml(JSON.stringify(packagePreview, null, 2))}</pre></section></div>`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore })}<section><div class="section-heading"><div><p class="eyebrow">AI delivery preview</p><h2>Exact project package</h2></div></div><p>This is the deterministic JSON alice. would return for this task and byte budget. Opening this preview does not create a read receipt or mean an AI tool consulted alice.</p><form method="post"><label>Task<input name="task" maxlength="2000" value="${escapeHtml(parsed.data.task)}" required></label><label>UTF-8 byte budget<input name="context_budget" type="number" min="2000" max="32000" value="${escapeHtml(parsed.data.context_budget)}" required></label><button type="submit">Refresh preview</button></form><dl><dt>Package version</dt><dd>${escapeHtml(packagePreview.package.version)}</dd><dt>Budget</dt><dd>${escapeHtml(packagePreview.package.budget.used)} of ${escapeHtml(packagePreview.package.budget.limit)} UTF-8 bytes</dd><dt>Freshness</dt><dd><pre>${escapeHtml(JSON.stringify(packagePreview.package.freshness, null, 2))}</pre></dd><dt>Omitted entries</dt><dd>${escapeHtml(packagePreview.package.omissions.total)}</dd></dl><pre>${escapeHtml(JSON.stringify(packagePreview, null, 2))}</pre></section></div>`,
           { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );

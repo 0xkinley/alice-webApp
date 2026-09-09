@@ -135,6 +135,7 @@ async function offerFile(
   return await callMcp(mcpBaseUrl, accessToken, "tools/call", {
     name: "offer_host_file_save",
     arguments: {
+      project_id: identity.project_id,
       file_name: fileName,
       declared_media_type: declaredMediaType,
       declared_byte_size: 128,
@@ -145,13 +146,14 @@ async function offerFile(
   });
 }
 
-test("the MCP contract previews an exact save to the active work context", async () => {
+test("the MCP contract previews an exact save to the named project", async () => {
   const listed = await callMcp(mcpBaseUrl, accessToken, "tools/list");
   const tool = listed.payload.result.tools.find(({ name }) => name === "offer_host_file_save");
   assert.deepEqual(tool._meta.securitySchemes, [{ type: "oauth2", scopes: ["mcp:write"] }]);
   assert.equal(tool.annotations.idempotentHint, true);
   assert.match(tool.description, /accepts no bytes, host URL, credential, cookie, prompt text/i);
-  assert.match(tool.description, /exact active project and work context/i);
+  assert.match(tool.description, /exact alice\. project/i);
+  assert.ok(tool.inputSchema.required.includes("project_id"));
   assert.match(tool.description, /Only the user's Save action can authorize/i);
   assert.equal(tool._meta.ui.resourceUri, "ui://alice/save/v1.html");
 
@@ -170,10 +172,9 @@ test("the MCP contract previews an exact save to the active work context", async
   assert.equal(receipt.pre_save_state, "preview_only");
   assert.equal(receipt.file.name, "alpha-plan.md");
   assert.equal(receipt.destination.project_name, "Private project");
-  assert.equal(receipt.destination.context_name, "Chat workstream");
-  assert.equal(receipt.destination.context_id, selectedWorkContext.id);
-  assert.notEqual(receipt.destination.context_id, target.id);
-  assert.equal(receipt.destination.access, "personal");
+  assert.equal(receipt.destination.context_name, undefined);
+  assert.equal(receipt.destination.context_id, undefined);
+  assert.equal(receipt.destination.access, undefined);
   assert.equal(receipt.source_host, "chatgpt");
   assert.equal(receipt.bytes_received, false);
   assert.equal(receipt.trusted_state_changed, false);
@@ -244,8 +245,7 @@ test("only the authenticated owner can choose the single Save action", async () 
   assert.match(html, /Save this file to alice\.\?/);
   assert.match(html, /alpha-plan\.md/);
   assert.match(html, /Private project/);
-  assert.match(html, /Chat workstream/);
-  assert.match(html, /Personal draft/);
+  assert.doesNotMatch(html, /Chat workstream|General|Work context|Personal draft/);
   assert.match(html, /No file has been copied/);
   assert.match(html, />Save</);
   assert.match(html, /name="decision" value="save_file_only"/);
@@ -383,6 +383,7 @@ test("foreign users, read-only tokens, and model-supplied authority fail closed"
     const denied = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
       name: "offer_host_file_save",
       arguments: {
+        project_id: identity.project_id,
         file_name: "unsafe.txt",
         idempotency_key: `unsafe-${Object.keys(unsafe)[0]}`,
         ...unsafe,
@@ -452,6 +453,7 @@ test("a collaborator offer keeps connection and project workspaces distinct", as
   const offered = await callMcp(mcpBaseUrl, collaboratorToken, "tools/call", {
     name: "offer_host_file_save",
     arguments: {
+      project_id: identity.project_id,
       file_name: "collaborator.txt",
       idempotency_key: "host-file-collaborator-001",
     },
@@ -471,7 +473,7 @@ test("a collaborator offer keeps connection and project workspaces distinct", as
   assert.notEqual(stored.workspace_id, stored.connection_workspace_id);
 });
 
-test("a tampered or stale preview cannot authorize transfer", async () => {
+test("a tampered preview fails while legacy target changes do not redirect it", async () => {
   const tamperReceipt = (await offerFile("host-file-offer-tamper-001")).payload.result
     .structuredContent;
   const tampered = await fetch(`${tamperReceipt.confirmation_url}/decision`, {
@@ -523,13 +525,12 @@ test("a tampered or stale preview cannot authorize transfer", async () => {
     headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ preview_version: previewVersion, decision: "save_file_only" }),
   });
-  assert.equal(stale.status, 409);
-  assert.match(await stale.text(), /active project or context changed/i);
+  assert.equal(stale.status, 200);
   assert.equal(
     database
       .prepare("SELECT COUNT(*) AS count FROM host_file_save_decisions WHERE offer_id = ?")
       .get(staleReceipt.offer_id).count,
-    0,
+    1,
   );
 });
 
@@ -564,13 +565,13 @@ test("dismissal and a forged Cancel create no transfer authority or project stat
   );
 });
 
-test("provider denial blocks an attachment offer before preview state is written", async () => {
+test("legacy provider toggles do not block a permission-authorized attachment offer", async () => {
   const active = database
     .prepare(
-      `SELECT project_id, context_id FROM active_connection_targets
-       WHERE connection_id = ?`,
+      `SELECT project_id, id AS context_id FROM work_contexts
+       WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
     )
-    .get(connection.id);
+    .get(identity.project_id);
   const currentRows = database
     .prepare(
       `SELECT provider, version FROM context_provider_authorizations
@@ -590,10 +591,10 @@ test("provider denial blocks an attachment offer before preview state is written
   });
   assert.equal(disabled.conflict, false);
   const before = database.prepare("SELECT COUNT(*) AS count FROM host_file_save_offers").get();
-  const denied = await offerFile("host-file-offer-provider-denied-001");
-  assert.equal(denied.payload.result.isError, true);
+  const offered = await offerFile("host-file-offer-provider-disabled-001");
+  assert.equal(offered.payload.result.isError, undefined);
   assert.equal(
     database.prepare("SELECT COUNT(*) AS count FROM host_file_save_offers").get().count,
-    before.count,
+    before.count + 1,
   );
 });

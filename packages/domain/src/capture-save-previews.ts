@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { activeTargetForConnection } from "./active-targets.ts";
 import { contextScopeForConnection, tenantScopeForConnection } from "./authorization.ts";
 import { saveCandidateUpdate } from "./candidate-updates.ts";
+import { projectDestinationForConnection } from "./project-routing.ts";
 import { confirmCapturedUpdate, getCapturePreview } from "./trusted-state.ts";
 
 export const CAPTURE_SAVE_PREVIEW_LIFETIME_MS = 30 * 60 * 1_000;
@@ -75,42 +75,16 @@ export async function createCaptureSavePreview(
   if (!connection || connection.clientId !== input.clientId || !connection.provider) {
     return { error: "Authenticated tenant context is missing." };
   }
-  let target = await activeTargetForConnection(database, input);
-  if (!target && input.payload.project_id) {
-    target = await database
-      .prepare(
-        `SELECT project.id AS project_id, project.name AS project_name,
-                context.id AS context_id, context.name AS context_name,
-                context.description AS context_description, context.visibility,
-                'explicit_fallback' AS selection_version
-         FROM projects project
-         JOIN work_contexts context
-           ON context.workspace_id = project.workspace_id
-          AND context.project_id = project.id
-         WHERE project.id = ? AND project.archived_at IS NULL
-           AND context.archived_at IS NULL
-           AND ${input.payload.context_id ? "context.id = ?" : "context.context_kind = 'project_wide'"}`,
-      )
-      .get(
-        input.payload.project_id,
-        ...(input.payload.context_id ? [input.payload.context_id] : []),
-      );
-  }
-  if (!target) {
-    return input.payload.project_id
-      ? { error: "The save destination is unavailable." }
-      : { error: "Select an active alice. project and work context before saving." };
-  }
-  if (
-    (input.payload.project_id && input.payload.project_id !== target.project_id) ||
-    (input.payload.context_id && input.payload.context_id !== target.context_id)
-  ) {
-    return { error: "The requested destination does not match this connection's active target." };
-  }
+  const target = await projectDestinationForConnection(database, {
+    ...input,
+    projectId: input.payload.project_id,
+    capability: "write",
+  });
+  if (!target) return { error: "The save destination is unavailable." };
   const access = await contextScopeForConnection(database, {
     ...input,
-    projectId: target.project_id,
-    contextId: target.context_id,
+    projectId: target.projectId,
+    contextId: target.contextId,
     capability: "write",
   });
   if (!access || access.clientId !== input.clientId) {
@@ -119,16 +93,16 @@ export async function createCaptureSavePreview(
 
   const exactPayload = {
     ...input.payload,
-    project_id: target.project_id,
-    context_id: target.context_id,
+    project_id: target.projectId,
+    context_id: target.contextId,
   };
   const exactPayloadJson = JSON.stringify(exactPayload);
   const payloadHash = sha256(exactPayloadJson);
   const replacements = await replacementSnapshot(
     database,
     access.projectWorkspaceId,
-    target.project_id,
-    target.context_id,
+    target.projectId,
+    target.contextId,
     exactPayload.candidate_claims,
   );
   const previewId = `capture_save_preview_${randomUUID()}`;
@@ -141,11 +115,8 @@ export async function createCaptureSavePreview(
     card_type: "context_capture",
     preview_id: previewId,
     destination: {
-      project_id: target.project_id,
-      project_name: target.project_name,
-      context_id: target.context_id,
-      context_name: target.context_name,
-      access: target.visibility,
+      project_id: target.projectId,
+      project_name: target.projectName,
     },
     payload: {
       summary: exactPayload.summary,
@@ -187,8 +158,8 @@ export async function createCaptureSavePreview(
     .run(
       previewId,
       access.projectWorkspaceId,
-      target.project_id,
-      target.context_id,
+      target.projectId,
+      target.contextId,
       input.userId,
       access.userWorkspaceId,
       input.connectionId,
@@ -200,7 +171,7 @@ export async function createCaptureSavePreview(
       JSON.stringify(preview),
       previewVersion,
       sha256(authorityToken),
-      target.selection_version,
+      target.routingVersion,
       createdAt,
       expiresAt,
     );
@@ -250,7 +221,6 @@ async function acceptedReceipt(database, capture, deduplicated: boolean) {
   return {
     status: "saved",
     project_id: capture.project_id,
-    context_id: capture.context_id,
     evidence_id: capture.evidence_id,
     accepted,
     saved_at: accepted[0]?.accepted_at || null,
@@ -299,21 +269,9 @@ export async function commitCaptureSavePreview(
         contextId: row.context_id,
         capability: "write",
       });
-      const active = await activeTargetForConnection(database, {
-        userId: input.userId,
-        connectionId: row.connection_id,
-      });
-      if (
-        !access ||
-        access.clientId !== row.client_id ||
-        (row.target_selection_version === "explicit_fallback"
-          ? Boolean(active)
-          : active?.project_id !== row.project_id ||
-            active?.context_id !== row.context_id ||
-            active?.selection_version !== row.target_selection_version)
-      ) {
+      if (!access || access.clientId !== row.client_id) {
         throw new CaptureSavePreviewUserError(
-          "The destination or provider access changed. Review a new exact Save card.",
+          "The project access changed. Review a new exact Save card.",
         );
       }
       const payload = JSON.parse(row.exact_payload_json);

@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { appendAuditEvent } from "./audit.ts";
-import { activeTargetForConnection } from "./active-targets.ts";
 import { contextScopeForConnection, contextScopeForUser } from "./authorization.ts";
+import { projectDestinationForConnection } from "./project-routing.ts";
 import {
   FILE_UPLOAD_INTENT_LIFETIME_MS,
   FILE_UPLOAD_URL_LIFETIME_SECONDS,
@@ -21,6 +21,7 @@ export class HostFileSaveOfferUserError extends Error {}
 
 function canonicalRequest(input) {
   return JSON.stringify({
+    project_id: input.projectId,
     file_name: input.fileName,
     declared_media_type: input.declaredMediaType || null,
     declared_byte_size: input.declaredByteSize || null,
@@ -78,9 +79,6 @@ function safeOfferResult(offer, publicUrl: string) {
     destination: {
       project_id: offer.project_id,
       project_name: offer.project_name,
-      context_id: offer.context_id,
-      context_name: offer.context_name,
-      access: offer.visibility,
     },
     source_host: offer.source_host,
     conversation_reference: offer.conversation_reference,
@@ -135,6 +133,7 @@ export async function createHostFileSaveOffer(
     connectionId: string;
     publicUrl: string;
     payload: {
+      project_id: string;
       file_name: string;
       declared_media_type?: string | undefined;
       declared_byte_size?: number | undefined;
@@ -146,6 +145,7 @@ export async function createHostFileSaveOffer(
 ) {
   const fileName = sanitizeProjectFileDisplayName(input.payload.file_name);
   const request = {
+    projectId: input.payload.project_id,
     fileName,
     declaredMediaType: input.payload.declared_media_type || null,
     declaredByteSize: input.payload.declared_byte_size || null,
@@ -183,13 +183,15 @@ export async function createHostFileSaveOffer(
       }
       return existing;
     }
-    const target = await activeTargetForConnection(database, input);
+    const target = await projectDestinationForConnection(database, {
+      ...input,
+      projectId: input.payload.project_id,
+      capability: "write",
+    });
     if (!target) {
-      return {
-        error: `Select an active alice. project/work context at ${new URL("/connections", input.publicUrl).href}`,
-      };
+      return { error: "The requested alice. project is not writable." };
     }
-    if (!["chatgpt", "claude"].includes(target.surface)) {
+    if (!["chatgpt", "claude"].includes(target.provider)) {
       return {
         error: "Host attachment save offers are not enabled for this unverified MCP surface.",
       };
@@ -197,11 +199,11 @@ export async function createHostFileSaveOffer(
     const access = await contextScopeForConnection(database, {
       userId: input.userId,
       connectionId: input.connectionId,
-      projectId: target.project_id,
-      contextId: target.context_id,
+      projectId: target.projectId,
+      contextId: target.contextId,
       capability: "write",
     });
-    if (!access) return { error: "The active alice. target is not writable." };
+    if (!access) return { error: "The requested alice. project is not writable." };
 
     const offerId = `file_save_offer_${randomUUID()}`;
     const createdAt = new Date().toISOString();
@@ -219,19 +221,19 @@ export async function createHostFileSaveOffer(
       .run(
         offerId,
         access.projectWorkspaceId,
-        target.project_id,
-        target.context_id,
+        target.projectId,
+        target.contextId,
         input.userId,
         access.userWorkspaceId,
         input.connectionId,
         input.payload.idempotency_key,
         requestHash,
-        target.selection_version,
+        target.routingVersion,
         fileName,
         request.declaredMediaType,
         request.declaredByteSize,
         request.declaredSha256,
-        target.surface,
+        target.provider,
         request.conversationReference,
         createdAt,
         expiresAt,
@@ -273,17 +275,7 @@ async function offerForUser(database, userId: string, offerId: string) {
     capability: "write",
   });
   if (!access) return undefined;
-  const active = await activeTargetForConnection(database, {
-    userId,
-    connectionId: offer.connection_id,
-  });
-  return {
-    ...offer,
-    target_is_current:
-      active?.project_id === offer.project_id &&
-      active?.context_id === offer.context_id &&
-      active?.selection_version === offer.target_selection_version,
-  };
+  return { ...offer, target_is_current: true };
 }
 
 export async function getHostFileSaveOfferPreview(database, input) {
@@ -329,11 +321,6 @@ export async function decideHostFileSaveOffer(
     if (Number(offer.expires_at) <= Date.now()) {
       throw new HostFileSaveOfferUserError(
         "This file save offer expired. Ask the host for a new offer.",
-      );
-    }
-    if (!offer.target_is_current) {
-      throw new HostFileSaveOfferUserError(
-        "The active project or context changed. Review a new exact file save offer.",
       );
     }
     const exactVersion = decisionVersion(offer);
@@ -440,11 +427,6 @@ async function confirmedOfferForTransfer(
   if (Number(offer.expires_at) <= Date.now() && !started) {
     throw new HostFileSaveOfferUserError(
       "This attachment transfer authority expired. Ask the host for a new exact offer.",
-    );
-  }
-  if (!offer.target_is_current && !started) {
-    throw new HostFileSaveOfferUserError(
-      "The active project or context changed. Review a new exact file save offer.",
     );
   }
   return offer;

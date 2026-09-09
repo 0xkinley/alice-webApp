@@ -221,21 +221,6 @@ export async function contextScopeForConnection(
   if (!connection || !connection.provider) return undefined;
   const context = await contextScopeForUser(database, input);
   if (!context) return undefined;
-  const providerAuthorization = await database
-    .prepare(
-      `SELECT enabled
-       FROM context_provider_authorizations
-       WHERE workspace_id = ? AND project_id = ? AND context_id = ?
-         AND user_id = ? AND provider = ?`,
-    )
-    .get(
-      context.projectWorkspaceId,
-      context.projectId,
-      context.contextId,
-      context.userId,
-      connection.provider,
-    );
-  if (!providerAuthorization || !providerAuthorization.enabled) return undefined;
   return Object.freeze({
     ...context,
     connectionId: connection.connectionId,

@@ -14,16 +14,6 @@ function escapeHtml(value: unknown) {
     .replaceAll("'", "&#039;");
 }
 
-function accessLabel(value: string) {
-  return (
-    {
-      all_members: "All project members",
-      selected_members: "Selected project members",
-      personal: "Personal draft",
-    }[value] || value
-  );
-}
-
 function resultText(result: any) {
   return (result?.content || [])
     .filter((item: any) => item.type === "text")
@@ -47,7 +37,7 @@ function capturePayload() {
     )
     .join("");
   const source = card.payload.source_context || card.payload.source_note;
-  return `<section><p class="eyebrow">Exact requested context</p><h2>${escapeHtml(card.payload.summary)}</h2><ul class="claims">${claims}</ul>${source ? `<details><summary>Source material included in this save</summary><pre>${escapeHtml(source)}</pre></details>` : ""}</section>`;
+  return `<section><p class="eyebrow">What will be saved</p><h2>${escapeHtml(card.payload.summary)}</h2><ul class="claims">${claims}</ul>${source ? `<details><summary>Supporting information</summary><pre>${escapeHtml(source)}</pre></details>` : ""}</section>`;
 }
 
 function attachmentPayload() {
@@ -70,7 +60,7 @@ function render() {
     : `<button id="save" type="button" ${expired ? "disabled" : ""}>Save</button>`;
   root.innerHTML = `<style>
     :root{color-scheme:light dark;font:15px/1.5 system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;background:var(--color-background-primary,#f4f3ee);color:var(--color-text-primary,#17201d)}main{padding:18px}.card{display:grid;gap:14px}.brand{font-size:19px;font-weight:800}.eyebrow{margin:0 0 5px;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--color-text-secondary,#68716c)}h1,h2,p{margin-top:0}h1{font-size:25px;line-height:1.12}section,.destination,.notice{border:1px solid var(--color-border-secondary,#cbd0cb);border-radius:14px;padding:14px;background:var(--color-background-secondary,#fff)}.destination strong{display:block;font-size:18px}.badge{display:inline-block;margin-top:8px;border:1px solid var(--color-border-primary,#949c97);border-radius:999px;padding:3px 8px}.claims{list-style:none;margin:0;padding:0}.claims li{padding:10px 0;border-bottom:1px solid var(--color-border-secondary,#ddd)}pre{max-height:210px;overflow:auto;white-space:pre-wrap;word-break:break-word;border-radius:9px;padding:10px;background:var(--color-background-tertiary,#eef0ed)}code{font-family:var(--font-mono,ui-monospace,monospace)}dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 12px}dt{font-weight:700}.muted,.replace{color:var(--color-text-secondary,#68716c)}.replace{border-left:3px solid #b17a20;padding-left:9px}.notice.danger{border-color:#b84638}.notice.success{border-color:#377c59}button{width:100%;border:0;border-radius:999px;padding:11px 16px;background:#183f32;color:#fff;font:inherit;font-weight:800;cursor:pointer}button:disabled{cursor:default;opacity:.55}
-  </style><div class="card"><div class="brand">alice.</div><header><p class="eyebrow">Exact Save preview</p><h1>${card.card_type === "host_attachment" ? "Save this file to alice.?" : "Save this to alice.?"}</h1><p>Only your Save click can create the accepted context or authorize the exact attachment transfer.</p></header><div class="destination"><p class="eyebrow">Destination</p><strong>${escapeHtml(card.destination.project_name)} / ${escapeHtml(card.destination.context_name)}</strong><span class="badge">${escapeHtml(accessLabel(card.destination.access))}</span></div>${card.card_type === "host_attachment" ? attachmentPayload() : capturePayload()}<p id="status" class="notice${alreadyAuthorized ? " success" : ""}" role="status" aria-live="polite">${statusText}</p>${action}</div>`;
+  </style><div class="card"><div class="brand">alice.</div><header><p class="eyebrow">Exact Save preview</p><h1>${card.card_type === "host_attachment" ? "Save this file to alice.?" : "Save this to alice.?"}</h1><p>Only your Save click can accept this project information or authorize the exact attachment transfer.</p></header><div class="destination"><p class="eyebrow">Project</p><strong>${escapeHtml(card.destination.project_name)}</strong></div>${card.card_type === "host_attachment" ? attachmentPayload() : capturePayload()}<p id="status" class="notice${alreadyAuthorized ? " success" : ""}" role="status" aria-live="polite">${statusText}</p>${action}</div>`;
   document.querySelector("#save")?.addEventListener("click", save);
 }
 
@@ -104,7 +94,7 @@ async function save() {
     status.textContent =
       card.card_type === "host_attachment"
         ? "Transfer authorized. alice. will report the file saved only after exact-byte verification and both security scans."
-        : `${receipt.accepted.length} saved context ${receipt.accepted.length === 1 ? "entry" : "entries"} accepted.`;
+        : `${receipt.accepted.length} project ${receipt.accepted.length === 1 ? "item" : "items"} saved.`;
     button.textContent = "Saved";
   } catch (error) {
     status.className = "notice danger";

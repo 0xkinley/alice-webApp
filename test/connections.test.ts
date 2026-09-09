@@ -128,7 +128,8 @@ test("connection center exposes only the current user's safe connection metadata
   const advancedHtml = await advanced.text();
   assert.match(advancedHtml, /ChatGPT web/);
   assert.match(advancedHtml, /Claude web/);
-  assert.match(advancedHtml, /Active project and work context/);
+  assert.match(advancedHtml, /Every project you can access is discoverable/);
+  assert.doesNotMatch(advancedHtml, /Active project and work context|Confirm active target/);
   assert.match(advancedHtml, /https:\/\/mcp\.alice\.example\/mcp/);
   assert.doesNotMatch(advancedHtml, /Claude Desktop/);
   assert.doesNotMatch(advancedHtml, /owner-token-hash/);
@@ -154,7 +155,7 @@ test("disconnected providers each show one connect action", async () => {
   assert.match(html, /Copy the address above, paste it and choose Connect/);
 });
 
-test("a user explicitly selects one permitted target for all active AI connections", async () => {
+test("connection management exposes no active-target mutation", async () => {
   const general = created.database
     .prepare(
       `SELECT id FROM work_contexts
@@ -174,8 +175,7 @@ test("a user explicitly selects one permitted target for all active AI connectio
     }),
     redirect: "manual",
   });
-  assert.equal(response.status, 303);
-  assert.equal(response.headers.get("location"), "/connections");
+  assert.equal(response.status, 404);
 
   const accessPage = await fetch(
     `${baseUrl}/projects/${encodeURIComponent(owner.project_id)}/access`,
@@ -187,8 +187,7 @@ test("a user explicitly selects one permitted target for all active AI connectio
   assert.doesNotMatch(accessHtml, /Visible context access|>General/);
   assert.match(accessHtml, /ChatGPT web/);
   assert.match(accessHtml, /Claude web/);
-  assert.match(accessHtml, /AI connection target changed/);
-  assert.match(accessHtml, /this project/);
+  assert.doesNotMatch(accessHtml, /AI connection target changed/);
   assert.doesNotMatch(accessHtml, /Claude Desktop|owner-token-hash/);
   const targets = created.database
     .prepare(
@@ -196,27 +195,16 @@ test("a user explicitly selects one permitted target for all active AI connectio
        FROM active_connection_targets ORDER BY connection_id`,
     )
     .all();
-  assert.deepEqual(
-    targets.map(({ connection_id: connectionId, project_id: projectId, context_id: contextId }) => [
-      connectionId,
-      projectId,
-      contextId,
-    ]),
-    [
-      ["connection_owner", owner.project_id, general.id],
-      ["connection_owner_claude", owner.project_id, general.id],
-    ],
-  );
-  assert.equal(new Set(targets.map(({ selection_version: version }) => version)).size, 1);
+  assert.deepEqual(targets, []);
   assert.equal(
     created.database
       .prepare("SELECT COUNT(*) AS count FROM context_history_events WHERE action = ?")
       .get("active_target_selected").count,
-    2,
+    0,
   );
 
   const page = await fetch(`${baseUrl}/connections/advanced`, { headers: { cookie } });
-  assert.match(await page.text(), /Active target:<\/strong> Private project \/ General/);
+  assert.doesNotMatch(await page.text(), /Active target|General/);
 
   const projectPage = await fetch(`${baseUrl}/projects/${owner.project_id}`, {
     headers: { cookie },
@@ -260,44 +248,6 @@ test("connection center shows private immutable host-read receipts without packa
   assert.match(html, /package-visible-version/);
   assert.match(html, /4321 UTF-8 bytes/);
   assert.doesNotMatch(html, /task text|package content/);
-});
-
-test("a stale selection cannot silently overwrite a newer target", async () => {
-  const general = created.database
-    .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND name = 'General'")
-    .get(owner.project_id);
-  const response = await fetch(`${baseUrl}/connections/connection_owner/target`, {
-    method: "POST",
-    headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      target: `${owner.project_id}|${general.id}`,
-      expected_versions: JSON.stringify({ connection_owner: null }),
-    }),
-    redirect: "manual",
-  });
-  assert.equal(response.status, 409);
-});
-
-test("foreign connection and context identifiers disclose nothing and select nothing", async () => {
-  const foreignGeneral = created.database
-    .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND name = 'General'")
-    .get(other.project_id);
-  const response = await fetch(`${baseUrl}/connections/connection_other/target`, {
-    method: "POST",
-    headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      target: `${other.project_id}|${foreignGeneral.id}`,
-      expected_versions: JSON.stringify({ connection_other: null }),
-    }),
-    redirect: "manual",
-  });
-  assert.equal(response.status, 404);
-  assert.equal(
-    created.database
-      .prepare("SELECT COUNT(*) AS count FROM active_connection_targets WHERE connection_id = ?")
-      .get("connection_other").count,
-    0,
-  );
 });
 
 test("foreign connection identifiers disclose nothing and perform no revocation", async () => {

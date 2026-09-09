@@ -23,16 +23,6 @@ export async function suggestProjectUpdatesFromFile(
   if (!tenant || tenant.clientId !== clientId) {
     return { error: "Authenticated tenant context is missing." };
   }
-  const activeTarget = await database
-    .prepare(
-      `SELECT project_workspace_id, project_id, context_id FROM active_connection_targets
-       WHERE connection_id = ? AND user_id = ? AND workspace_id = ?`,
-    )
-    .get(connectionId, tenant.userId, tenant.workspaceId);
-  if (activeTarget && activeTarget.project_id !== request.project_id) {
-    return { error: "The requested PDF does not belong to this connection's active project." };
-  }
-
   const extracted = await getProjectPdfExtractionForSuggestion(database, store, {
     userId,
     connectionId,
@@ -43,13 +33,6 @@ export async function suggestProjectUpdatesFromFile(
     return { error: "The current clean PDF is not available for an authorized file suggestion." };
   }
   const { extraction, reference } = extracted;
-  if (
-    activeTarget &&
-    reference.context_kind !== "project_wide" &&
-    reference.context_id !== activeTarget.context_id
-  ) {
-    return { error: "The PDF is outside this connection's active work context." };
-  }
   const { start_character: start, end_character: end } = request.extraction;
   if (end > extraction.characters.length) {
     return { error: "The extraction receipt is beyond the exact current PDF extraction." };
@@ -59,7 +42,6 @@ export async function suggestProjectUpdatesFromFile(
   if (!excerpt.trim() || excerptHash !== request.extraction.excerpt_sha256) {
     return { error: "The extraction receipt does not match the exact current PDF extraction." };
   }
-  const targetContextId = activeTarget?.context_id || reference.context_id;
   const fileSource = {
     file_reference_id: reference.id,
     logical_file_id: reference.logical_file_id,
@@ -78,7 +60,7 @@ export async function suggestProjectUpdatesFromFile(
   };
   const capturePayload = {
     project_id: request.project_id,
-    context_id: targetContextId,
+    context_id: reference.context_id,
     summary: request.summary,
     candidate_claims: request.candidate_claims,
     source_note: FILE_SUGGESTION_NOTE,

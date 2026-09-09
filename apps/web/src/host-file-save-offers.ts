@@ -9,7 +9,7 @@ import {
 import type { HostFileSaveDecision, PrivateFileStore } from "@alice/domain";
 import express from "express";
 import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
-import { accessLabel, hostLabel, timestampLabel } from "./product-copy.ts";
+import { hostLabel, timestampLabel } from "./product-copy.ts";
 
 function escapeHtml(value) {
   return String(value)
@@ -35,8 +35,8 @@ function optionalFileMetadata(offer) {
   return rows.join("");
 }
 
-function decisionSummary(status, contextName?: string) {
-  if (status === "save_file_only") return `Save to ${contextName || "the active context"}`;
+function decisionSummary(status, projectName?: string) {
+  if (status === "save_file_only") return `Save to ${projectName || "the project"}`;
   if (status === "save_and_suggest_context") return "Previously authorized file save";
   if (status === "cancelled") return "Cancelled. No file transfer authorized.";
   return "Awaiting your decision";
@@ -60,30 +60,28 @@ form.addEventListener("submit",async event=>{event.preventDefault();const file=i
 function transferSection(offer, directUploadAvailable: boolean) {
   if (!["save_file_only", "save_and_suggest_context"].includes(offer.status)) return "";
   if (offer.transfer?.status === "completed") {
-    return `<section><h2>File saved</h2><p class="notice"><strong>Scan-clean and available.</strong> The exact file is now an authorized reference in the confirmed context.</p><p><a href="/projects/${encodeURIComponent(offer.transfer.project_id)}/files/${encodeURIComponent(offer.transfer.file_reference_id)}">View the saved file receipt</a></p></section>`;
+    return `<section><h2>File saved</h2><p class="notice"><strong>Scan-clean and available.</strong> The exact file is now available in the confirmed project.</p><p><a href="/projects/${encodeURIComponent(offer.transfer.project_id)}/files/${encodeURIComponent(offer.transfer.file_reference_id)}">View the saved file receipt</a></p></section>`;
   }
   if (offer.transfer) {
     return '<section><h2>Transfer processing</h2><p class="notice warning">The exact bytes were received, but the final private-file security scan has not completed. alice. is not claiming the file is available yet.</p></section>';
   }
-  if (offer.transfer_authority_expired || !offer.target_is_current) {
-    return '<section><h2>Upload unavailable</h2><p class="notice warning">This exact transfer authority expired or its active target changed. Ask the host for a new save offer. No bytes were received.</p></section>';
+  if (offer.transfer_authority_expired) {
+    return '<section><h2>Upload unavailable</h2><p class="notice warning">This exact transfer authority expired. Ask the host for a new save offer. No bytes were received.</p></section>';
   }
   if (!directUploadAvailable) {
     return '<section><h2>Browser fallback unavailable</h2><p class="notice warning">This deployment cannot create a direct private upload. No bytes were received.</p></section>';
   }
-  return `<section class="upload-panel"><p class="eyebrow">Provider transfer fallback</p><h2>Upload the exact file to alice.</h2><p>The destination is locked to <strong>${escapeHtml(offer.destination.project_name)} / ${escapeHtml(offer.destination.context_name)}</strong>. Choose only <strong>${escapeHtml(offer.file.name)}</strong>. The browser hashes it locally, uploads directly to private storage, and waits for both security gates.</p><form id="file-save-upload"><label>Exact confirmed file<input id="file-save-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><button type="submit">Upload exact file and scan</button><progress id="file-save-progress" max="100" value="0" hidden></progress><p id="file-save-status" role="status"></p></form></section>${fallbackUploadScript(offer)}`;
+  return `<section class="upload-panel"><p class="eyebrow">Provider transfer fallback</p><h2>Upload the exact file to alice.</h2><p>The destination is locked to <strong>${escapeHtml(offer.destination.project_name)}</strong>. Choose only <strong>${escapeHtml(offer.file.name)}</strong>. The browser hashes it locally, uploads directly to private storage, and waits for both security gates.</p><form id="file-save-upload"><label>Exact confirmed file<input id="file-save-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><button type="submit">Upload exact file and scan</button><progress id="file-save-progress" max="100" value="0" hidden></progress><p id="file-save-status" role="status"></p></form></section>${fallbackUploadScript(offer)}`;
 }
 
 function offerPage(offer, directUploadAvailable: boolean) {
-  const unavailable = offer.expired || !offer.target_is_current;
+  const unavailable = offer.expired;
   const pending = offer.status === "pending";
   const notice = !pending
-    ? `<p class="notice"><strong>Already decided:</strong> ${escapeHtml(decisionSummary(offer.status, offer.destination.context_name))}. No attachment bytes were received by this confirmation step.</p>`
+    ? `<p class="notice"><strong>Already decided:</strong> ${escapeHtml(decisionSummary(offer.status, offer.destination.project_name))}. No attachment bytes were received by this confirmation step.</p>`
     : offer.expired
       ? '<p class="notice warning"><strong>This offer expired.</strong> Ask the host for a new exact preview. No attachment bytes were received.</p>'
-      : !offer.target_is_current
-        ? '<p class="notice warning"><strong>Your active project or context changed.</strong> Ask the host for a new exact preview. No attachment bytes were received.</p>'
-        : '<p class="notice"><strong>No file has been copied.</strong> Confirming authorizes transfer only for the exact destination below. alice. still verifies, scans, stores, and authorizes the bytes before claiming the file is saved.</p>';
+      : '<p class="notice"><strong>No file has been copied.</strong> Confirming authorizes transfer only for the exact project below. alice. still verifies, scans, stores, and authorizes the bytes before claiming the file is saved.</p>';
   const actions =
     pending && !unavailable
       ? `<form method="post" action="/file-save-offers/${encodeURIComponent(offer.offer_id)}/decision"><input type="hidden" name="preview_version" value="${escapeHtml(offer.decision_version)}"><input type="hidden" name="decision" value="save_file_only"><button type="submit">Save</button></form>`
@@ -93,7 +91,7 @@ function offerPage(offer, directUploadAvailable: boolean) {
     : "";
   return renderPage(
     "Host file save offer",
-    `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a></nav><header class="hero"><p class="eyebrow">Exact attachment preview</p><h1>Save this file to alice.?</h1><p>The host cannot answer this question for you. Only this authenticated alice. action can authorize attachment transfer.</p></header>${notice}<section><h2>Exact file and destination</h2><dl><dt>Filename</dt><dd>${escapeHtml(offer.file.name)}</dd>${optionalFileMetadata(offer)}<dt>Project</dt><dd>${escapeHtml(offer.destination.project_name)}</dd><dt>Work context</dt><dd>${escapeHtml(offer.destination.context_name)}</dd><dt>Access</dt><dd>${escapeHtml(accessLabel(offer.destination.access))}</dd><dt>Source host</dt><dd>${escapeHtml(hostLabel(offer.source_host))}</dd>${conversation}<dt>Offer expires</dt><dd>${escapeHtml(timestampLabel(offer.expires_at))}</dd><dt>Offer receipt</dt><dd><code>${escapeHtml(offer.offer_id)}</code></dd></dl></section>${actions}${transferSection(offer, directUploadAvailable)}<p class="muted">The saved file becomes an untrusted reference in the named active context after its security scans pass. It does not enter Needs attention or activate any file statement as trusted project context.</p>`,
+    `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a></nav><header class="hero"><p class="eyebrow">Exact attachment preview</p><h1>Save this file to alice.?</h1><p>The host cannot answer this question for you. Only this authenticated alice. action can authorize attachment transfer.</p></header>${notice}<section><h2>Exact file and project</h2><dl><dt>Filename</dt><dd>${escapeHtml(offer.file.name)}</dd>${optionalFileMetadata(offer)}<dt>Project</dt><dd>${escapeHtml(offer.destination.project_name)}</dd><dt>Source host</dt><dd>${escapeHtml(hostLabel(offer.source_host))}</dd>${conversation}<dt>Offer expires</dt><dd>${escapeHtml(timestampLabel(offer.expires_at))}</dd><dt>Offer receipt</dt><dd><code>${escapeHtml(offer.offer_id)}</code></dd></dl></section>${actions}${transferSection(offer, directUploadAvailable)}<p class="muted">The saved file becomes an untrusted project reference after its security scans pass. It does not enter Needs attention or turn file contents into trusted project information.</p>`,
   );
 }
 

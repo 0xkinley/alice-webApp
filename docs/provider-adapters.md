@@ -115,7 +115,7 @@ The repository retains a versioned surface registry rather than making a blanket
 Every surface receives the same minimum evaluation categories:
 
 1. OAuth discovery, scoped authorization, reconnect, and revoke.
-2. Permitted project discovery and explicit active project/context selection.
+2. Permission-filtered project discovery, automatic sole-project resolution, and exact named-project disambiguation when several are available.
 3. Side-effect-free accepted-context retrieval with provenance, freshness, budget, and omission reporting.
 4. An exact authenticated human Save action, plus closing, ignoring, or expiry that performs no activation or durable project-state write.
 5. Authorized file-reference retrieval and either verified host attachment transfer or an honest pre-targeted alice. upload fallback.

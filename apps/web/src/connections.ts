@@ -1,9 +1,7 @@
 import {
   listContextReadEvents,
   listIntegrationConnections,
-  listSelectableProjectContexts,
   revokeIntegrationConnection,
-  setActiveConnectionTarget,
 } from "@alice/domain";
 import express from "express";
 import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
@@ -21,36 +19,17 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function selectionOptions(projects, connection) {
-  return projects
-    .map(
-      (project) =>
-        `<optgroup label="${escapeHtml(project.name)}">${project.contexts
-          .map(
-            (context) =>
-              `<option value="${escapeHtml(`${project.id}|${context.id}`)}"${connection.project_id === project.id && connection.context_id === context.id ? " selected" : ""}>${escapeHtml(context.name)}</option>`,
-          )
-          .join("")}</optgroup>`,
-    )
-    .join("");
-}
-
-function connectionCard(connection, projects, expectedVersions) {
+function connectionCard(connection) {
   const status = connection.revoked_at ? "Revoked" : "Connected";
   const action = connection.revoked_at
     ? "<p>Reconnect from this host using the alice. MCP address configured for this environment.</p>"
-    : `${projects.some(({ contexts }) => contexts.length > 0) ? `<form method="post" action="/connections/${encodeURIComponent(connection.id)}/target"><label>Active project and work context<select name="target" required>${selectionOptions(projects, connection)}</select></label><input type="hidden" name="expected_versions" value="${escapeHtml(JSON.stringify(expectedVersions))}"><label><input name="apply_all" type="checkbox" value="yes"> Apply this target to all active AI connections</label><button type="submit">Confirm active target</button></form>` : '<p class="notice">Create a project work context before selecting a target.</p>'}<form method="post" action="/connections/${encodeURIComponent(connection.id)}/revoke"><button class="destructive" type="submit">Revoke this connection</button></form>`;
-  const current = connection.context_id
-    ? `<p><strong>Active target:</strong> ${escapeHtml(connection.project_name)} / ${escapeHtml(connection.context_name)}</p>`
-    : "<p><strong>Active target:</strong> Not selected</p>";
-  return `<article class="connection-card${connection.revoked_at ? " revoked" : ""}"><p class="eyebrow">${escapeHtml(hostLabel(connection.client_classification))}</p><h2>${escapeHtml(connection.client_name)}</h2><p><span class="badge">${status}</span></p>${current}<dl><dt>Permissions</dt><dd>${escapeHtml(permissionLabel(connection.granted_scopes))}</dd><dt>Connected</dt><dd>${escapeHtml(timestampLabel(connection.first_connected_at))}</dd><dt>Last used</dt><dd>${escapeHtml(timestampLabel(connection.last_used_at))}</dd></dl>${action}</article>`;
+    : `<p>Every project you can access is discoverable through this connection. Only the project named for a task is retrieved.</p><form method="post" action="/connections/${encodeURIComponent(connection.id)}/revoke"><button class="destructive" type="submit">Revoke this connection</button></form>`;
+  return `<article class="connection-card${connection.revoked_at ? " revoked" : ""}"><p class="eyebrow">${escapeHtml(hostLabel(connection.client_classification))}</p><h2>${escapeHtml(connection.client_name)}</h2><p><span class="badge">${status}</span></p><dl><dt>Permissions</dt><dd>${escapeHtml(permissionLabel(connection.granted_scopes))}</dd><dt>Connected</dt><dd>${escapeHtml(timestampLabel(connection.first_connected_at))}</dd><dt>Last used</dt><dd>${escapeHtml(timestampLabel(connection.last_used_at))}</dd></dl>${action}</article>`;
 }
 
 function readEventCard(event) {
-  const route = event.requested_via === "active_target" ? "active target" : "explicit fallback";
-  const destination = event.context_name
-    ? ` · ${escapeHtml(event.project_name)} / ${escapeHtml(event.context_name)}`
-    : "";
+  const route = event.requested_via === "active_target" ? "single-project lookup" : "named project";
+  const destination = event.project_name ? ` · ${escapeHtml(event.project_name)}` : "";
   const result =
     event.status === "succeeded"
       ? `Succeeded · package ${escapeHtml(event.package_version)} · ${escapeHtml(event.package_utf8_bytes)} UTF-8 bytes`
@@ -117,21 +96,13 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
   });
 
   router.get("/advanced", async (request, response) => {
-    const [connections, projects, readEvents] = await Promise.all([
+    const [connections, readEvents] = await Promise.all([
       listIntegrationConnections(database, request.aliceUser!.id),
-      listSelectableProjectContexts(database, request.aliceUser!.id),
       listContextReadEvents(database, { userId: request.aliceUser!.id, limit: 25 }),
     ]);
-    const expectedVersions = Object.fromEntries(
-      connections
-        .filter(({ revoked_at: revokedAt }) => !revokedAt)
-        .map((connection) => [connection.id, connection.target_version || null]),
-    );
     const endpoint = new URL("/mcp", mcpPublicUrl).href;
     const escapedEndpoint = escapeHtml(endpoint);
-    const cards = connections
-      .map((connection) => connectionCard(connection, projects, expectedVersions))
-      .join("");
+    const cards = connections.map((connection) => connectionCard(connection)).join("");
     const readActivity = readEvents.length
       ? readEvents.map(readEventCard).join("")
       : "<p>No successful or failed host context read has been recorded for your AI connections. This does not mean a host consulted alice.</p>";
@@ -140,71 +111,10 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
       .send(
         renderAppPage(
           "Advanced AI connection settings",
-          `<header class="hero"><p class="eyebrow">Advanced settings</p><h1>Connection details and activity</h1><p>Review individual OAuth connections, routing, revocation, and content-free read receipts.</p><p><a href="/connections">Back to AI connections</a></p></header><section class="connection-setup"><div class="section-heading"><h2>Your alice. MCP address</h2><p class="muted">One address for your account connections</p></div><pre id="mcp-address"><code>${escapedEndpoint}</code></pre></section><section><div class="section-heading"><h2>Individual connections</h2><p class="muted">${connections.filter(({ revoked_at: revokedAt }) => !revokedAt).length} active</p></div>${cards || '<div class="empty-state"><h2>No connection records</h2><p>Return to AI connections to add ChatGPT or Claude.</p></div>'}</section><section><div class="section-heading"><h2>Your recent host reads</h2><p class="muted">Immutable, content-free receipts</p></div><p>These receipts distinguish successful retrieval from failure. Success does not prove that a host used the returned context in its answer.</p>${readActivity}</section>`,
+          `<header class="hero"><p class="eyebrow">Advanced settings</p><h1>Connection details and activity</h1><p>Review individual OAuth connections, revocation, and content-free read receipts.</p><p><a href="/connections">Back to AI connections</a></p></header><section class="connection-setup"><div class="section-heading"><h2>Your alice. MCP address</h2><p class="muted">One address for your account connections</p></div><pre id="mcp-address"><code>${escapedEndpoint}</code></pre></section><section><div class="section-heading"><h2>Individual connections</h2><p class="muted">${connections.filter(({ revoked_at: revokedAt }) => !revokedAt).length} active</p></div>${cards || '<div class="empty-state"><h2>No connection records</h2><p>Return to AI connections to add ChatGPT or Claude.</p></div>'}</section><section><div class="section-heading"><h2>Your recent host reads</h2><p class="muted">Immutable, content-free receipts</p></div><p>These receipts distinguish successful retrieval from failure. Success does not prove that a host used the returned project information in its answer.</p>${readActivity}</section>`,
           { email: request.aliceUser!.email, activeSection: "connections" },
         ),
       );
-  });
-
-  router.post("/:connectionId/target", async (request, response) => {
-    const [projectId, contextId, extra] = String(request.body.target || "").split("|");
-    if (!projectId || !contextId || extra) {
-      return response
-        .status(400)
-        .type("html")
-        .send(
-          renderStatusPage(
-            "Invalid target",
-            '<h1>Select a valid project and work context.</h1><p><a href="/connections">Return to AI connections</a></p>',
-          ),
-        );
-    }
-    let expectedVersions;
-    try {
-      expectedVersions = JSON.parse(String(request.body.expected_versions || ""));
-    } catch {
-      return response
-        .status(409)
-        .type("html")
-        .send(
-          renderStatusPage(
-            "Selection changed",
-            '<h1>Reload before changing this target.</h1><p>Nothing was changed.</p><p><a href="/connections">Review current targets</a></p>',
-          ),
-        );
-    }
-    const result = await setActiveConnectionTarget(database, {
-      userId: request.aliceUser!.id,
-      connectionId: request.params.connectionId,
-      projectId,
-      contextId,
-      applyToAll: request.body.apply_all === "yes",
-      expectedVersions,
-    });
-    if (!result) {
-      return response
-        .status(404)
-        .type("html")
-        .send(
-          renderStatusPage(
-            "Not found",
-            '<h1>Connection or target not found</h1><p>The connection may be unavailable or outside your account.</p><p><a href="/connections">Return to AI connections</a></p>',
-            "neutral",
-          ),
-        );
-    }
-    if (result.conflict) {
-      return response
-        .status(409)
-        .type("html")
-        .send(
-          renderStatusPage(
-            "Selection changed",
-            '<h1>An active target changed in another session.</h1><p>Nothing was overwritten.</p><p><a href="/connections">Review current targets and try again.</a></p>',
-          ),
-        );
-    }
-    response.redirect(303, "/connections");
   });
 
   router.post("/:connectionId/revoke", async (request, response) => {

@@ -149,6 +149,7 @@ async function createOffer(bytes: Buffer, key: string, save = true) {
   const offered = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
     name: "offer_host_file_save",
     arguments: {
+      project_id: identity.project_id,
       file_name: `${key}.md`,
       declared_media_type: "text/markdown",
       declared_byte_size: bytes.length,
@@ -340,15 +341,14 @@ test("a confirmed native transfer preserves provenance and completes only after 
   assert.equal(completed.status, "completed");
   assert.equal(completed.scan_status, "clean");
   assert.equal(completed.source_host, "chatgpt");
-  assert.equal(completed.context_id, selectedWorkContext.id);
-  assert.notEqual(completed.context_id, target.id);
+  assert.equal(completed.context_id, undefined);
   assert.equal(completed.conversation_provenance_preserved, true);
   assert.equal(completed.suggestions_requested, false);
   assert.equal(completed.trusted_state_changed, false);
   const stored = database
     .prepare(
       `SELECT reference.source_host, reference.uploader_user_id, object.content_sha256,
-              transfer.transfer_path, offer.conversation_reference
+              transfer.transfer_path, transfer.context_id, offer.conversation_reference
        FROM host_file_save_transfer_completions completion
        JOIN host_file_save_transfer_intents transfer ON transfer.intent_id = completion.intent_id
        JOIN host_file_save_offers offer ON offer.id = completion.offer_id
@@ -364,6 +364,7 @@ test("a confirmed native transfer preserves provenance and completes only after 
       uploader_user_id: identity.id,
       content_sha256: sha256,
       transfer_path: "host_capability",
+      context_id: target.id,
       conversation_reference: "conversation.native-clean",
     },
   );

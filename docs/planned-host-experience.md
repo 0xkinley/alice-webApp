@@ -4,7 +4,15 @@ Status: Conversation workspace and single-action Save implemented locally; impor
 
 Decision date: 2026-09-06
 
-The 2026-09-09 project-first amendment supersedes the visible project-and-context workspace described below. The replacement shows projects only, uses one hidden internal default, removes provider checkboxes from the picker, and keeps the single-action Save authority. See [`docs/project-first-private-alpha-redesign.md`](project-first-private-alpha-redesign.md). The context-first sections remain as dated implementation history.
+The 2026-09-09 project-first amendment supersedes the visible project-and-context workspace described below. The replacement shows projects only, uses one hidden internal default, removes provider checkboxes and active-target selection, and keeps the single-action Save authority. See [`docs/project-first-private-alpha-redesign.md`](project-first-private-alpha-redesign.md). The context-first sections remain as dated implementation history.
+
+## Current private-alpha host routing
+
+Connecting alice.'s MCP to ChatGPT or Claude makes every project the authenticated alice. user can currently access discoverable on that provider. Both providers receive the same permission-filtered catalog. This availability is not a bulk sync: alice. sends project contents only after one project has been resolved for the request.
+
+If the catalog contains one project, the host may use it automatically. If it contains several, the host uses an unambiguous project name in the conversation or asks the user which project they mean. It then retrieves only that exact project. alice. stores no active project target, and the host workspace has no `Use this project` action or connection-wide selection warning.
+
+Every update Save, host attachment, transfer, and file-backed suggestion names one exact project. The server reauthorizes that project and resolves its internal compatibility destination. The initial tool call may create a short-lived alice. preview or transfer authority, but only the authenticated human's `Save` action can activate project information or authorize transfer. A connected provider, project mention, or read never changes trusted state.
 
 ## Scope
 
@@ -16,7 +24,7 @@ This document records three product directions. The first is now implemented in 
 
 The private-alpha participant products remain ChatGPT and Claude. Codex remains internal development and testing infrastructure rather than a participant surface.
 
-## Conversation-aware project and context selection
+## Historical conversation-aware project and context selection
 
 The intended experience is:
 

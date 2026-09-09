@@ -1,8 +1,8 @@
 # alice. MCP Contract
 
-Status: Active-target consumption, capability-gated file reads, and capture contracts extended in Milestone 06
+Status: Project-level consumption, capability-gated file reads, and capture contracts extended in Milestone 06
 
-Decision date: 2026-08-28; updated 2026-08-31
+Decision date: 2026-08-28; project-routing amendment 2026-09-09
 
 ## Design principles
 
@@ -17,41 +17,39 @@ Decision date: 2026-08-28; updated 2026-08-31
 
 ### `list_projects`
 
-Lists projects available to the authenticated user in their private workspace.
+Lists every project currently available to the authenticated alice. user, including shared projects.
 
-Input is a strict empty object. Output contract `2.2` contains each project identity, current accepted-state count/freshness, permitted selectable work contexts, and the authenticated connection's active target or `null`. Projects and contexts have deterministic ordering. Foreign projects and contexts are absent rather than disclosed.
+Input is a strict empty object. Output contract `2.3` contains each project identity and current accepted-state count/freshness. It contains no internal context list, provider flag, or active target. Projects have deterministic ordering; foreign projects are absent rather than disclosed. Current authenticated ChatGPT and Claude connections receive the same permission-filtered catalog.
 
 Project-state side effects: none. The read does not append audit rows or mutate projects, evidence, candidates, or accepted state. Bearer authentication may update safe connection-usage metadata outside the project-intelligence boundary.
 
-### `get_active_context`
+### `get_active_context` (compatibility convenience)
 
-Builds a bounded context package for the exact project/work context selected by the authenticated human for this connection. The strict input contains only `task` and optional `context_budget`; a host cannot supply or change destination identifiers. The output is the version `2.2` context package described below. With no selection, the tool returns an explicit error and points to the alice. connection center. This is the normal supported-host continuation path and does not require the user to repeat a project identifier or “use alice.” phrasing.
+The strict input contains only `task` and optional `context_budget`. The tool builds a bounded version `2.3` project package only when the authenticated user can access exactly one project. With no projects it tells the host to create one; with more than one it tells the host to use the project named in the conversation or ask which project, then call `get_project_context`. It does not read or write the retained active-target table and never combines several projects.
 
 ### `get_project_context`
 
 Builds a bounded, task-specific context package from accepted project state.
 
-Version `2.2` input:
+Version `2.3` input:
 
 - `project_id`
-- optional `context_id` for an explicit work-context fallback; omission returns project-wide context only
 - `task`: 1-2,000 trimmed characters
 - optional `context_budget`: 2,000-32,000 UTF-8 bytes; default 16,000
 
-Version `2.2` output:
+Version `2.3` output:
 
 - project identity
-- selected context identity and freshness, with an explicit project-wide inclusion marker
 - accepted decisions and constraints selected for the task
 - separately labeled relevant open questions, artifact references, and unresolved-conflict notices when available
-- current clean file references visible in the project-wide or selected context, labelled reference-only and untrusted
+- current clean file references visible in the resolved project package, labelled reference-only and untrusted
 - accepted-state, candidate, and evidence provenance references for every accepted assertion
 - deterministic package version and explicit source freshness
 - exact UTF-8 byte budget usage and per-section omission counts, including file artifacts
 
 The input and output objects are strict MCP schemas. The same authenticated project state and normalized request produce the same package, including version and ordering. Package freshness is derived from persisted project, accepted-state, and evidence timestamps; context assembly does not use a wall-clock generation timestamp.
 
-Pending and rejected candidate values are excluded from trusted decisions by default. An unresolved-conflict notice may identify pending candidate/evidence references for the same accepted state key, but it does not expose the proposed value or present the alternative as trusted. Accepted-state artifact values and uploaded file artifacts are returned as references only; alice. does not fetch or execute their content during context assembly. File selection includes only the latest clean, non-removed logical-file version in the allowed scopes, and never exposes storage keys, object versions, credentials, signed URLs, or bytes.
+Pending and rejected candidate values are excluded from trusted decisions by default. An unresolved-conflict notice may identify pending candidate/evidence references for the same accepted state key, but it does not expose the proposed value or present the alternative as trusted. Accepted-state artifact values and uploaded file artifacts are returned as references only; alice. does not fetch or execute their content during package assembly. File selection includes only the latest clean, non-removed logical-file version in the resolved internal scope, and never exposes that scope, storage keys, object versions, credentials, signed URLs, or bytes.
 
 Project-state side effects: none. Ordinary reads and context assembly cannot mutate evidence, candidates, accepted state, audit history, or projects. Bearer authentication may update safe connection-usage metadata outside the project-intelligence boundary.
 
@@ -78,7 +76,7 @@ Extraction is bounded to 200 pages, 50,000 text items per page, 250,000 total it
 
 This capability-gated `mcp:write` tool may be invoked only after the user explicitly asks to suggest or save project context from a PDF. Its strict input contains `project_id`, `file_reference_id`, a receipt with the fixed extraction version/start/end/excerpt SHA-256, summary, 1–20 bounded candidate claims, and idempotency key. The receipt range may not exceed 12,000 Unicode code points. The host cannot provide source text, file provenance, destination context, or any accepted/rejected state.
 
-alice. reauthorizes the current clean PDF with write capability, refetches and integrity-checks the exact object version, reruns extraction, and requires an exact receipt match. A selected-context source must match the connection's active context; a project-wide source may feed that active target. The server constructs the evidence payload and immutable relational file provenance. One atomic transaction creates evidence, its exact file source, pending candidates, context targets, and one audit receipt. Idempotent retries return the original complete receipt. The result always reports `trusted_state_changed: false`; only the existing authenticated exact review preview can activate the proposals.
+alice. reauthorizes the current clean PDF and exact project with write capability, refetches and integrity-checks the exact object version, reruns extraction, and requires an exact receipt match. The server resolves the internal destination, constructs the evidence payload, and retains immutable relational file provenance. One atomic transaction creates evidence, its exact file source, pending candidates, internal targets, and one audit receipt. Idempotent retries return the original complete receipt. The result always reports `trusted_state_changed: false`; only the authenticated exact Save preview can activate the proposals.
 
 ### `save_project_update`
 
@@ -86,7 +84,7 @@ Captures an explicitly requested project update.
 
 Minimum input:
 
-- optional `project_id` and `context_id`; the connection's active target supplies both when omitted
+- required `project_id`
 - summary
 - one or more candidate claims
 - optional source note
@@ -110,7 +108,7 @@ The input object and each candidate object are strict; unrecognized fields are r
 
 The idempotency key identifies one explicit save within the authenticated connection and project. Reusing it with an identical validated payload returns the original evidence and candidate identifiers. Reusing it with any different validated payload fails closed. Whitespace normalization on bounded textual fields occurs before the exact validated payload is serialized, hashed, and retained as evidence.
 
-When a human-selected active target exists, omitted destination fields resolve to that target and any explicit destination must match it exactly. Without an active target, the explicit project fallback remains available and an omitted context resolves to project-wide. Foreign, archived, mismatched, or inaccessible destinations fail without evidence, candidates, or audit writes. MCP cannot change an active target.
+The host must identify one exact project from the permission-filtered catalog. The server resolves its internal destination after reauthorizing the connection owner. Foreign, archived, or inaccessible projects fail without a durable preview, evidence, candidates, or audit writes. MCP cannot set or change a project target.
 
 The server must atomically:
 
@@ -130,7 +128,7 @@ The tool description explicitly forbids invocation for ordinary project activity
 
 The versioned tool-selection fixture and deterministic scoring rules are documented in `docs/capture-evaluations.md`. Correct traces include an explicit-save write and non-capture reads/no-ops; incorrect traces include false-positive writes, missed explicit saves, invented review tools, and duplicate logical capture selection.
 
-Milestone 03 enforces this separation structurally: candidate capture and human acceptance are separate domain operations, and only the web review control plane imports acceptance. Accepted rows are append-only versions whose candidate/evidence pair is constraint-verified. The MCP tool list exposes four core tools plus two capability-gated file reads and one capability-gated file-suggestion capture when private storage is configured. No MCP tool can accept, reject, supersede, remove, or otherwise mutate trusted state.
+Milestone 03 enforces this separation structurally: candidate capture and human acceptance are separate domain operations, and only an authenticated alice.-controlled Save action can activate a proposed update. Accepted rows are append-only versions whose candidate/evidence pair is constraint-verified. The MCP tool list exposes project discovery, single-project and explicit-project reads, short-lived Save previews, a project workspace app, and capability-gated file operations when private storage is configured. No model-visible MCP call can accept, reject, supersede, remove, or otherwise mutate trusted state.
 
 ## Deferred tools
 
