@@ -68,9 +68,14 @@ test("creates and revisits a project in the authenticated private workspace", as
   assert.equal(detail.status, 200);
   const detailHtml = await detail.text();
   assert.doesNotMatch(detailHtml, /Brief/);
-  assert.match(detailHtml, /Project-wide/);
-  assert.match(detailHtml, /General/);
-  assert.match(detailHtml, /Preview host package/);
+  assert.match(detailHtml, /Project menu/);
+  assert.match(detailHtml, /Saved information/);
+  assert.match(detailHtml, /Not active in ChatGPT/);
+  assert.match(detailHtml, /Not active in Claude/);
+  assert.doesNotMatch(detailHtml, /Project and work contexts/);
+  assert.doesNotMatch(detailHtml, /Create a work context/);
+  assert.doesNotMatch(detailHtml, /Preview host package/);
+  assert.doesNotMatch(detailHtml, />General</);
 
   const projectWidePreview = await fetch(`${baseUrl}${location}/context-preview`, {
     headers: { cookie: ownerCookie },
@@ -151,7 +156,7 @@ test("creates and revisits a project in the authenticated private workspace", as
   });
   assert.equal(similar.status, 200);
   assert.match(await similar.text(), /Similar contexts/);
-  assert.match(
+  assert.doesNotMatch(
     await (await fetch(`${baseUrl}${location}`, { headers: { cookie: ownerCookie } })).text(),
     /Launch planning/,
   );

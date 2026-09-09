@@ -4,11 +4,12 @@ import {
   ContextBudgetError,
   createProject,
   createWorkContext,
+  getReviewQueue,
   getProject,
   getProjectContext,
   getPrivateAlphaSignals,
+  listIntegrationConnections,
   listArchivedProjects,
-  listContextReadEvents,
   listSharedProjects,
   listProjects,
   listWorkContexts,
@@ -33,7 +34,7 @@ import { createProjectMembershipRouter } from "./project-memberships.ts";
 import { privateAlphaAboutBody } from "./public-site.ts";
 import { createReviewRouter } from "./review.ts";
 import { createSavedContextRouter } from "./saved-context.ts";
-import { accessLabel, hostLabel, roleLabel, timestampLabel } from "./product-copy.ts";
+import { accessLabel, roleLabel, timestampLabel } from "./product-copy.ts";
 import type { PrivateFileStore } from "@alice/domain";
 
 function escapeHtml(value) {
@@ -58,15 +59,6 @@ function projectCreationForm(fileStore?: PrivateFileStore): string {
     ? `<button id="add-project-files" class="secondary" type="button" aria-controls="project-files" aria-haspopup="dialog">Add files</button><input id="project-files" type="file" accept="${PROJECT_FILE_ACCEPT}" multiple hidden tabindex="-1" aria-hidden="true"><span id="project-file-selection" class="file-selection" role="status"></span>`
     : "";
   return `<form class="create-project-form" method="post" action="/projects"><label>Project name<input name="name" maxlength="120" required></label><div class="actions">${fileControls}<button type="submit">Create project</button></div><p id="project-create-status" role="status"></p></form>${fileStore ? projectCreationFileScript({ directUpload: Boolean(fileStore.createSignedUpload) }) : ""}`;
-}
-
-function contextReadEventCard(event) {
-  const route = event.requested_via === "active_target" ? "active target" : "explicit fallback";
-  const result =
-    event.status === "succeeded"
-      ? `Succeeded · package ${escapeHtml(event.package_version)} · ${escapeHtml(event.package_utf8_bytes)} UTF-8 bytes`
-      : `Failed · ${escapeHtml(String(event.failure_code).replaceAll("_", " "))}`;
-  return `<article><p><strong>${result}</strong></p><p>${escapeHtml(event.client_name)} · ${escapeHtml(hostLabel(event.client_classification))} · ${route}${event.context_name ? ` · ${escapeHtml(event.context_name)}` : ""}</p><p class="muted">${escapeHtml(timestampLabel(event.created_at))}</p></article>`;
 }
 
 export async function createApp({
@@ -226,42 +218,61 @@ export async function createApp({
           ),
         );
     }
-    const contexts =
-      (await listWorkContexts(database, request.aliceUser!.id, request.params.projectId)) || [];
-    const contextReadEvents = await listContextReadEvents(database, {
-      userId: request.aliceUser!.id,
-      projectId: request.params.projectId,
-      limit: 10,
-    });
     const canWrite = project.project_role === "owner" || project.project_role === "editor";
     const isOwner = project.project_role === "owner";
-    const contextCards = contexts
-      .map(
-        (context) =>
-          `<article class="context-card" id="${escapeHtml(context.id)}"><p class="eyebrow">${context.context_kind === "project_wide" ? "Project-wide" : "Work context"}</p><h2>${escapeHtml(context.name)}</h2><p>${escapeHtml(context.description)}</p><div class="context-meta"><span class="badge">${escapeHtml(accessLabel(context.visibility))}</span><span>Your role · ${escapeHtml(roleLabel(context.context_role))}</span></div><div class="actions"><a href="/projects/${encodeURIComponent(project.id)}/saved-context?context_id=${encodeURIComponent(context.id)}">Saved context</a><a href="/projects/${encodeURIComponent(project.id)}/context-preview${context.context_kind === "project_wide" ? "" : `?context_id=${encodeURIComponent(context.id)}`}">Preview host package</a>${fileStore ? `<a href="/projects/${encodeURIComponent(project.id)}/files?context_id=${encodeURIComponent(context.id)}">Files</a>` : ""}${context.visibility === "selected_members" && context.can_manage ? `<a href="/projects/${encodeURIComponent(project.id)}/contexts/${encodeURIComponent(context.id)}/access">Manage access</a>` : ""}</div></article>`,
-      )
+    const [connections, reviewQueue] = await Promise.all([
+      listIntegrationConnections(database, request.aliceUser!.id),
+      canWrite
+        ? getReviewQueue(database, {
+            userId: request.aliceUser!.id,
+            projectId: project.id,
+            status: "pending",
+            page: 1,
+            pageSize: 1,
+          })
+        : undefined,
+    ]);
+    const activeProviders = new Set(
+      connections
+        .filter(
+          ({ project_id: projectId, revoked_at: revokedAt }) =>
+            projectId === project.id && !revokedAt,
+        )
+        .map(({ client_classification: provider }) => provider),
+    );
+    const providerStatus = [
+      ["chatgpt", "ChatGPT"],
+      ["claude", "Claude"],
+    ]
+      .map(([provider, label]) => {
+        const active = activeProviders.has(provider);
+        return `<span class="project-provider"><span class="provider-light${active ? " connected" : ""}"><span class="visually-hidden">${active ? "Active" : "Not active"}</span></span>${active ? "Active in" : "Not active in"} ${label}</span>`;
+      })
       .join("");
-    const reviewLink = canWrite
-      ? `<a href="/review?project_id=${encodeURIComponent(project.id)}">Review proposed context</a>`
+    const pendingCount = reviewQueue?.counts.pending || 0;
+    const menuItems = [
+      canWrite
+        ? `<a href="/review?project_id=${encodeURIComponent(project.id)}">Needs attention${pendingCount ? ` <span class="count-badge">${pendingCount}</span>` : ""}</a>`
+        : "",
+      '<a href="/signals">Alpha signals</a>',
+      `<a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>`,
+      isOwner
+        ? `<a href="/projects/${encodeURIComponent(project.id)}/collaborators">Collaborators</a>`
+        : "",
+      isOwner
+        ? `<a href="/projects/${encodeURIComponent(project.id)}/lifecycle">Project settings</a>`
+        : "",
+    ].join("");
+    const filesCard = fileStore
+      ? `<a class="project-workspace-card" href="/projects/${encodeURIComponent(project.id)}/files"><span class="eyebrow">Files</span><strong>Project files</strong><span>Add, review, and manage the files attached to this project.</span></a>`
       : "";
-    const createContext = canWrite
-      ? `<h2>Create a work context</h2><form method="post" action="/projects/${encodeURIComponent(project.id)}/contexts/preview"><label>Name<input name="name" maxlength="120" required></label><label>Description<textarea name="description" maxlength="2000" required></textarea></label><label>Visibility<select name="visibility"><option value="all_members">All project members</option><option value="selected_members">Selected members</option><option value="personal">Personal draft</option></select></label><p class="muted">Project Owners do not automatically receive access to selected-member or personal contexts.</p><button type="submit">Check for similar contexts</button></form>`
-      : "";
-    const collaboratorsLink = isOwner
-      ? `<a href="/projects/${encodeURIComponent(project.id)}/collaborators">Collaborators</a>`
-      : "";
-    const lifecycleLink = isOwner
-      ? `<a href="/projects/${encodeURIComponent(project.id)}/lifecycle">Project lifecycle</a>`
-      : "";
-    const readActivity = contextReadEvents.length
-      ? contextReadEvents.map(contextReadEventCard).join("")
-      : "<p>No host context read has been recorded for your AI connections in this project. This does not mean a host consulted alice.</p>";
     response
       .type("html")
       .send(
-        renderPage(
+        renderAppPage(
           project.name,
-          `<nav><a href="/">Private workspace</a><a href="/connections">AI connections</a><a href="/projects/${encodeURIComponent(project.id)}/access">Your access</a>${collaboratorsLink}${lifecycleLink}</nav><header class="hero"><p class="eyebrow">Project · ${escapeHtml(roleLabel(project.project_role))}</p><h1>${escapeHtml(project.name)}</h1><div class="actions">${reviewLink}<a href="/connections">Choose the active AI target</a></div></header><section><div class="section-heading"><h2>Project and work contexts</h2><p class="muted">Only listed contexts are visible to you.</p></div><p>Project-wide saved context is included with whichever work context you select for an AI connection.</p>${contextCards}</section><section><div class="section-heading"><h2>Recent host reads</h2><p class="muted">Your own AI connections only</p></div><p>These receipts show retrieval. A successful retrieval does not prove that a host used the context in its answer.</p>${readActivity}</section>${createContext}`,
+          `<div class="project-home"><header class="project-header"><div><p class="eyebrow">Project · ${escapeHtml(roleLabel(project.project_role))}</p><h1>${escapeHtml(project.name)}</h1><p>Files and information you choose to save stay together in this project.</p><div class="project-providers" aria-label="Project AI status">${providerStatus}</div></div><details class="project-menu"><summary>Project menu</summary><nav aria-label="Project menu">${menuItems}</nav></details></header><section class="project-workspace-grid" aria-label="Project workspace"><a class="project-workspace-card" href="/projects/${encodeURIComponent(project.id)}/saved"><span class="eyebrow">Saved information</span><strong>What alice. knows</strong><span>Review human-approved project information and its history.</span>${pendingCount ? `<span class="count-badge">${pendingCount} need${pendingCount === 1 ? "s" : ""} attention</span>` : ""}</a>${filesCard}</section></div>`,
+          { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );
   });

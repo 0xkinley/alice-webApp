@@ -11,13 +11,14 @@ import {
   getProjectFileRemovalPreview,
   getProjectFileView,
   listProjectFiles,
+  listWorkContexts,
   refreshProjectFileScan,
   referenceProjectFileInContext,
   removeProjectFileReference,
   uploadProjectFile,
 } from "@alice/domain";
 import type { PrivateFileStore } from "@alice/domain";
-import { renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
+import { renderAppPage, renderPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
 import { accessLabel, hostLabel, timestampLabel } from "./product-copy.ts";
 
 function escapeHtml(value) {
@@ -54,6 +55,12 @@ function statusCopy(status: string): string {
       unsupported: "Scan unsupported: file unavailable",
     }[status] || "Unavailable"
   );
+}
+
+async function fileContextId(database, userId: string, projectId: string, requested: unknown) {
+  if (typeof requested === "string" && requested) return requested;
+  const contexts = (await listWorkContexts(database, userId, projectId)) || [];
+  return contexts.find(({ context_kind: kind }) => kind === "work")?.id || "";
 }
 
 function directUploadScript({
@@ -102,7 +109,13 @@ export function createFilesRouter({
   const authenticated = requireAuthenticatedUser(database);
 
   router.get("/:projectId/files", authenticated, async (request, response) => {
-    const contextId = String(request.query.context_id || "");
+    const projectOnly = !request.query.context_id;
+    const contextId = await fileContextId(
+      database,
+      request.aliceUser!.id,
+      request.params.projectId,
+      request.query.context_id,
+    );
     const view = await listProjectFiles(database, {
       userId: request.aliceUser!.id,
       projectId: request.params.projectId,
@@ -112,7 +125,7 @@ export function createFilesRouter({
     const rows = view.files
       .map(
         (file) =>
-          `<article class="file-card${file.scan_status === "clean" ? "" : " unavailable"}"><h2>${escapeHtml(file.display_name)}</h2><p class="file-meta"><span>${escapeHtml(file.media_type)}</span><span>${Number(file.byte_size).toLocaleString()} bytes</span><span class="badge">${escapeHtml(statusCopy(file.scan_status))}</span></p><p class="muted">Access follows ${escapeHtml(view.context.context_name)} · source ${escapeHtml(hostLabel(file.source_host))}</p><div class="actions"><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}">Details</a>${file.scan_status === "clean" ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/download">Download</a>` : ""}${view.access.can_write && file.scan_status === "scanning" ? `<form method="post" action="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/scan"><button type="submit">Check scan status</button></form>` : ""}${view.access.can_write ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/remove">Remove from context</a>` : ""}</div></article>`,
+          `<article class="file-card${file.scan_status === "clean" ? "" : " unavailable"}"><h2>${escapeHtml(file.display_name)}</h2><p class="file-meta"><span>${escapeHtml(file.media_type)}</span><span>${Number(file.byte_size).toLocaleString()} bytes</span><span class="badge">${escapeHtml(statusCopy(file.scan_status))}</span></p><p class="muted">Source · ${escapeHtml(hostLabel(file.source_host))}</p><div class="actions"><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}">Details</a>${file.scan_status === "clean" ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/download">Download</a>` : ""}${view.access.can_write && file.scan_status === "scanning" ? `<form method="post" action="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/scan"><button type="submit">Check scan status</button></form>` : ""}${view.access.can_write ? `<a href="/projects/${encodeURIComponent(request.params.projectId)}/files/${encodeURIComponent(file.id)}/remove">Remove from project</a>` : ""}</div></article>`,
       )
       .join("");
     const removedRows = view.removed
@@ -122,8 +135,19 @@ export function createFilesRouter({
       )
       .join("");
     const uploadSection = view.access.can_write
-      ? `<section class="upload-panel"><h2>Upload a file</h2><p>PDF, DOCX, XLSX, or PPTX up to 25 MiB; PNG, JPEG, or WebP up to 10 MiB; UTF-8 text, Markdown, CSV, TSV, or JSON up to 2 MiB.</p><p class="notice">The upload remains unavailable until scanning reports no threats. File content does not become saved context. Modern Office files are reference and download only in this alpha.</p><form id="file-upload"><label>Choose a file<input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><button type="submit">Upload and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form></section>${fileStore.createSignedUpload ? directUploadScript({ projectId: request.params.projectId, contextId: view.context.context_id, successLocation: "reload" }) : legacyUploadScript(`${request.path}?${new URLSearchParams({ context_id: view.context.context_id })}`, "reload")}`
+      ? `<section class="upload-panel"><h2>Add a file</h2><p>PDF, DOCX, XLSX, or PPTX up to 25 MiB; PNG, JPEG, or WebP up to 10 MiB; UTF-8 text, Markdown, CSV, TSV, or JSON up to 2 MiB.</p><p class="notice">The file remains unavailable until scanning reports no threats. Its contents do not become saved project information automatically. Modern Office files are reference and download only in this alpha.</p><form id="file-upload"><label>Choose a file<input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><button type="submit">Upload and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form></section>${fileStore.createSignedUpload ? directUploadScript({ projectId: request.params.projectId, contextId: view.context.context_id, successLocation: "reload" }) : legacyUploadScript(projectOnly ? request.path : `${request.path}?${new URLSearchParams({ context_id: view.context.context_id })}`, "reload")}`
       : "";
+    if (projectOnly) {
+      return response
+        .type("html")
+        .send(
+          renderAppPage(
+            `Files · ${view.context.project_name}`,
+            `<div class="project-home"><header class="project-header"><div><p class="eyebrow">Project files</p><h1>${escapeHtml(view.context.project_name)}</h1><p>Files stay private and unavailable until scanning reports no threats.</p></div><a href="/projects/${encodeURIComponent(request.params.projectId)}">Back to project</a></header><section><div class="section-heading"><h2>Files (${view.files.length})</h2><p class="muted">Available only when scan-clean</p></div>${rows || '<div class="empty-state"><h2>No files yet</h2><p>Add a supported file when you want it attached to this project.</p></div>'}</section><section><div class="section-heading"><h2>Removed (${view.removed.length})</h2><p class="muted">Preserved history, no active access</p></div>${removedRows || '<div class="empty-state"><h2>No files have been removed</h2><p>Removed file records remain visible here with their preserved history.</p></div>'}</section>${uploadSection}<p><a href="/projects/${encodeURIComponent(request.params.projectId)}/files/export.json">Export file metadata</a></p></div>`,
+            { email: request.aliceUser!.email, activeSection: "projects" },
+          ),
+        );
+    }
     response
       .type("html")
       .send(
@@ -220,10 +244,16 @@ export function createFilesRouter({
         const replacesReferenceId = request.query.replace_reference_id
           ? String(request.query.replace_reference_id)
           : undefined;
+        const contextId = await fileContextId(
+          database,
+          request.aliceUser!.id,
+          request.params.projectId,
+          request.query.context_id,
+        );
         const uploadInput = {
           userId: request.aliceUser!.id,
           projectId: request.params.projectId,
-          contextId: String(request.query.context_id || ""),
+          contextId,
           fileName,
           claimedMediaType: request.get("content-type") || "",
           bytes: Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0),
@@ -250,10 +280,16 @@ export function createFilesRouter({
   );
 
   router.get("/:projectId/files/export.json", authenticated, async (request, response) => {
+    const contextId = await fileContextId(
+      database,
+      request.aliceUser!.id,
+      request.params.projectId,
+      request.query.context_id,
+    );
     const exported = await exportProjectFileMetadata(database, {
       userId: request.aliceUser!.id,
       projectId: request.params.projectId,
-      contextId: String(request.query.context_id || ""),
+      contextId,
     });
     if (!exported) return notFound(response);
     response

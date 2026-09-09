@@ -201,6 +201,9 @@ test("context switching is explicit and guessed context identifiers reveal nothi
   const projectWideHtml = await projectWide.text();
   assert.match(projectWideHtml, /Project-wide saved value/);
   assert.doesNotMatch(projectWideHtml, /Visible saved value/);
+  assert.match(projectWideHtml, /Saved information/);
+  assert.doesNotMatch(projectWideHtml, /aria-label="Project contexts"/);
+  assert.doesNotMatch(projectWideHtml, /aria-label="Context views"/);
 
   const foreign = await fetch(
     `${baseUrl}/projects/${owner.project_id}/saved-context?context_id=context_foreign`,
@@ -214,15 +217,14 @@ test("context switching is explicit and guessed context identifiers reveal nothi
   assert.equal(await foreign.text(), await guessed.text());
 });
 
-test("the project page links every context to its saved-context view", async () => {
+test("the project page exposes one project-level saved-information entry point", async () => {
   const project = await fetch(`${baseUrl}/projects/${owner.project_id}`, {
     headers: { cookie },
   });
   const html = await project.text();
-  assert.match(
-    html,
-    new RegExp(`/projects/${owner.project_id}/saved-context\\?context_id=${general.id}`),
-  );
+  assert.match(html, new RegExp(`/projects/${owner.project_id}/saved`));
+  assert.doesNotMatch(html, /context_id=/);
+  assert.doesNotMatch(html, /Create a work context|Work context|Project-wide/);
 });
 
 test("an exact human removal stops consumption without erasing provenance", async () => {

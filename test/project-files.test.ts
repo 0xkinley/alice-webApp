@@ -174,6 +174,20 @@ after(async () => {
   created.database.close();
 });
 
+test("opens files from the project without exposing the internal destination", async () => {
+  const response = await fetch(`${baseUrl}/projects/${ownerProjectId}/files`, {
+    headers: { cookie: ownerCookie },
+  });
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Project files/);
+  assert.match(html, /No files yet/);
+  assert.match(html, /Add a file/);
+  assert.doesNotMatch(html, /Files in General/);
+  assert.doesNotMatch(html, /No active files in this context/);
+  assert.doesNotMatch(html, /context_id=/);
+});
+
 test("validates bounded content rather than trusting extensions or claimed media types", () => {
   const markdown = validateProjectFile({
     bytes: Buffer.from("# Verified UTF-8\n"),

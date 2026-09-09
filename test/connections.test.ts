@@ -207,6 +207,15 @@ test("a user explicitly selects one permitted target for all active AI connectio
 
   const page = await fetch(`${baseUrl}/connections/advanced`, { headers: { cookie } });
   assert.match(await page.text(), /Active target:<\/strong> Private project \/ General/);
+
+  const projectPage = await fetch(`${baseUrl}/projects/${owner.project_id}`, {
+    headers: { cookie },
+  });
+  const projectHtml = await projectPage.text();
+  assert.match(projectHtml, /Active in ChatGPT/);
+  assert.match(projectHtml, /Active in Claude/);
+  assert.equal(projectHtml.match(/provider-light connected/g)?.length, 2);
+  assert.doesNotMatch(projectHtml, /Work context|Project-wide|>General</);
 });
 
 test("connection center shows private immutable host-read receipts without package content", async () => {
