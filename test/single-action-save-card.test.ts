@@ -89,6 +89,8 @@ test("the authenticated web fallback has one Save action and atomically accepts 
   const before = projectStateCounts();
   const prepared = await prepare("single-save-web-001", "Keep the plot");
   const preview = prepared.payload.result.structuredContent;
+  assert.equal(preview.source_host, "chatgpt");
+  assert.ok(Date.parse(preview.created_at));
   assert.deepEqual(projectStateCounts(), before);
 
   const unauthenticated = await fetch(

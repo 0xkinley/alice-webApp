@@ -135,6 +135,8 @@ export async function createCaptureSavePreview(
       source_note: exactPayload.source_note || null,
       source_context: exactPayload.source_context || null,
     },
+    source_host: connection.provider,
+    created_at: createdAt,
     expires_at: new Date(expiresAt).toISOString(),
     status: "awaiting_save",
     pre_save_state: "preview_only",

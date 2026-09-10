@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/schemas" },
+    { "path": "./packages/presentation" },
     { "path": "./packages/config" },
     { "path": "./packages/database" },
     { "path": "./packages/domain" },

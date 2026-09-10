@@ -185,7 +185,7 @@ test("an explicit authenticated review accepts a candidate into versioned truste
     { headers: { cookie: reviewCookie } },
   );
   const acceptedHtml = await acceptedResponse.text();
-  assert.match(acceptedHtml, /Saved as revision 1/);
+  assert.match(acceptedHtml, /Saved to the project/);
   assert.doesNotMatch(acceptedHtml, new RegExp(candidateId));
   assert.doesNotMatch(acceptedHtml, new RegExp(accepted.id));
 
@@ -551,7 +551,7 @@ test("explicit human supersession creates a traceable version without rewriting 
   const pendingReviewHtml = await pendingReview.text();
   assert.match(pendingReviewHtml, new RegExp(firstAccepted.id));
   assert.match(pendingReviewHtml, /Current project information/);
-  assert.match(pendingReviewHtml, /Replace saved version 1/);
+  assert.match(pendingReviewHtml, /Replace saved information/);
   assert.doesNotMatch(
     pendingReviewHtml,
     new RegExp(`/review/candidates/${secondCandidateId}/accept`),

@@ -74,14 +74,13 @@ function safeOfferResult(offer, publicUrl: string) {
       declared_media_type: offer.declared_media_type,
       declared_byte_size:
         offer.declared_byte_size === null ? null : Number(offer.declared_byte_size),
-      declared_sha256: offer.declared_sha256,
     },
     destination: {
       project_id: offer.project_id,
       project_name: offer.project_name,
     },
     source_host: offer.source_host,
-    conversation_reference: offer.conversation_reference,
+    created_at: offer.created_at,
     confirmation_url: new URL(`/file-save-offers/${encodeURIComponent(offer.id)}`, publicUrl).href,
     expires_at: new Date(Number(offer.expires_at)).toISOString(),
     preview_version: decisionVersion(offer),

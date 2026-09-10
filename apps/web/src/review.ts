@@ -19,7 +19,7 @@ import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
 function fileSourceDetails(fileSource) {
   if (!fileSource) return "";
-  return `<aside><h3>Untrusted file source</h3><p>This file is evidence only. Its claims do not become trusted project information unless you save the exact changes below.</p><dl><dt>File</dt><dd>${escapeHtml(fileSource.display_name)}</dd><dt>Extracted section</dt><dd>Characters ${escapeHtml(fileSource.start_character)}–${escapeHtml(fileSource.end_character)}</dd></dl></aside>`;
+  return `<aside><h3>Untrusted file source</h3><p>This selected text came from <strong>${escapeHtml(fileSource.display_name)}</strong>. It is evidence only; its claims do not become trusted project information unless you save the exact changes below.</p></aside>`;
 }
 
 function reviewProjectIndex(projects) {
@@ -53,9 +53,7 @@ function evidenceDetails(candidate) {
 }
 
 function candidateCard(candidate) {
-  const accepted = candidate.accepted_state_id
-    ? `<p class="muted">Saved as revision ${candidate.accepted_version}.</p>`
-    : "";
+  const accepted = candidate.accepted_state_id ? '<p class="muted">Saved to the project.</p>' : "";
   const reviewAudit = candidate.review_audit_id
     ? `<p class="muted">Decision recorded ${localTimestamp(candidate.reviewed_at)}.</p>`
     : "";
@@ -64,7 +62,7 @@ function candidateCard(candidate) {
       ? `<aside><h3>Current project information</h3><div class="readable-value">${renderReadableValue(candidate.current_accepted_value_json)}</div><p>Saving this proposal creates a new revision. The current revision remains in the change log.</p></aside>`
       : "";
   const acceptAction = candidate.current_accepted_state_id
-    ? `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/supersede"><input type="hidden" name="superseded_accepted_state_id" value="${escapeHtml(candidate.current_accepted_state_id)}"><button type="submit">Replace saved version ${candidate.current_accepted_version}</button></form>`
+    ? `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/supersede"><input type="hidden" name="superseded_accepted_state_id" value="${escapeHtml(candidate.current_accepted_state_id)}"><button type="submit">Replace saved information</button></form>`
     : `<form method="post" action="/review/candidates/${encodeURIComponent(candidate.id)}/accept"><button type="submit">Save to project</button></form>`;
   const actions =
     candidate.status === "pending"

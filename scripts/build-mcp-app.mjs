@@ -7,6 +7,7 @@ for (const name of ["workspace-app", "save-app"]) {
     bundle: true,
     format: "esm",
     platform: "browser",
+    conditions: ["development", "browser"],
     target: ["es2022"],
     minify: true,
     legalComments: "none",

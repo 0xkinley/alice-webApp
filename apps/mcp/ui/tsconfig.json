@@ -4,5 +4,6 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "noEmit": true
   },
+  "references": [{ "path": "../../../packages/presentation" }],
   "include": ["workspace-app.ts", "save-app.ts"]
 }

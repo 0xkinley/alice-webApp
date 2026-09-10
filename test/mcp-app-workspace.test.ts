@@ -77,6 +77,7 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   assert.equal(saveResource.payload.result.contents[0].mimeType, "text/html;profile=mcp-app");
   assert.match(saveResource.payload.result.contents[0].text, /alice_commit_capture_save/);
   assert.doesNotMatch(saveResource.payload.result.contents[0].text, />Cancel</);
+  assert.doesNotMatch(saveResource.payload.result.contents[0].text, /state_key|<pre/i);
 });
 
 test("project discovery is governed by Alice permissions, not provider toggles", async () => {
