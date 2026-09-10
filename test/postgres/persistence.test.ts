@@ -18,6 +18,8 @@ import {
   cancelProjectDeletion,
   confirmCapturedUpdate,
   commitCaptureSavePreview,
+  commitArtifactSavePreview,
+  createArtifactSavePreview,
   createHostFileSaveOffer,
   createCaptureSavePreview,
   createProject,
@@ -26,6 +28,7 @@ import {
   exportProjectData,
   finalizeHostFileSaveTransfer,
   getCapturePreview,
+  getAliceArtifact,
   getHostFileSaveOfferPreview,
   getProjectContext,
   getPrivateAlphaSignals,
@@ -46,6 +49,7 @@ import {
   endContextAccess,
   refreshProjectFileScan,
   requestProjectDeletion,
+  searchAliceArtifacts,
   saveCandidateUpdate,
   setActiveConnectionTarget,
   setContextProviderAvailability,
@@ -319,14 +323,91 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 21, filename: "021_single_action_save_previews.sql" },
     { version: 22, filename: "022_project_default_contexts.sql" },
     { version: 23, filename: "023_oauth_consent_transactions.sql" },
+    { version: 24, filename: "024_artifact_handoffs.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    23,
+    24,
   );
   await reopened.close();
+});
+
+test("PostgreSQL preserves an exact artifact handoff and immutable version lineage", async () => {
+  const first = await createArtifactSavePreview(database, {
+    userId: owner.id,
+    connectionId,
+    clientId,
+    publicUrl: "https://app.alice.example",
+    payload: {
+      project_id: owner.project_id,
+      title: "PostgreSQL handoff artifact",
+      artifact_type: "report",
+      category: "research",
+      tags: ["research", "decision"],
+      content: "Full current artifact v1.",
+      handoff: {
+        goal: "Prove exact PostgreSQL artifact persistence.",
+        decisions: ["Keep current state concise"],
+        constraints: ["Do not infer missing history"],
+        rejected_directions: [],
+        open_questions: [],
+        next_steps: ["Verify retrieval"],
+        relevant_context: [],
+      },
+      idempotency_key: "postgres-artifact-v1",
+    },
+  });
+  assert.ok(!("error" in first));
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM artifact_versions WHERE project_id = ?")
+        .get(owner.project_id)
+    ).count,
+    0,
+  );
+  const saved = await commitArtifactSavePreview(database, {
+    previewId: first.preview.preview_id,
+    previewVersion: first.preview.preview_version,
+    authorityToken: first.authorityToken,
+    authority: "mcp_app",
+    userId: owner.id,
+  });
+  assert.equal(saved.version, 1);
+
+  const found = await searchAliceArtifacts(database, {
+    userId: owner.id,
+    connectionId,
+    project_id: owner.project_id,
+    query: "handoff",
+    categories: [],
+    tags: [],
+    sources: [],
+    artifact_types: [],
+    timeline: "all_time",
+    limit: 20,
+  });
+  assert.equal(found.status, "ok");
+  assert.equal(found.results[0].artifact_id, saved.artifact_id);
+  assert.equal(found.results[0].content, undefined);
+
+  const retrieved = await getAliceArtifact(database, {
+    userId: owner.id,
+    connectionId,
+    projectId: owner.project_id,
+    artifactId: saved.artifact_id,
+  });
+  assert.equal(retrieved.artifact.content, "Full current artifact v1.");
+  assert.deepEqual(retrieved.artifact.handoff.decisions, ["Keep current state concise"]);
+
+  await assert.rejects(
+    database
+      .prepare("UPDATE artifact_versions SET title = ? WHERE id = ?")
+      .run("Rewritten", saved.version_id),
+    /immutable/i,
+  );
 });
 
 test("migration 022 backfills a new empty default without rewriting legacy contexts", async () => {

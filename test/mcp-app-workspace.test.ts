@@ -52,6 +52,7 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
     "alice_workspace_snapshot",
     "alice_create_workspace_project",
     "alice_commit_capture_save",
+    "alice_commit_artifact_save",
   ]) {
     assert.deepEqual(byName[name]._meta.ui.visibility, ["app"]);
   }

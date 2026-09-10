@@ -1,4 +1,9 @@
-import { getRemovalPreview, getSavedContextView, removeSavedContextEntry } from "@alice/domain";
+import {
+  getRemovalPreview,
+  getSavedContextView,
+  listProjectArtifactActivity,
+  removeSavedContextEntry,
+} from "@alice/domain";
 import type { PrivateFileStore } from "@alice/domain";
 import express from "express";
 import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
@@ -14,7 +19,7 @@ const REPAIR_TYPES = new Map([
 ]);
 
 function changeTimestamp(entry) {
-  return entry.removed_at || entry.accepted_at || entry.created_at;
+  return entry.removed_at || entry.accepted_at || entry.saved_at || entry.created_at;
 }
 
 function changeLogCards(entries) {
@@ -23,6 +28,20 @@ function changeLogCards(entries) {
   const labels = { accepted: "Saved", pending: "Proposed", rejected: "Not saved" };
   return `<div class="change-log-list">${entries
     .map((entry) => {
+      if (entry.entry_kind === "artifact_version") {
+        const action = entry.version === 1 ? "Artifact saved" : `Version ${entry.version} saved`;
+        const details = [
+          entry.summary ? readableText(entry.summary) : "",
+          entry.goal ? `Goal: ${readableText(entry.goal)}` : "",
+        ]
+          .filter(Boolean)
+          .map((item) => `<p>${escapeHtml(item)}</p>`)
+          .join("");
+        const tags = entry.tags.length
+          ? `<p class="muted">${entry.tags.map((tag) => escapeHtml(readableLabel(tag))).join(" · ")}</p>`
+          : "";
+        return `<article class="change-entry"><div class="change-entry-meta"><span class="badge">${escapeHtml(action)}</span><span>From ${escapeHtml(hostLabel(entry.source_provider))}</span><span>${localTimestamp(entry.saved_at)}</span></div><h2>${escapeHtml(entry.title)}</h2><p>${escapeHtml(readableLabel(entry.artifact_type))} · ${escapeHtml(readableLabel(entry.category))}</p>${details}${tags}</article>`;
+      }
       const state = entry.removed_at
         ? "Removed"
         : entry.superseded_by_version
@@ -59,6 +78,12 @@ async function projectChangeLog(database, userId, initialView) {
       }
     }
   }
+  const artifacts =
+    (await listProjectArtifactActivity(database, {
+      userId,
+      projectId: initialView.project.id,
+    })) || [];
+  for (const artifact of artifacts) entries.set(artifact.version_id, artifact);
   return [...entries.values()].sort(
     (left, right) =>
       new Date(changeTimestamp(right)).getTime() - new Date(changeTimestamp(left)).getTime(),

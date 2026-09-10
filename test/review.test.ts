@@ -768,18 +768,23 @@ test("MCP exposes trusted-state Save only as an app-only action", async () => {
   const { payload } = await callMcp(baseUrl, accessToken, "tools/list");
   const tools = payload.result.tools.map(({ name }) => name);
   assert.deepEqual(tools.sort(), [
+    "alice_commit_artifact_save",
     "alice_commit_capture_save",
     "alice_create_workspace_project",
     "alice_workspace_snapshot",
     "get_active_context",
+    "get_artifact",
     "get_project_context",
     "list_projects",
     "open_alice_workspace",
+    "save_artifact_version",
     "save_project_update",
+    "save_to_alice",
+    "search_alice",
   ]);
-  assert.deepEqual(
-    payload.result.tools.find(({ name }) => name === "alice_commit_capture_save")._meta.ui
-      .visibility,
-    ["app"],
-  );
+  for (const name of ["alice_commit_capture_save", "alice_commit_artifact_save"]) {
+    assert.deepEqual(payload.result.tools.find((tool) => tool.name === name)._meta.ui.visibility, [
+      "app",
+    ]);
+  }
 });

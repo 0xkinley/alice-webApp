@@ -114,6 +114,12 @@ Live connection attempts from the target ChatGPT and Claude surfaces both comple
 
 Content-free CloudWatch logs for the MCP Lambda recorded PostgreSQL `syntax error at or near "."` in the consent-completion query. The source used `user` as a table alias and then selected `user.id`; PostgreSQL interprets `user` as a reserved identity expression, while the SQLite test adapter accepted the syntax. The source repair changes the alias to `alice_user` and adds a real-PostgreSQL HTTP regression for the complete approved-consent handoff. Until that repair is deployed and both live provider flows pass, connector creation is observed but authenticated ChatGPT and Claude connection support remains failed on the hosted build.
 
+## Private-alpha artifact handoff — 2026-09-10
+
+The current source adds the provider-neutral artifact contract documented in `docs/artifact-handoff.md`. ChatGPT and Claude use the same permission-filtered project catalog and the same four handoff tools. A host can prepare an exact full artifact or next version, but only the embedded Alice Save action or authenticated web fallback can commit it. Search is project-first and lightweight; full retrieval is explicit and defaults to the current approved state without replaying history.
+
+The shared local integration proof covers ChatGPT creation, Claude retrieval and revision, ChatGPT retrieval of the Claude revision, optional version history, exact older-version retrieval, predefined-tag rejection, multi-project disambiguation, and human-readable Change log references. This is source evidence, not a live provider result. The hosted image still requires migration 024, deployment, successful OAuth completion on each provider, and exact live four-tool handoff runs before the private-alpha provider surfaces may be marked passing.
+
 ## Just-in-time participant-surface evaluation
 
 The repository retains a versioned surface registry rather than making a blanket provider claim, but completing every enumerated Claude and ChatGPT row is not a Milestone 06 gate. Milestone 07 evaluates the exact client before it is used with a participant or advertised. Codex is outside the private-alpha product scope; any Codex connection is for internal development or testing and does not establish participant support.
