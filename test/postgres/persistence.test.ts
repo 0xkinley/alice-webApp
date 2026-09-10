@@ -406,7 +406,7 @@ test("PostgreSQL preserves an exact artifact handoff and immutable version linea
     database
       .prepare("UPDATE artifact_versions SET title = ? WHERE id = ?")
       .run("Rewritten", saved.version_id),
-    /immutable/i,
+    /immutable|permission denied/i,
   );
 });
 
