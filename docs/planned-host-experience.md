@@ -14,6 +14,8 @@ If the catalog contains one project, the host may use it automatically. If it co
 
 Every update Save, host attachment, transfer, and file-backed suggestion names one exact project. The server reauthorizes that project and resolves its internal compatibility destination. The initial tool call may create a short-lived alice. preview or transfer authority, but only the authenticated human's `Save` action can activate project information or authorize transfer. A connected provider, project mention, or read never changes trusted state.
 
+The portable `alice_workspace_app_v2` card now presents this model directly in either connected provider. Its header shows the authoritative provider with a green light, its catalog lists the same permission-filtered projects with project and Add files links, and its compact creation form contains only Project name, optional Add files, and Create project. Opening a project is navigation only: the card has no provider choice, internal destination, routing warning, or stored active-project control.
+
 ## Scope
 
 This document records three product directions. The first is now implemented in local source; the others remain planned:

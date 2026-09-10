@@ -129,6 +129,14 @@ test("project discovery is governed by Alice permissions, not provider toggles",
     arguments: {},
   });
   assert.equal(snapshot.payload.result.structuredContent.projects[0].id, identity.project_id);
+  assert.equal(
+    snapshot.payload.result.structuredContent.projects[0].project_url,
+    `http://127.0.0.1/projects/${identity.project_id}`,
+  );
+  assert.equal(
+    snapshot.payload.result.structuredContent.projects[0].files_url,
+    `http://127.0.0.1/projects/${identity.project_id}/files`,
+  );
   assert.equal(snapshot.payload.result.structuredContent.projects[0].contexts, undefined);
   assert.equal(snapshot.payload.result.structuredContent.routing, undefined);
 

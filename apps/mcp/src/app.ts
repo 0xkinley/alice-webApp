@@ -109,6 +109,7 @@ async function inChatWorkspaceSnapshot(database, { userId, connectionId, publicU
     provider: connection.provider,
     projects: projects.map((project) => ({
       ...project,
+      project_url: new URL(`/projects/${encodeURIComponent(project.id)}`, publicUrl).href,
       files_url: new URL(`/projects/${encodeURIComponent(project.id)}/files`, publicUrl).href,
     })),
   };
