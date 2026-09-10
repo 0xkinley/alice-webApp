@@ -14,15 +14,19 @@ import {
 import { registerAppResource, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { openDatabase } from "@alice/database";
 import {
+  ArtifactSaveUserError,
   beginHostFileSaveTransfer,
   CaptureSavePreviewUserError,
+  commitArtifactSavePreview,
   commitCaptureSavePreview,
   ContextBudgetError,
+  createArtifactSavePreview,
   createProject,
   createHostFileSaveOffer,
   createCaptureSavePreview,
   decideHostFileSaveOffer,
   finalizeHostFileSaveTransfer,
+  getAliceArtifact,
   getProjectContext,
   HostFileSaveOfferUserError,
   listProjects,
@@ -32,18 +36,21 @@ import {
   readProjectFileText,
   recordContextReadFailure,
   recordContextReadSuccess,
+  searchAliceArtifacts,
   suggestProjectUpdatesFromFile,
   tenantScopeForConnection,
 } from "@alice/domain";
 import type { PrivateFileStore } from "@alice/domain";
 import {
   beginHostFileTransferSchema,
+  commitAliceArtifactSaveSchema,
   consumptionContractVersion,
   commitAliceCaptureSaveSchema,
   commitAliceHostFileSaveSchema,
   createAliceWorkspaceProjectSchema,
   finalizeHostFileTransferSchema,
   getActiveContextSchema,
+  getArtifactSchema,
   getProjectContextOutputSchema,
   getProjectContextSchema,
   hostFileSaveOfferSchema,
@@ -54,7 +61,10 @@ import {
   readProjectFileTextSchema,
   readProjectFilePdfTextOutputSchema,
   readProjectFilePdfTextSchema,
+  saveArtifactVersionSchema,
   saveProjectUpdateSchema,
+  saveToAliceSchema,
+  searchAliceSchema,
   suggestProjectUpdatesFromFileSchema,
 } from "@alice/schemas";
 import { createOAuth } from "./oauth.ts";
@@ -360,6 +370,289 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         ],
         structuredContent: output,
       };
+    },
+  );
+
+  server.registerTool(
+    "search_alice",
+    {
+      title: "Search saved alice. work",
+      description:
+        "Use when the user refers to prior work, work from another AI session, an earlier artifact or decision, what was decided, the latest item, yesterday's work, or continuing where they left off. Project is first-class: use the clearly named project; if there is only one accessible project alice. resolves it automatically; if several are available and none is clear, ask the user. Returns lightweight current artifact matches only, never every project's contents and never full artifact bodies.",
+      inputSchema: searchAliceSchema,
+      ...oauthToolSecurity("mcp:read"),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async (input, context) => {
+      const result = await searchAliceArtifacts(database, {
+        categories: input.categories,
+        tags: input.tags,
+        sources: input.sources,
+        artifact_types: input.artifact_types,
+        timeline: input.timeline,
+        limit: input.limit,
+        ...(input.query ? { query: input.query } : {}),
+        ...(input.project_id ? { project_id: input.project_id } : {}),
+        ...(input.project_name ? { project_name: input.project_name } : {}),
+        userId: authenticatedUserId(context),
+        connectionId: authenticatedConnectionId(context),
+      });
+      if (result.status !== "ok") {
+        const projects = result.projects || [];
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                result.status === "project_required"
+                  ? `Choose the exact alice. project before searching.${projects.length ? ` Available projects: ${projects.map((project) => project.name).join(", ")}.` : ""}`
+                  : "The named alice. project is unavailable.",
+            },
+          ],
+          structuredContent: result,
+          isError: true,
+        };
+      }
+      const project = result.project!;
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              result.results.length === 0
+                ? `No matching saved artifacts were found in ${project.name}.`
+                : `Matching saved artifacts in ${project.name}:\n${result.results
+                    .map(
+                      (artifact) =>
+                        `- ${artifact.title} (v${artifact.current_version}, ${artifact.artifact_type}, from ${artifact.source})`,
+                    )
+                    .join("\n")}`,
+          },
+        ],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
+    "get_artifact",
+    {
+      title: "Get a complete alice. artifact",
+      description:
+        "Retrieve the complete current human-approved artifact and the state needed to continue it: project, current version, full content, goal, decisions, constraints, rejected directions with reasons, open questions, next steps, relevant context, source, and saved time. Defaults to current state without flooding the host with history. Request an older version or lightweight history only when the user asks. This read never mutates alice.",
+      inputSchema: getArtifactSchema,
+      ...oauthToolSecurity("mcp:read"),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async (
+      { project_id: projectId, artifact_id: artifactId, version, include_history: includeHistory },
+      context,
+    ) => {
+      const result = await getAliceArtifact(database, {
+        userId: authenticatedUserId(context),
+        connectionId: authenticatedConnectionId(context),
+        projectId,
+        artifactId,
+        ...(version ? { version } : {}),
+        includeHistory,
+      });
+      if (!result) {
+        return {
+          content: [{ type: "text", text: "That artifact is unavailable in the exact project." }],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Retrieved ${result.artifact.title} v${result.artifact.selected_version} from ${result.project.name}. The complete artifact content and current handoff state are in structured content.`,
+          },
+        ],
+        structuredContent: result,
+      };
+    },
+  );
+
+  server.registerTool(
+    "save_to_alice",
+    {
+      title: "Save work to alice.",
+      description:
+        "Use only when the user explicitly asks to save work to an exact alice. project. Choose save_type=artifact when another AI needs the complete work product; preserve the full artifact and supply its current handoff state rather than a conversation summary. Choose project_information for a decision, memory, preference, or project update that is not an artifact. ChatGPT and Claude may select only the predefined category and tag values in the schema. This call creates only an exact short-lived alice. Save card; nothing becomes saved or trusted until the authenticated human chooses Save.",
+      inputSchema: saveToAliceSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (payload, context) => {
+      const authInfo = context.http?.authInfo;
+      if (!authInfo?.scopes.includes("mcp:write")) {
+        return {
+          content: [{ type: "text", text: "The connection does not grant mcp:write." }],
+          isError: true,
+        };
+      }
+      if (payload.save_type === "project_information") {
+        const { save_type: _saveType, record_type: _recordType, ...projectPayload } = payload;
+        void _saveType;
+        void _recordType;
+        const result = await createCaptureSavePreview(database, {
+          clientId: authInfo.clientId,
+          connectionId: authenticatedConnectionId(context),
+          publicUrl,
+          userId: authenticatedUserId(context),
+          payload: projectPayload,
+        });
+        if ("error" in result) {
+          return { content: [{ type: "text", text: result.error }], isError: true };
+        }
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Nothing has been saved. Present the exact alice. Save card for the user to decide personally. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
+            },
+          ],
+          structuredContent: result.preview,
+          _meta: {
+            "alice/saveAuthority": {
+              kind: "context_capture",
+              preview_id: result.preview.preview_id,
+              token: result.authorityToken,
+            },
+          },
+        };
+      }
+      const { save_type: _saveType, ...artifactPayload } = payload;
+      void _saveType;
+      const result = await createArtifactSavePreview(database, {
+        clientId: authInfo.clientId,
+        connectionId: authenticatedConnectionId(context),
+        publicUrl,
+        userId: authenticatedUserId(context),
+        payload: artifactPayload,
+      });
+      if ("error" in result) {
+        return { content: [{ type: "text", text: result.error }], isError: true };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Nothing has been saved. Present the exact alice. artifact Save card for the user to decide personally. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
+          },
+        ],
+        structuredContent: result.preview,
+        _meta: {
+          "alice/saveAuthority": {
+            kind: "artifact",
+            preview_id: result.preview.preview_id,
+            token: result.authorityToken,
+          },
+        },
+      };
+    },
+  );
+
+  server.registerTool(
+    "save_artifact_version",
+    {
+      title: "Save a new alice. artifact version",
+      description:
+        "Use only when the user explicitly asks to save a revised version of an exact alice. artifact. Supply the complete new artifact and a complete current handoff snapshot; do not send only a diff or replay old history. Category and tags must come from alice.'s predefined schema values. This call creates only an exact Save card. The new current version exists only after the authenticated human chooses Save.",
+      inputSchema: saveArtifactVersionSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (payload, context) => {
+      const authInfo = context.http?.authInfo;
+      if (!authInfo?.scopes.includes("mcp:write")) {
+        return {
+          content: [{ type: "text", text: "The connection does not grant mcp:write." }],
+          isError: true,
+        };
+      }
+      const { artifact_id: artifactId, ...artifactPayload } = payload;
+      const result = await createArtifactSavePreview(database, {
+        clientId: authInfo.clientId,
+        connectionId: authenticatedConnectionId(context),
+        publicUrl,
+        userId: authenticatedUserId(context),
+        payload: artifactPayload,
+        artifactId,
+      });
+      if ("error" in result) {
+        return { content: [{ type: "text", text: result.error }], isError: true };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Nothing has been saved. Present the exact alice. version Save card for the user to decide personally. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
+          },
+        ],
+        structuredContent: result.preview,
+        _meta: {
+          "alice/saveAuthority": {
+            kind: "artifact",
+            preview_id: result.preview.preview_id,
+            token: result.authorityToken,
+          },
+        },
+      };
+    },
+  );
+
+  server.registerTool(
+    "alice_commit_artifact_save",
+    {
+      title: "Save the exact artifact preview",
+      description:
+        "App-only authenticated human Save action. Atomically creates the exact artifact or next version shown in the unexpired preview.",
+      inputSchema: commitAliceArtifactSaveSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["app"], SAVE_APP_URI),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
+        return {
+          content: [{ type: "text", text: "The connection does not grant mcp:write." }],
+          isError: true,
+        };
+      }
+      try {
+        const result = await commitArtifactSavePreview(database, {
+          previewId: input.preview_id,
+          previewVersion: input.preview_version,
+          authorityToken: input.authority_token,
+          authority: "mcp_app",
+          userId: authenticatedUserId(context),
+        });
+        if (!result) {
+          return { content: [{ type: "text", text: "Save preview unavailable." }], isError: true };
+        }
+        return { content: [], structuredContent: result };
+      } catch (error) {
+        if (error instanceof ArtifactSaveUserError) {
+          return { content: [{ type: "text", text: error.message }], isError: true };
+        }
+        throw error;
+      }
     },
   );
 

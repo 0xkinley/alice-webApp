@@ -19,6 +19,7 @@ import {
   renderStatusPage,
   requireAuthenticatedUser,
 } from "./auth.ts";
+import { createArtifactSavePreviewsRouter } from "./artifact-save-previews.ts";
 import { createConnectionsRouter } from "./connections.ts";
 import { createCaptureSavePreviewsRouter } from "./capture-save-previews.ts";
 import { createContextAccessRouter } from "./context-access.ts";
@@ -381,6 +382,7 @@ export async function createApp({
     },
   );
   app.use("/projects", createSavedContextRouter({ database, fileStore }));
+  app.use("/artifact-save-previews", createArtifactSavePreviewsRouter({ database, fileStore }));
   app.use("/save-previews", createCaptureSavePreviewsRouter({ database, fileStore, publicUrl }));
   if (fileStore) {
     app.use(

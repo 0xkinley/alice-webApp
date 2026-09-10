@@ -2,6 +2,7 @@ import { App, applyDocumentTheme } from "@modelcontextprotocol/ext-apps/app-with
 import {
   escapeHtml,
   formatLocalTime,
+  readableLabel,
   readableText,
   renderReadableValue,
 } from "@alice/presentation";
@@ -42,6 +43,25 @@ function attachmentPayload() {
   return `<section><p class="eyebrow">File</p><h2>${escapeHtml(file.name)}</h2><dl><dt>Type</dt><dd>${escapeHtml(file.declared_media_type || "Verified after transfer")}</dd><dt>Size</dt><dd>${file.declared_byte_size === null ? "Verified after transfer" : `${Number(file.declared_byte_size).toLocaleString()} bytes`}</dd><dt>Source</dt><dd>${escapeHtml(providerName(card.source_host))}</dd></dl><p class="muted">No file has been copied. Save authorizes transfer; Alice will verify the exact file and complete both security scans before it becomes available.</p></section>`;
 }
 
+function artifactPayload() {
+  const artifact = card.artifact;
+  const handoff = artifact.handoff;
+  const list = (label: string, items: unknown[]) =>
+    Array.isArray(items) && items.length
+      ? `<section><p class="eyebrow">${escapeHtml(label)}</p><ul>${items.map((item) => `<li>${escapeHtml(readableText(item))}</li>`).join("")}</ul></section>`
+      : "";
+  const rejected =
+    Array.isArray(handoff.rejected_directions) && handoff.rejected_directions.length
+      ? `<section><p class="eyebrow">Rejected directions</p><ul>${handoff.rejected_directions
+          .map(
+            (item: any) =>
+              `<li><strong>${escapeHtml(readableText(item.direction))}</strong><br><span class="muted">${escapeHtml(readableText(item.reason))}</span></li>`,
+          )
+          .join("")}</ul></section>`
+      : "";
+  return `<section><p class="eyebrow">Artifact · v${Number(artifact.version)}</p><h2>${escapeHtml(artifact.title)}</h2><p>${escapeHtml(readableLabel(artifact.artifact_type))} · ${escapeHtml(readableLabel(artifact.category))}</p><p>${artifact.tags.map((tag: string) => `<span class="tag">${escapeHtml(readableLabel(tag))}</span>`).join(" ")}</p><div class="artifact-content">${escapeHtml(artifact.content)}</div></section><section><p class="eyebrow">Goal</p><p>${escapeHtml(readableText(handoff.goal))}</p>${handoff.summary ? `<p class="muted">${escapeHtml(readableText(handoff.summary))}</p>` : ""}</section>${list("Decisions", handoff.decisions)}${list("Constraints", handoff.constraints)}${rejected}${list("Open questions", handoff.open_questions)}${list("Next steps", handoff.next_steps)}${list("Relevant context", handoff.relevant_context)}`;
+}
+
 function render() {
   if (!card || (card.status === "awaiting_save" && !authority)) return;
   const expired = Date.parse(card.expires_at) <= Date.now();
@@ -61,9 +81,10 @@ function render() {
   const created = card.created_at
     ? `<span>${escapeHtml(formatLocalTime(card.created_at))}</span>`
     : "";
+  const isArtifact = card.card_type === "artifact";
   root.innerHTML = `<style>
-    :root{color-scheme:light dark;font:400 15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--canvas:var(--color-background-primary,#070b09);--surface:var(--color-background-secondary,#0d1411);--surface-raised:var(--color-background-tertiary,#121b17);--line:var(--color-border-secondary,#2b3a32);--line-strong:var(--color-border-primary,#496055);--ink:var(--color-text-primary,#f2f7f4);--muted:var(--color-text-secondary,#9ba9a1);--brand:#9cf0bd;--brand-ink:#06140c;--danger:#ffaaa5}*{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--ink)}main{padding:clamp(16px,4vw,24px)}button,summary{font:inherit}.card{display:grid;gap:14px;max-width:680px;margin:0 auto}.topline{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:13px;border-bottom:1px solid var(--line)}.brand{font-size:21px;font-weight:850;letter-spacing:-.05em}.source-meta{display:flex;justify-content:flex-end;gap:6px 12px;flex-wrap:wrap;color:var(--muted);font-size:13px}.eyebrow{margin:0 0 5px;color:var(--brand);font-size:11px;font-weight:850;letter-spacing:.14em;text-transform:uppercase}h1,h2,h3,p{margin-top:0}h1{margin-bottom:7px;font-size:clamp(26px,6vw,38px);font-weight:680;letter-spacing:-.04em;line-height:1.08}h2{margin-bottom:10px;font-size:19px}h3{margin-bottom:6px;font-size:16px}header p{margin-bottom:0;color:var(--muted)}section,.destination,.notice{border:1px solid var(--line);border-radius:15px;padding:15px;background:var(--surface)}.destination{display:flex;align-items:center;justify-content:space-between;gap:14px}.destination .eyebrow{margin:0}.destination strong{font-size:18px}.claims{list-style:none;margin:0;padding:0}.claims li{padding:13px 0;border-bottom:1px solid var(--line)}.claims li:last-child{padding-bottom:0;border-bottom:0}.readable-value>p{margin:4px 0;color:var(--ink)}.readable-list{display:grid;gap:5px;margin:6px 0;padding-left:20px}.readable-list p{margin:0}.readable-fields{display:grid;grid-template-columns:minmax(90px,max-content) 1fr;gap:6px 12px;margin:8px 0}.readable-fields dt{color:var(--muted);font-weight:720}.readable-fields dd{margin:0}.replace{display:block;margin-top:9px;padding:10px 12px;border-left:3px solid #e0ad58;border-radius:0 9px 9px 0;background:rgba(224,173,88,.08);color:var(--muted)}details{margin-top:12px}summary{cursor:pointer;font-weight:720}.muted{color:var(--muted)}dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 12px}dt{font-weight:720}.notice{margin:0;color:var(--muted)}.notice.danger{border-color:var(--danger);color:var(--danger)}.notice.success{border-color:var(--brand);color:var(--brand)}button{width:100%;border:1px solid var(--brand);border-radius:999px;padding:11px 16px;background:var(--brand);color:var(--brand-ink);font:inherit;font-weight:850;cursor:pointer}button:hover{filter:brightness(1.06)}button:focus-visible,summary:focus-visible{outline:3px solid #86d8ff;outline-offset:3px}button:disabled{cursor:default;opacity:.55}@media(max-width:500px){main{padding:14px}.topline,.destination{align-items:flex-start;flex-direction:column}.source-meta{justify-content:flex-start}.readable-fields,dl{grid-template-columns:1fr;gap:2px}.readable-fields dd,dd{margin:0 0 7px}}
-  </style><div class="card"><div class="topline"><strong class="brand">alice.</strong><div class="source-meta">${source}${created}</div></div><header><p class="eyebrow">Save preview</p><h1>${card.card_type === "host_attachment" ? "Save this file?" : "Save this update?"}</h1><p>Only your Save click can add this to the project. Closing or ignoring this card saves nothing.</p></header><div class="destination"><p class="eyebrow">Project</p><strong>${escapeHtml(card.destination.project_name)}</strong></div>${card.card_type === "host_attachment" ? attachmentPayload() : capturePayload()}<p id="status" class="notice${alreadyAuthorized ? " success" : ""}" role="status" aria-live="polite">${statusText}</p>${action}</div>`;
+    :root{color-scheme:light dark;font:400 15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--canvas:var(--color-background-primary,#070b09);--surface:var(--color-background-secondary,#0d1411);--surface-raised:var(--color-background-tertiary,#121b17);--line:var(--color-border-secondary,#2b3a32);--line-strong:var(--color-border-primary,#496055);--ink:var(--color-text-primary,#f2f7f4);--muted:var(--color-text-secondary,#9ba9a1);--brand:#9cf0bd;--brand-ink:#06140c;--danger:#ffaaa5}*{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--ink)}main{padding:clamp(16px,4vw,24px)}button,summary{font:inherit}.card{display:grid;gap:14px;max-width:680px;margin:0 auto}.topline{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:13px;border-bottom:1px solid var(--line)}.brand{font-size:21px;font-weight:850;letter-spacing:-.05em}.source-meta{display:flex;justify-content:flex-end;gap:6px 12px;flex-wrap:wrap;color:var(--muted);font-size:13px}.eyebrow{margin:0 0 5px;color:var(--brand);font-size:11px;font-weight:850;letter-spacing:.14em;text-transform:uppercase}h1,h2,h3,p{margin-top:0}h1{margin-bottom:7px;font-size:clamp(26px,6vw,38px);font-weight:680;letter-spacing:-.04em;line-height:1.08}h2{margin-bottom:10px;font-size:19px}h3{margin-bottom:6px;font-size:16px}header p{margin-bottom:0;color:var(--muted)}section,.destination,.notice{border:1px solid var(--line);border-radius:15px;padding:15px;background:var(--surface)}.destination{display:flex;align-items:center;justify-content:space-between;gap:14px}.destination .eyebrow{margin:0}.destination strong{font-size:18px}.claims{list-style:none;margin:0;padding:0}.claims li{padding:13px 0;border-bottom:1px solid var(--line)}.claims li:last-child{padding-bottom:0;border-bottom:0}.artifact-content{max-height:320px;overflow:auto;white-space:pre-wrap;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--surface-raised)}.tag{display:inline-block;margin:2px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:12px}.readable-value>p{margin:4px 0;color:var(--ink)}.readable-list{display:grid;gap:5px;margin:6px 0;padding-left:20px}.readable-list p{margin:0}.readable-fields{display:grid;grid-template-columns:minmax(90px,max-content) 1fr;gap:6px 12px;margin:8px 0}.readable-fields dt{color:var(--muted);font-weight:720}.readable-fields dd{margin:0}.replace{display:block;margin-top:9px;padding:10px 12px;border-left:3px solid #e0ad58;border-radius:0 9px 9px 0;background:rgba(224,173,88,.08);color:var(--muted)}details{margin-top:12px}summary{cursor:pointer;font-weight:720}.muted{color:var(--muted)}dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 12px}dt{font-weight:720}.notice{margin:0;color:var(--muted)}.notice.danger{border-color:var(--danger);color:var(--danger)}.notice.success{border-color:var(--brand);color:var(--brand)}button{width:100%;border:1px solid var(--brand);border-radius:999px;padding:11px 16px;background:var(--brand);color:var(--brand-ink);font:inherit;font-weight:850;cursor:pointer}button:hover{filter:brightness(1.06)}button:focus-visible,summary:focus-visible{outline:3px solid #86d8ff;outline-offset:3px}button:disabled{cursor:default;opacity:.55}@media(max-width:500px){main{padding:14px}.topline,.destination{align-items:flex-start;flex-direction:column}.source-meta{justify-content:flex-start}.readable-fields,dl{grid-template-columns:1fr;gap:2px}.readable-fields dd,dd{margin:0 0 7px}}
+  </style><div class="card"><div class="topline"><strong class="brand">alice.</strong><div class="source-meta">${source}${created}</div></div><header><p class="eyebrow">Save preview</p><h1>${card.card_type === "host_attachment" ? "Save this file?" : isArtifact ? (card.save_kind === "new_version" ? "Save this version?" : "Save this artifact?") : "Save this update?"}</h1><p>Only your Save click can add this to the project. Closing or ignoring this card saves nothing.</p></header><div class="destination"><p class="eyebrow">Project</p><strong>${escapeHtml(card.destination.project_name)}</strong></div>${card.card_type === "host_attachment" ? attachmentPayload() : isArtifact ? artifactPayload() : capturePayload()}<p id="status" class="notice${alreadyAuthorized ? " success" : ""}" role="status" aria-live="polite">${statusText}</p>${action}</div>`;
   document.querySelector("#save")?.addEventListener("click", save);
 }
 
@@ -77,7 +98,9 @@ async function save() {
       name:
         card.card_type === "host_attachment"
           ? "alice_confirm_host_file_save"
-          : "alice_commit_capture_save",
+          : card.card_type === "artifact"
+            ? "alice_commit_artifact_save"
+            : "alice_commit_capture_save",
       arguments:
         card.card_type === "host_attachment"
           ? {
@@ -97,7 +120,9 @@ async function save() {
     status.textContent =
       card.card_type === "host_attachment"
         ? "Transfer authorized. alice. will report the file saved only after exact-byte verification and both security scans."
-        : `${receipt.accepted.length} project ${receipt.accepted.length === 1 ? "item" : "items"} saved.`;
+        : card.card_type === "artifact"
+          ? `${receipt.version === 1 ? "Artifact" : "Artifact version"} saved as v${receipt.version}.`
+          : `${receipt.accepted.length} project ${receipt.accepted.length === 1 ? "item" : "items"} saved.`;
     button.textContent = "Saved";
   } catch (error) {
     status.className = "notice danger";
