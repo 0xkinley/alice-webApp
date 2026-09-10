@@ -1,5 +1,15 @@
 export { saveCandidateUpdate } from "./candidate-updates.ts";
 export {
+  ARTIFACT_SAVE_PREVIEW_LIFETIME_MS,
+  ArtifactSaveUserError,
+  commitArtifactSavePreview,
+  createArtifactSavePreview,
+  getAliceArtifact,
+  getArtifactSavePreview,
+  listProjectArtifactActivity,
+  searchAliceArtifacts,
+} from "./artifacts.ts";
+export {
   CAPTURE_SAVE_PREVIEW_LIFETIME_MS,
   CaptureSavePreviewUserError,
   commitCaptureSavePreview,

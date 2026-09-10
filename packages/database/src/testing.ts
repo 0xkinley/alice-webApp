@@ -806,6 +806,125 @@ function createSchema(database: DatabaseSync) {
       UNIQUE (workspace_id, project_id, context_id, id)
     ) STRICT;
 
+    CREATE TABLE artifacts (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE TABLE artifact_versions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      artifact_id TEXT NOT NULL,
+      version INTEGER NOT NULL CHECK (version > 0),
+      parent_version_id TEXT,
+      title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+      artifact_type TEXT NOT NULL CHECK (artifact_type IN (
+        'article', 'report', 'proposal', 'research', 'strategy', 'specification',
+        'plan', 'document', 'analysis', 'presentation', 'email_draft',
+        'marketing_copy', 'code', 'other'
+      )),
+      category TEXT NOT NULL CHECK (category IN (
+        'founder', 'product', 'engineering', 'marketing', 'sales', 'customer',
+        'team', 'operations', 'finance', 'legal', 'research', 'strategy',
+        'fundraising', 'partnerships', 'hiring', 'content', 'design', 'support',
+        'personal', 'other'
+      )),
+      tags_json TEXT NOT NULL CHECK (length(tags_json) BETWEEN 2 AND 4096),
+      content_storage_kind TEXT NOT NULL CHECK (content_storage_kind IN ('inline_text', 'object')),
+      content_text TEXT,
+      storage_key TEXT,
+      storage_version_id TEXT,
+      media_type TEXT NOT NULL,
+      content_sha256 TEXT NOT NULL CHECK (length(content_sha256) = 64),
+      content_utf8_bytes INTEGER NOT NULL CHECK (content_utf8_bytes BETWEEN 1 AND 2097152),
+      goal TEXT NOT NULL CHECK (length(goal) BETWEEN 1 AND 2000),
+      summary TEXT CHECK (summary IS NULL OR length(summary) BETWEEN 1 AND 2000),
+      decisions_json TEXT NOT NULL CHECK (length(decisions_json) BETWEEN 2 AND 32768),
+      constraints_json TEXT NOT NULL CHECK (length(constraints_json) BETWEEN 2 AND 32768),
+      rejected_directions_json TEXT NOT NULL CHECK (
+        length(rejected_directions_json) BETWEEN 2 AND 32768
+      ),
+      open_questions_json TEXT NOT NULL CHECK (length(open_questions_json) BETWEEN 2 AND 32768),
+      next_steps_json TEXT NOT NULL CHECK (length(next_steps_json) BETWEEN 2 AND 32768),
+      relevant_context_json TEXT NOT NULL CHECK (
+        length(relevant_context_json) BETWEEN 2 AND 32768
+      ),
+      source_connection_workspace_id TEXT NOT NULL,
+      source_connection_id TEXT NOT NULL,
+      source_client_id TEXT NOT NULL,
+      source_provider TEXT NOT NULL CHECK (source_provider IN ('chatgpt', 'claude')),
+      saved_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
+      payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256) = 64),
+      saved_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, artifact_id)
+        REFERENCES artifacts(workspace_id, project_id, id),
+      FOREIGN KEY (parent_version_id) REFERENCES artifact_versions(id),
+      FOREIGN KEY (
+        source_connection_workspace_id, saved_by_user_id, source_connection_id, source_client_id
+      ) REFERENCES integration_connections(workspace_id, user_id, id, client_id),
+      CHECK (
+        (content_storage_kind = 'inline_text'
+          AND content_text IS NOT NULL
+          AND storage_key IS NULL
+          AND storage_version_id IS NULL
+          AND content_utf8_bytes <= 49152)
+        OR
+        (content_storage_kind = 'object'
+          AND content_text IS NULL
+          AND storage_key IS NOT NULL
+          AND storage_version_id IS NOT NULL)
+      ),
+      UNIQUE (workspace_id, project_id, artifact_id, version),
+      UNIQUE (source_connection_id, project_id, idempotency_key),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX artifact_versions_current
+      ON artifact_versions (workspace_id, project_id, artifact_id, version DESC);
+    CREATE INDEX artifact_versions_search
+      ON artifact_versions (workspace_id, project_id, saved_at DESC, id DESC);
+
+    CREATE TABLE artifact_save_previews (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      connection_workspace_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      source_provider TEXT NOT NULL CHECK (source_provider IN ('chatgpt', 'claude')),
+      save_kind TEXT NOT NULL CHECK (save_kind IN ('create_artifact', 'new_version')),
+      artifact_id TEXT,
+      current_version INTEGER NOT NULL CHECK (current_version >= 0),
+      exact_payload_json TEXT NOT NULL CHECK (length(exact_payload_json) BETWEEN 2 AND 131072),
+      payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256) = 64),
+      exact_preview_json TEXT NOT NULL CHECK (length(exact_preview_json) BETWEEN 2 AND 196608),
+      preview_version TEXT NOT NULL CHECK (length(preview_version) = 64),
+      authority_token_hash TEXT NOT NULL CHECK (length(authority_token_hash) = 64),
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      FOREIGN KEY (workspace_id, project_id, artifact_id)
+        REFERENCES artifacts(workspace_id, project_id, id),
+      FOREIGN KEY (connection_workspace_id, user_id, connection_id, client_id)
+        REFERENCES integration_connections(workspace_id, user_id, id, client_id),
+      CHECK (
+        (save_kind = 'create_artifact' AND artifact_id IS NULL AND current_version = 0)
+        OR
+        (save_kind = 'new_version' AND artifact_id IS NOT NULL AND current_version > 0)
+      ),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX artifact_save_previews_expiry ON artifact_save_previews (expires_at);
+
     CREATE TABLE host_file_save_offer_authorities (
       id TEXT PRIMARY KEY,
       offer_id TEXT NOT NULL REFERENCES host_file_save_offers(id),
@@ -1417,6 +1536,36 @@ function createSchema(database: DatabaseSync) {
     BEFORE UPDATE ON capture_save_previews
     BEGIN
       SELECT RAISE(ABORT, 'capture save previews are immutable');
+    END;
+
+    CREATE TRIGGER artifacts_no_update
+    BEFORE UPDATE ON artifacts
+    BEGIN
+      SELECT RAISE(ABORT, 'artifacts are immutable');
+    END;
+
+    CREATE TRIGGER artifacts_no_delete
+    BEFORE DELETE ON artifacts
+    BEGIN
+      SELECT RAISE(ABORT, 'artifacts are immutable');
+    END;
+
+    CREATE TRIGGER artifact_versions_no_update
+    BEFORE UPDATE ON artifact_versions
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact versions are immutable');
+    END;
+
+    CREATE TRIGGER artifact_versions_no_delete
+    BEFORE DELETE ON artifact_versions
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact versions are immutable');
+    END;
+
+    CREATE TRIGGER artifact_save_previews_no_update
+    BEFORE UPDATE ON artifact_save_previews
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact save previews are immutable');
     END;
 
     CREATE TRIGGER host_file_save_offer_authorities_no_update

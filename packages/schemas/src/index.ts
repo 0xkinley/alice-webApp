@@ -215,6 +215,239 @@ export const saveProjectUpdateSchema = z
     }
   });
 
+export const aliceArtifactCategories = [
+  "founder",
+  "product",
+  "engineering",
+  "marketing",
+  "sales",
+  "customer",
+  "team",
+  "operations",
+  "finance",
+  "legal",
+  "research",
+  "strategy",
+  "fundraising",
+  "partnerships",
+  "hiring",
+  "content",
+  "design",
+  "support",
+  "personal",
+  "other",
+] as const;
+
+export const aliceCanonicalTags = [
+  "strategy",
+  "priorities",
+  "validation",
+  "business-model",
+  "pricing",
+  "positioning",
+  "launch",
+  "growth",
+  "metrics",
+  "roadmap",
+  "feature",
+  "ux",
+  "onboarding",
+  "retention",
+  "feedback",
+  "user-research",
+  "mvp",
+  "beta",
+  "requirements",
+  "integration",
+  "campaign",
+  "content",
+  "seo",
+  "social-media",
+  "messaging",
+  "audience",
+  "research",
+  "decision",
+  "planning",
+  "testing",
+] as const;
+
+export const aliceArtifactTypes = [
+  "article",
+  "report",
+  "proposal",
+  "research",
+  "strategy",
+  "specification",
+  "plan",
+  "document",
+  "analysis",
+  "presentation",
+  "email_draft",
+  "marketing_copy",
+  "code",
+  "other",
+] as const;
+
+export const artifactValidationLimits = Object.freeze({
+  contentBytes: 48 * 1_024,
+  payloadBytes: 60 * 1_024,
+  handoffItems: 20,
+  handoffItemCharacters: 1_000,
+});
+
+const handoffItemSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(artifactValidationLimits.handoffItemCharacters);
+
+export const artifactHandoffSchema = z
+  .object({
+    goal: z.string().trim().min(1).max(2_000),
+    summary: z.string().trim().min(1).max(2_000).optional(),
+    decisions: z.array(handoffItemSchema).max(artifactValidationLimits.handoffItems).default([]),
+    constraints: z.array(handoffItemSchema).max(artifactValidationLimits.handoffItems).default([]),
+    rejected_directions: z
+      .array(
+        z
+          .object({
+            direction: handoffItemSchema,
+            reason: handoffItemSchema,
+          })
+          .strict(),
+      )
+      .max(artifactValidationLimits.handoffItems)
+      .default([]),
+    open_questions: z
+      .array(handoffItemSchema)
+      .max(artifactValidationLimits.handoffItems)
+      .default([]),
+    next_steps: z.array(handoffItemSchema).max(artifactValidationLimits.handoffItems).default([]),
+    relevant_context: z
+      .array(handoffItemSchema)
+      .max(artifactValidationLimits.handoffItems)
+      .default([]),
+  })
+  .strict();
+
+const artifactContentSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (content) => Buffer.byteLength(content, "utf8") <= artifactValidationLimits.contentBytes,
+    `Artifact content exceeds ${artifactValidationLimits.contentBytes} UTF-8 bytes. Save oversized or binary work through Alice Files.`,
+  );
+
+function uniqueCanonicalTags(tags: readonly string[]): boolean {
+  return new Set(tags).size === tags.length;
+}
+
+const artifactSnapshotSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200),
+    artifact_type: z.enum(aliceArtifactTypes),
+    category: z.enum(aliceArtifactCategories),
+    tags: z
+      .array(z.enum(aliceCanonicalTags))
+      .max(12)
+      .refine(uniqueCanonicalTags, "Artifact tags must be unique canonical Alice tags."),
+    content: artifactContentSchema,
+    handoff: artifactHandoffSchema,
+  })
+  .strict();
+
+const artifactCreateSaveSchema = artifactSnapshotSchema
+  .extend({
+    save_type: z.literal("artifact"),
+    project_id: projectIdSchema,
+    idempotency_key: z
+      .string()
+      .trim()
+      .min(8)
+      .max(captureValidationLimits.idempotencyKeyCharacters)
+      .regex(boundedIdentifierPattern),
+  })
+  .strict()
+  .refine(
+    (payload) =>
+      Buffer.byteLength(JSON.stringify(payload), "utf8") <= artifactValidationLimits.payloadBytes,
+    `Artifact save payload exceeds ${artifactValidationLimits.payloadBytes} UTF-8 bytes.`,
+  );
+
+const projectInformationSaveSchema = saveProjectUpdateSchema
+  .extend({
+    save_type: z.literal("project_information"),
+    record_type: z.enum(["memory", "decision", "preference", "project_update"]),
+  })
+  .strict();
+
+export const saveToAliceSchema = z.discriminatedUnion("save_type", [
+  artifactCreateSaveSchema,
+  projectInformationSaveSchema,
+]);
+
+export const saveArtifactVersionSchema = artifactSnapshotSchema
+  .extend({
+    project_id: projectIdSchema,
+    artifact_id: z.string().trim().min(1).max(200).regex(boundedIdentifierPattern),
+    idempotency_key: z
+      .string()
+      .trim()
+      .min(8)
+      .max(captureValidationLimits.idempotencyKeyCharacters)
+      .regex(boundedIdentifierPattern),
+  })
+  .strict()
+  .refine(
+    (payload) =>
+      Buffer.byteLength(JSON.stringify(payload), "utf8") <= artifactValidationLimits.payloadBytes,
+    `Artifact version payload exceeds ${artifactValidationLimits.payloadBytes} UTF-8 bytes.`,
+  );
+
+export const searchAliceSchema = z
+  .object({
+    project_id: projectIdSchema.optional(),
+    project_name: z.string().trim().min(1).max(120).optional(),
+    query: z.string().trim().min(1).max(300).optional(),
+    categories: z.array(z.enum(aliceArtifactCategories)).max(10).default([]),
+    tags: z.array(z.enum(aliceCanonicalTags)).max(12).default([]),
+    sources: z
+      .array(z.enum(["chatgpt", "claude"]))
+      .max(2)
+      .default([]),
+    artifact_types: z.array(z.enum(aliceArtifactTypes)).max(14).default([]),
+    timeline: z
+      .enum(["past_7_days", "past_28_days", "past_3_months", "past_year", "all_time"])
+      .default("all_time"),
+    limit: z.number().int().min(1).max(50).default(20),
+  })
+  .strict()
+  .refine(
+    (input) => !(input.project_id && input.project_name),
+    "Use project_id or project_name, not both.",
+  );
+
+export const getArtifactSchema = z
+  .object({
+    project_id: projectIdSchema,
+    artifact_id: z.string().trim().min(1).max(200).regex(boundedIdentifierPattern),
+    version: z.number().int().positive().optional(),
+    include_history: z.boolean().default(false),
+  })
+  .strict();
+
+export const commitAliceArtifactSaveSchema = z
+  .object({
+    preview_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
+    preview_version: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[0-9a-f]{64}$/),
+    authority_token: saveAuthorityTokenSchema,
+  })
+  .strict();
+
 export const listProjectsSchema = z.object({}).strict();
 
 export const getProjectContextSchema = z

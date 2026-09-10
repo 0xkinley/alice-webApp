@@ -263,6 +263,13 @@ export async function configureApplicationRole(
     await database.exec(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.project_default_contexts FROM ${role}`,
     );
+    await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.artifacts, ${schema}.artifact_versions FROM ${role}`,
+    );
+    await database.exec(`REVOKE UPDATE ON TABLE ${schema}.artifact_save_previews FROM ${role}`);
+    await database.exec(
+      `GRANT SELECT, INSERT, DELETE ON TABLE ${schema}.artifact_save_previews TO ${role}`,
+    );
     await database.exec(`REVOKE ALL ON TABLE ${schema}.project_erasure_jobs FROM ${role}`);
     await database.exec(
       `REVOKE INSERT, UPDATE, DELETE ON TABLE ${schema}.alice_schema_migrations FROM ${role}`,

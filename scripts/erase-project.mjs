@@ -14,6 +14,9 @@ const DELETE_TRIGGER_TABLES = [
   "accepted_context_entries",
   "accepted_project_state",
   "active_connection_targets",
+  "artifact_save_previews",
+  "artifact_versions",
+  "artifacts",
   "audit_events",
   "candidate_claims",
   "candidate_context_targets",
@@ -300,6 +303,15 @@ async function deleteProjectRows(database, input, plan) {
     deletedRows += result.changes;
   };
   const scoped = [plan.project.workspace_id, input.projectId];
+  await remove(
+    "DELETE FROM artifact_save_previews WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove(
+    "DELETE FROM artifact_versions WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove("DELETE FROM artifacts WHERE workspace_id = ? AND project_id = ?", ...scoped);
   await remove(
     "DELETE FROM evidence_file_sources WHERE workspace_id = ? AND project_id = ?",
     ...scoped,
