@@ -108,6 +108,12 @@ These constraints follow Chrome's documented guidance that `activeTab` grants te
 
 Because provider capabilities change, repository claims about current plan behavior must include a verification date and should be rechecked before release or cohort expansion.
 
+## Shared consent-completion production defect — 2026-09-10
+
+Live connection attempts from the target ChatGPT and Claude surfaces both completed discovery and dynamic client registration, opened the alice. web consent page, and failed only after the authenticated human selected Authorize. The MCP completion route returned HTTP 500 and neither provider received a usable grant. Alice continued to report both providers as not connected.
+
+Content-free CloudWatch logs for the MCP Lambda recorded PostgreSQL `syntax error at or near "."` in the consent-completion query. The source used `user` as a table alias and then selected `user.id`; PostgreSQL interprets `user` as a reserved identity expression, while the SQLite test adapter accepted the syntax. The source repair changes the alias to `alice_user` and adds a real-PostgreSQL HTTP regression for the complete approved-consent handoff. Until that repair is deployed and both live provider flows pass, connector creation is observed but authenticated ChatGPT and Claude connection support remains failed on the hosted build.
+
 ## Just-in-time participant-surface evaluation
 
 The repository retains a versioned surface registry rather than making a blanket provider claim, but completing every enumerated Claude and ChatGPT row is not a Milestone 06 gate. Milestone 07 evaluates the exact client before it is used with a participant or advertised. Codex is outside the private-alpha product scope; any Codex connection is for internal development or testing and does not establish participant support.

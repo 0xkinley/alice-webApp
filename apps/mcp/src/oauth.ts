@@ -385,11 +385,12 @@ export function createOAuth({ database, publicUrl, reviewUrl = publicUrl }) {
     const redirect = await database.transaction(async () => {
       const transaction = await database
         .prepare(
-          `SELECT consent.*, client.client_name, user.id AS user_id, workspace.id AS workspace_id
+          `SELECT consent.*, client.client_name, alice_user.id AS user_id,
+                  workspace.id AS workspace_id
            FROM oauth_consent_transactions consent
            JOIN oauth_clients client ON client.client_id = consent.client_id
-           JOIN users user ON user.id = consent.approved_user_id
-           JOIN workspaces workspace ON workspace.user_id = user.id
+           JOIN users alice_user ON alice_user.id = consent.approved_user_id
+           JOIN workspaces workspace ON workspace.user_id = alice_user.id
            WHERE consent.token_hash = ? FOR UPDATE`,
         )
         .get(tokenHash);

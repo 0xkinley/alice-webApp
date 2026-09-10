@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { after, before, test } from "node:test";
 import pg from "pg";
 import {
@@ -53,7 +54,9 @@ import {
   supersedeAcceptedState,
   uploadProjectFile,
   updateProjectMemberRole,
+  approveOAuthConsentTransaction,
 } from "@alice/domain";
+import { createApp as createMcpApp } from "../../apps/mcp/src/app.ts";
 import { eraseProject, previewProjectErasure } from "../../scripts/erase-project.mjs";
 import { createTestIdentity, getProjectDefaultContext } from "../helpers.ts";
 
@@ -142,6 +145,17 @@ async function capture(idempotencyKey, value = 24) {
   });
 }
 
+async function availablePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  await new Promise<void>((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+  return port;
+}
+
 before(async () => {
   migrationDatabase = await openDatabase({
     connectionString,
@@ -219,6 +233,62 @@ test("one alpha invitation cannot create two users under concurrent acceptance",
     ).count,
     1,
   );
+});
+
+test("PostgreSQL completes a session-approved OAuth handoff", async () => {
+  const port = await availablePort();
+  const mcpUrl = `http://127.0.0.1:${port}`;
+  const redirectUri = "http://127.0.0.1/provider-oauth-callback";
+  const mcp = await createMcpApp({ database, publicUrl: mcpUrl, reviewUrl: mcpUrl });
+  const server = mcp.app.listen(port, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+
+  try {
+    const registration = await fetch(`${mcpUrl}/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        client_name: "ChatGPT PostgreSQL OAuth regression",
+        redirect_uris: [redirectUri],
+        token_endpoint_auth_method: "none",
+      }),
+    });
+    assert.equal(registration.status, 201);
+    const client = await registration.json();
+    const verifier = "p".repeat(64);
+    const challenge = createHash("sha256").update(verifier).digest("base64url");
+    const authorization = new URL(`${mcpUrl}/authorize`);
+    authorization.search = new URLSearchParams({
+      client_id: client.client_id,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      state: "postgres-provider-state",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      scope: "mcp:read mcp:write offline_access",
+      resource: `${mcpUrl}/mcp`,
+    }).toString();
+    const handoff = await fetch(authorization, { redirect: "manual" });
+    assert.equal(handoff.status, 303);
+    const consentUrl = new URL(handoff.headers.get("location")!);
+    const token = consentUrl.searchParams.get("request")!;
+    const approval = await approveOAuthConsentTransaction(database, {
+      token,
+      userId: owner.id,
+    });
+    assert.ok(approval);
+
+    const completion = await fetch(approval.complete_url, { redirect: "manual" });
+    assert.equal(completion.status, 303);
+    const providerCallback = new URL(completion.headers.get("location")!);
+    assert.equal(providerCallback.origin + providerCallback.pathname, redirectUri);
+    assert.equal(providerCallback.searchParams.get("state"), "postgres-provider-state");
+    assert.match(providerCallback.searchParams.get("code"), /^alice_code_/);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
 });
 
 test("versioned migration is repeatable on the same PostgreSQL schema", async () => {
