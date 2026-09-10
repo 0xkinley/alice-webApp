@@ -25,6 +25,7 @@ import { createContextAccessRouter } from "./context-access.ts";
 import { privateAlphaPrivacySecurityBody } from "./disclosures.ts";
 import { createFilesRouter } from "./files.ts";
 import { createHostFileSaveOffersRouter } from "./host-file-save-offers.ts";
+import { createOAuthConsentRouter } from "./oauth-consent.ts";
 import { createProjectLifecycleRouter } from "./project-lifecycle.ts";
 import { createProjectMembershipRouter } from "./project-memberships.ts";
 import { privateAlphaAboutBody } from "./public-site.ts";
@@ -130,6 +131,7 @@ export async function createApp({
       .send(renderPage("Project intelligence for the AI tools you choose", privateAlphaAboutBody));
   });
   app.use("/auth", createAuthRouter({ database, publicUrl }));
+  app.use("/oauth/consent", createOAuthConsentRouter({ database }));
   app.use("/connections", createConnectionsRouter({ database, mcpPublicUrl }));
   app.use(createProjectMembershipRouter({ database, publicUrl, fileStore }));
   app.use(createProjectLifecycleRouter({ database }));

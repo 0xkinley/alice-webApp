@@ -53,18 +53,18 @@ form.addEventListener("submit",async event=>{event.preventDefault();const file=i
 function transferSection(offer, directUploadAvailable: boolean) {
   if (!["save_file_only", "save_and_suggest_context"].includes(offer.status)) return "";
   if (offer.transfer?.status === "completed") {
-    return `<section><h2>File saved</h2><p class="notice"><strong>Scan-clean and available.</strong> The exact file is now available in the confirmed project.</p><p><a href="/projects/${encodeURIComponent(offer.transfer.project_id)}/files/${encodeURIComponent(offer.transfer.file_reference_id)}">View the saved file receipt</a></p></section>`;
+    return `<section><p class="eyebrow">Attachment state</p><h2>Available</h2><p class="notice"><strong>Both security scans passed.</strong> The exact file is now available in the confirmed project.</p><p><a href="/projects/${encodeURIComponent(offer.transfer.project_id)}/files/${encodeURIComponent(offer.transfer.file_reference_id)}">View the saved file receipt</a></p></section>`;
   }
   if (offer.transfer) {
-    return '<section><h2>Transfer processing</h2><p class="notice warning">The exact bytes were received, but the final private-file security scan has not completed. alice. is not claiming the file is available yet.</p></section>';
+    return '<section><p class="eyebrow">Attachment state</p><h2>Scanning</h2><p class="notice warning">The exact bytes were received, but both private-file security scans have not completed. alice. is not claiming the file is available yet.</p></section>';
   }
   if (offer.transfer_authority_expired) {
-    return '<section><h2>Upload unavailable</h2><p class="notice warning">This exact transfer authority expired. Ask the host for a new save offer. No bytes were received.</p></section>';
+    return '<section><p class="eyebrow">Attachment state</p><h2>Transfer unavailable</h2><p class="notice warning">This exact transfer authority expired. Ask the host for a new save offer. No bytes were received.</p></section>';
   }
   if (!directUploadAvailable) {
-    return '<section><h2>Browser fallback unavailable</h2><p class="notice warning">This deployment cannot create a direct private upload. No bytes were received.</p></section>';
+    return '<section><p class="eyebrow">Attachment state</p><h2>Transfer unavailable</h2><p class="notice warning">This deployment cannot create a direct private upload. No bytes were received.</p></section>';
   }
-  return `<section class="upload-panel"><p class="eyebrow">Provider transfer fallback</p><h2>Upload the exact file to alice.</h2><p>The destination is locked to <strong>${escapeHtml(offer.destination.project_name)}</strong>. Choose only <strong>${escapeHtml(offer.file.name)}</strong>. The browser hashes it locally, uploads directly to private storage, and waits for both security gates.</p><form id="file-save-upload"><label>Exact confirmed file<input id="file-save-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><button type="submit">Upload exact file and scan</button><progress id="file-save-progress" max="100" value="0" hidden></progress><p id="file-save-status" role="status"></p></form></section>${fallbackUploadScript(offer)}`;
+  return `<section class="upload-panel"><p class="eyebrow">Attachment state</p><h2>Waiting for transfer</h2><p>The destination is locked to <strong>${escapeHtml(offer.destination.project_name)}</strong>. If ${escapeHtml(hostLabel(offer.source_host))} cannot transfer the exact bytes, choose only <strong>${escapeHtml(offer.file.name)}</strong> here. The browser hashes it locally, uploads directly to private storage, and waits for both security scans.</p><form id="file-save-upload"><label>Exact confirmed file<input id="file-save-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><button type="submit">Upload exact file</button><progress id="file-save-progress" max="100" value="0" hidden></progress><p id="file-save-status" role="status"></p></form></section>${fallbackUploadScript(offer)}`;
 }
 
 function offerPage(offer, directUploadAvailable: boolean) {
@@ -79,7 +79,7 @@ function offerPage(offer, directUploadAvailable: boolean) {
     pending && !unavailable
       ? `<form method="post" action="/file-save-offers/${encodeURIComponent(offer.offer_id)}/decision"><input type="hidden" name="preview_version" value="${escapeHtml(offer.decision_version)}"><input type="hidden" name="decision" value="save_file_only"><button type="submit">Save</button></form>`
       : "";
-  return `<section><div class="section-heading"><div><p class="eyebrow">Exact attachment preview</p><h2>Save this file to ${escapeHtml(offer.destination.project_name)}?</h2></div></div><p>The AI tool cannot decide this for you. Only your authenticated Save action can authorize attachment transfer.</p>${notice}<dl><dt>File</dt><dd>${escapeHtml(offer.file.name)}</dd>${optionalFileMetadata(offer)}<dt>Project</dt><dd>${escapeHtml(offer.destination.project_name)}</dd><dt>Source</dt><dd>${escapeHtml(hostLabel(offer.source_host))}</dd><dt>Expires</dt><dd>${localTimestamp(offer.expires_at)}</dd></dl>${actions}${transferSection(offer, directUploadAvailable)}<p class="muted">After its security scans pass, the file becomes an untrusted project reference. Its contents do not become trusted project information automatically.</p></section>`;
+  return `<section><div class="section-heading"><div><p class="eyebrow">Exact attachment preview</p><h2>Save this file to ${escapeHtml(offer.destination.project_name)}?</h2></div><span class="badge">${pending ? "Waiting for confirmation" : "Transfer authorized"}</span></div><p>The AI tool cannot decide this for you. Only your authenticated Save action can authorize attachment transfer.</p>${notice}<dl><dt>File</dt><dd>${escapeHtml(offer.file.name)}</dd>${optionalFileMetadata(offer)}<dt>Project</dt><dd>${escapeHtml(offer.destination.project_name)}</dd><dt>Source</dt><dd>${escapeHtml(hostLabel(offer.source_host))}</dd><dt>Expires</dt><dd>${localTimestamp(offer.expires_at)}</dd></dl>${actions}${transferSection(offer, directUploadAvailable)}<p class="muted">After both security scans pass, the file becomes an untrusted project reference. Its contents do not become trusted project information automatically.</p></section>`;
 }
 
 export function createHostFileSaveOffersRouter({

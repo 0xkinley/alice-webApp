@@ -103,7 +103,7 @@ function setSessionCookie(response, publicUrl, session) {
   const secure = new URL(publicUrl).protocol === "https:" ? "; Secure" : "";
   response.set(
     "Set-Cookie",
-    `${SESSION_COOKIE}=${encodeURIComponent(session.token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${session.maxAge}${secure}`,
+    `${SESSION_COOKIE}=${encodeURIComponent(session.token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${session.maxAge}${secure}`,
   );
 }
 
@@ -111,7 +111,7 @@ function clearSessionCookie(response, publicUrl) {
   const secure = new URL(publicUrl).protocol === "https:" ? "; Secure" : "";
   response.set(
     "Set-Cookie",
-    `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure}`,
+    `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`,
   );
 }
 

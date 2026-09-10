@@ -1,5 +1,11 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { appendAuditEvent, authenticateUser, tenantScopeForConnection } from "@alice/domain";
+import {
+  appendAuditEvent,
+  authenticateUser,
+  createOAuthConsentTransaction,
+  oauthConsentTokenHash,
+  tenantScopeForConnection,
+} from "@alice/domain";
 import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/server";
 
 const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
@@ -37,15 +43,6 @@ function parseScope(value) {
     .split(/\s+/)
     .filter(Boolean);
   return [...new Set(scopes.filter((scope) => SUPPORTED_SCOPES.has(scope)))];
-}
-
-function describeScopes(scopes) {
-  const labels: string[] = [];
-  if (scopes.includes("mcp:read")) labels.push("read");
-  if (scopes.includes("mcp:write")) labels.push("candidate-write");
-  if (scopes.includes("offline_access")) labels.push("persistent refresh");
-  if (labels.length === 1) return `${labels[0]} access`;
-  return `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)} access`;
 }
 
 function validateRedirectUri(value) {
@@ -129,15 +126,6 @@ async function issueTokens(database, { clientId, connectionId, scopes, resource,
   };
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 function clientClassification(name) {
   const normalized = String(name).toLowerCase();
   if (normalized.includes("chatgpt") || normalized.includes("openai")) return "chatgpt";
@@ -145,7 +133,7 @@ function clientClassification(name) {
   return "unknown_mcp_client";
 }
 
-export function createOAuth({ database, publicUrl }) {
+export function createOAuth({ database, publicUrl, reviewUrl = publicUrl }) {
   const resource = new URL("/mcp", publicUrl).href;
   const issuer = new URL(publicUrl).origin;
   const metadata = {
@@ -273,30 +261,82 @@ export function createOAuth({ database, publicUrl }) {
       return oauthError(response, 400, "invalid_target", "Unknown MCP resource.");
     }
 
-    const requestedScopes = parseScope(request.query.scope);
+    const consent = await createOAuthConsentTransaction(database, {
+      clientId: client.client_id,
+      redirectUri: String(request.query.redirect_uri),
+      ...(request.query.state ? { state: String(request.query.state) } : {}),
+      codeChallenge: String(request.query.code_challenge),
+      scopes: parseScope(request.query.scope),
+      resource: requestedResource,
+      mcpOrigin: issuer,
+      webOrigin: reviewUrl,
+    });
+    response.set("Cache-Control", "no-store").redirect(303, consent.consent_url);
+  }
 
-    const fields = [
-      "client_id",
-      "redirect_uri",
-      "response_type",
-      "state",
-      "code_challenge",
-      "code_challenge_method",
-      "scope",
-      "resource",
-    ]
-      .map(
-        (name) =>
-          `<input type="hidden" name="${name}" value="${escapeHtml(request.query[name] || "")}">`,
+  async function writeAuthorizationGrant({
+    client,
+    user,
+    redirectUri,
+    state,
+    codeChallenge,
+    scopes,
+    requestedResource,
+  }) {
+    const code = secret("alice_code");
+    const connectionId = secret("connection");
+    const connectedAt = new Date().toISOString();
+    await database
+      .prepare(
+        `INSERT INTO integration_connections
+          (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
+           first_connected_at, last_used_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .join("\n");
-
-    response.type("html").send(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Authorize alice.</title><style>body{font:16px system-ui;max-width:34rem;margin:4rem auto;padding:0 1rem}input,button{font:inherit;padding:.7rem;width:100%;box-sizing:border-box;margin:.4rem 0}small{color:#555}</style></head>
-<body><h1>Authorize alice.</h1><p><strong>${escapeHtml(client.client_name)}</strong> is requesting ${escapeHtml(describeScopes(requestedScopes))} to your private alice. workspace.</p>
-<p><small>Writes create pending candidates only. They cannot change trusted state.</small></p>
-<form method="post" action="/authorize">${fields}<label>Email<input type="email" name="email" required autocomplete="email"></label><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form></body></html>`);
+      .run(
+        connectionId,
+        user.id,
+        user.workspace_id,
+        client.client_id,
+        clientClassification(client.client_name),
+        scopes.join(" "),
+        connectedAt,
+        connectedAt,
+      );
+    await database
+      .prepare(
+        `INSERT INTO oauth_authorization_codes
+          (code_hash, client_id, user_id, connection_id, redirect_uri, code_challenge,
+           scope, resource, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        sha256(code),
+        client.client_id,
+        user.id,
+        connectionId,
+        redirectUri,
+        codeChallenge,
+        scopes.join(" "),
+        requestedResource,
+        nowSeconds() + AUTHORIZATION_CODE_TTL_SECONDS,
+      );
+    await appendAuditEvent(database, {
+      workspaceId: user.workspace_id,
+      action: "integration_connection_authorized",
+      actorType: "human_user",
+      actorId: user.id,
+      correlationId: `connection_${connectionId}`,
+      metadata: {
+        connection_id: connectionId,
+        client_id: client.client_id,
+        scopes,
+      },
+    });
+    const redirect = new URL(redirectUri);
+    redirect.searchParams.set("code", code);
+    if (state) redirect.searchParams.set("state", state);
+    return redirect.href;
   }
 
   async function authorize(request, response) {
@@ -322,64 +362,72 @@ export function createOAuth({ database, publicUrl }) {
       return oauthError(response, 400, "invalid_target", "Unknown MCP resource.");
     }
 
-    const code = secret("alice_code");
     const scopes = parseScope(request.body.scope);
-    const connectionId = secret("connection");
-    const connectedAt = new Date().toISOString();
-    await database.transaction(async () => {
-      await database
-        .prepare(
-          `INSERT INTO integration_connections
-            (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
-             first_connected_at, last_used_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          connectionId,
-          user.id,
-          user.workspace_id,
-          client.client_id,
-          clientClassification(client.client_name),
-          scopes.join(" "),
-          connectedAt,
-          connectedAt,
-        );
-      await database
-        .prepare(
-          `INSERT INTO oauth_authorization_codes
-            (code_hash, client_id, user_id, connection_id, redirect_uri, code_challenge,
-             scope, resource, expires_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          sha256(code),
-          client.client_id,
-          user.id,
-          connectionId,
-          request.body.redirect_uri,
-          request.body.code_challenge,
-          scopes.join(" "),
-          resource,
-          nowSeconds() + AUTHORIZATION_CODE_TTL_SECONDS,
-        );
-      await appendAuditEvent(database, {
-        workspaceId: user.workspace_id,
-        action: "integration_connection_authorized",
-        actorType: "human_user",
-        actorId: user.id,
-        correlationId: `connection_${connectionId}`,
-        metadata: {
-          connection_id: connectionId,
-          client_id: client.client_id,
-          scopes,
-        },
-      });
-    });
+    const redirect = await database.transaction(() =>
+      writeAuthorizationGrant({
+        client,
+        user,
+        redirectUri: request.body.redirect_uri,
+        state: request.body.state,
+        codeChallenge: request.body.code_challenge,
+        scopes,
+        requestedResource,
+      }),
+    );
+    response.redirect(303, redirect);
+  }
 
-    const redirect = new URL(request.body.redirect_uri);
-    redirect.searchParams.set("code", code);
-    if (request.body.state) redirect.searchParams.set("state", request.body.state);
-    response.redirect(303, redirect.href);
+  async function authorizeComplete(request, response) {
+    const tokenHash = oauthConsentTokenHash(request.query.request);
+    if (!tokenHash) {
+      return oauthError(response, 400, "invalid_request", "Connection request unavailable.");
+    }
+    const redirect = await database.transaction(async () => {
+      const transaction = await database
+        .prepare(
+          `SELECT consent.*, client.client_name, user.id AS user_id, workspace.id AS workspace_id
+           FROM oauth_consent_transactions consent
+           JOIN oauth_clients client ON client.client_id = consent.client_id
+           JOIN users user ON user.id = consent.approved_user_id
+           JOIN workspaces workspace ON workspace.user_id = user.id
+           WHERE consent.token_hash = ? FOR UPDATE`,
+        )
+        .get(tokenHash);
+      if (
+        !transaction ||
+        !transaction.approved_user_id ||
+        Number(transaction.expires_at) <= nowSeconds()
+      ) {
+        return undefined;
+      }
+      const redirectUris = JSON.parse(
+        (
+          await database
+            .prepare("SELECT redirect_uris_json FROM oauth_clients WHERE client_id = ?")
+            .get(transaction.client_id)
+        ).redirect_uris_json,
+      );
+      if (!redirectUris.includes(transaction.redirect_uri) || transaction.resource !== resource) {
+        return undefined;
+      }
+      const destination = await writeAuthorizationGrant({
+        client: { client_id: transaction.client_id, client_name: transaction.client_name },
+        user: { id: transaction.user_id, workspace_id: transaction.workspace_id },
+        redirectUri: transaction.redirect_uri,
+        state: transaction.oauth_state,
+        codeChallenge: transaction.code_challenge,
+        scopes: String(transaction.scope).split(" ").filter(Boolean),
+        requestedResource: transaction.resource,
+      });
+      await database
+        .prepare("DELETE FROM oauth_consent_transactions WHERE token_hash = ?")
+        .run(tokenHash);
+      return destination;
+    });
+    if (!redirect) {
+      return oauthError(response, 400, "invalid_request", "Connection request unavailable.");
+    }
+    response.set("Cache-Control", "no-store").redirect(303, redirect);
   }
 
   async function token(request, response) {
@@ -503,5 +551,15 @@ export function createOAuth({ database, publicUrl }) {
     response.status(200).end();
   }
 
-  return { authorize, authorizeForm, metadata, register, resource, revoke, token, verifier };
+  return {
+    authorize,
+    authorizeComplete,
+    authorizeForm,
+    metadata,
+    register,
+    resource,
+    revoke,
+    token,
+    verifier,
+  };
 }

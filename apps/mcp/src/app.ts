@@ -1103,7 +1103,7 @@ export async function createApp({
   reviewUrl = publicUrl,
 }) {
   const database = suppliedDatabase || (await openDatabase({ connectionString: databaseUrl }));
-  const oauth = createOAuth({ database, publicUrl });
+  const oauth = createOAuth({ database, publicUrl, reviewUrl });
   const publicHostname = new URL(publicUrl).hostname;
   const app = createMcpExpressApp({
     host: "0.0.0.0",
@@ -1131,6 +1131,7 @@ export async function createApp({
   });
   app.post("/register", (request, response) => oauth.register(request, response));
   app.get("/authorize", (request, response) => oauth.authorizeForm(request, response));
+  app.get("/authorize/complete", (request, response) => oauth.authorizeComplete(request, response));
   app.post("/authorize", (request, response) => oauth.authorize(request, response));
   app.post("/token", (request, response) => oauth.token(request, response));
   app.post("/revoke", (request, response) => oauth.revoke(request, response));

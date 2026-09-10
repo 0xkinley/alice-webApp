@@ -123,6 +123,25 @@ function createSchema(database: DatabaseSync) {
       created_at TEXT NOT NULL
     ) STRICT;
 
+    CREATE TABLE oauth_consent_transactions (
+      token_hash TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+      redirect_uri TEXT NOT NULL,
+      oauth_state TEXT,
+      code_challenge TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      resource TEXT NOT NULL,
+      mcp_origin TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      approved_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      approved_at TEXT,
+      CHECK ((approved_user_id IS NULL) = (approved_at IS NULL))
+    ) STRICT;
+
+    CREATE INDEX oauth_consent_transactions_expiry
+      ON oauth_consent_transactions (expires_at);
+
     CREATE TABLE integration_connections (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,

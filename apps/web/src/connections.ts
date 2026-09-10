@@ -23,7 +23,7 @@ function connectionCard(connection) {
   const status = connection.revoked_at ? "Revoked" : "Connected";
   const action = connection.revoked_at
     ? "<p>Reconnect from this host using the alice. MCP address configured for this environment.</p>"
-    : `<p>Every project you can access is discoverable through this connection. Only the project named for a task is retrieved.</p><form method="post" action="/connections/${encodeURIComponent(connection.id)}/revoke"><button class="destructive" type="submit">Revoke this connection</button></form>`;
+    : `<p>Every project you can access is discoverable through this connection. Only the exact project named or selected for a task is retrieved.</p><form method="post" action="/connections/${encodeURIComponent(connection.id)}/revoke" onsubmit="return confirm('Revoke this AI connection?')"><button class="destructive" type="submit">Revoke this connection</button></form>`;
   return `<article class="connection-card${connection.revoked_at ? " revoked" : ""}"><p class="eyebrow">${escapeHtml(hostLabel(connection.client_classification))}</p><h2>${escapeHtml(connection.client_name)}</h2><p><span class="badge">${status}</span></p><dl><dt>Permissions</dt><dd>${escapeHtml(permissionLabel(connection.granted_scopes))}</dd><dt>Connected</dt><dd>${localTimestamp(connection.first_connected_at)}</dd><dt>Last used</dt><dd>${localTimestamp(connection.last_used_at)}</dd></dl>${action}</article>`;
 }
 
@@ -89,7 +89,7 @@ export function createConnectionsRouter({ database, mcpPublicUrl }) {
       .send(
         renderAppPage(
           "AI connections",
-          `<div class="connections-home"><header class="workspace-toolbar"><div><p class="eyebrow">AI connections</p><h1>Connect your AI tools.</h1><p>A green light means that provider has an active alice. connection for your account.</p></div></header><section class="provider-grid" aria-label="AI provider status">${providerCards}</section><p id="mcp-copy-status" class="notice" role="status" aria-live="polite">When you connect a provider, alice. copies the exact MCP address and opens its setup page. You review and approve the connection there.</p><a class="advanced-link" href="/connections/advanced">Advanced connection settings</a>${guidedConnectionScript()}</div>`,
+          `<div class="connections-home"><header class="workspace-toolbar"><div><p class="eyebrow">AI connections</p><h1>Connect your AI tools.</h1><p>A green light means that provider has an active alice. connection for your account.</p></div></header><section class="provider-grid" aria-label="AI provider status">${providerCards}</section><p id="mcp-copy-status" class="notice" role="status" aria-live="polite">Each connected provider can discover the projects you may access. For a task, alice. retrieves only the exact project named or selected. To connect, alice. copies the MCP address and opens the provider setup page; authorization returns to your signed-in alice. session.</p><a class="advanced-link" href="/connections/advanced">Advanced connection settings</a>${guidedConnectionScript()}</div>`,
           { email: request.aliceUser!.email, activeSection: "connections" },
         ),
       );

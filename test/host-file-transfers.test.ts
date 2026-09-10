@@ -389,7 +389,8 @@ test("the alice.-controlled fallback is exact-origin, pre-targeted, and scan-gat
   const { receipt, sha256 } = await createOffer(bytes, "browser-fallback", "save_file_only");
   const page = await fetch(receipt.confirmation_url, { headers: { cookie } });
   const html = await page.text();
-  assert.match(html, /Provider transfer fallback/);
+  assert.match(html, /Waiting for transfer/);
+  assert.doesNotMatch(html, /File saved/);
   assert.match(html, /browser-fallback\.md/);
   assert.match(html, /destination is locked/i);
   assert.match(html, /file-save-offers.*direct\/intents/);

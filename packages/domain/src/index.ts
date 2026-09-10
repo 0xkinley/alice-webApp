@@ -20,6 +20,13 @@ export {
 export type { AliceProvider } from "./context-provider-authorizations.ts";
 export { listIntegrationConnections, revokeIntegrationConnection } from "./connections.ts";
 export {
+  approveOAuthConsentTransaction,
+  createOAuthConsentTransaction,
+  getOAuthConsentTransaction,
+  oauthConsentTokenHash,
+  OAUTH_CONSENT_LIFETIME_SECONDS,
+} from "./oauth-consent.ts";
+export {
   ContextAccessUserError,
   endContextAccess,
   getContextAccessView,

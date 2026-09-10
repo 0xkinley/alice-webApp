@@ -16,6 +16,8 @@ Every update Save, host attachment, transfer, and file-backed suggestion names o
 
 The portable `alice_workspace_app_v2` card now presents this model directly in either connected provider. Its header shows the authoritative provider with a green light, its catalog lists the same permission-filtered projects with project and Add files links, and its compact creation form contains only Project name, optional Add files, and Create project. Opening a project is navigation only: the card has no provider choice, internal destination, routing warning, or stored active-project control.
 
+Connection authorization returns from the MCP issuer to a short-lived alice. web consent transaction. It reuses a valid alice. session or returns to the same transaction after sign-in, but every new provider connection still requires an explicit human `Authorize` action. The consent view describes project discovery, exact single-project retrieval, preview-only AI writes, the authenticated Save boundary, and persistent access in plain language without rendering protocol scope names or asking for credentials at the MCP origin.
+
 ## Scope
 
 This document records three product directions. The first is now implemented in local source; the others remain planned:
@@ -96,6 +98,8 @@ Migration `021_single_action_save_previews.sql` stores only an exact, immutable,
 MCP server `0.8.0` serves `ui://alice/save/v1.html` through the portable MCP Apps bridge. The app renders the exact destination, access, claims, source material, and current saved values that would be replaced. Its only decision control is `Save`; there is no Cancel, cross, Not now, or suggestion control. The app-only `alice_commit_capture_save` tool consumes the exact unexpired authority and atomically creates immutable evidence, internal candidate provenance, and accepted state. An authenticated alice. web route provides the same one-button fallback when the host cannot render the app.
 
 Host attachments use the same card and no-action rule. The initial offer stores only short-lived metadata and no audit, bytes, transfer authority, file reference, candidate, Needs attention entry, or accepted state. The app-only Save action creates the immutable transfer authorization; the existing exact-byte transfer and two scan-clean gates must still complete before a file reference exists. Closing, ignoring, or expiry leaves no file reference and expired undecided offers are purged. Historical decided offers and historical candidate reviews remain available for provenance, but they are not the routine ChatGPT/Claude Save path.
+
+The rendered attachment path never conflates those stages. It moves from Waiting for confirmation to Waiting for transfer, Uploading, Scanning, and Available; expired or unsupported transfers say Transfer unavailable, and a failed gate says Scan failed. The fallback keeps the exact project and filename visible and asks the person to choose the file again only when the provider cannot supply its original bytes.
 
 ## Bringing an existing host project into alice.
 
