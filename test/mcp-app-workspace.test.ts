@@ -71,6 +71,18 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   assert.equal(resource.payload.result.contents[0].mimeType, "text/html;profile=mcp-app");
   assert.match(resource.payload.result.contents[0].text, /alice\. workspace/);
   assert.match(resource.payload.result.contents[0].text, /alice_workspace_snapshot/);
+  assert.match(resource.payload.result.contents[0].text, /Welcome to alice\./);
+  assert.match(resource.payload.result.contents[0].text, /<select id=.?project-select/);
+  assert.match(resource.payload.result.contents[0].text, /Now you.*working in/);
+  assert.match(resource.payload.result.contents[0].text, /updateModelContext/);
+  assert.doesNotMatch(resource.payload.result.contents[0].text, /class=.?project-card/);
+
+  const opened = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "open_alice_workspace",
+    arguments: {},
+  });
+  assert.equal(opened.payload.result.structuredContent.contract_version, "alice_workspace_app_v3");
+  assert.match(opened.payload.result.content[0].text, /Welcome to alice\./);
 
   const saveResource = await callMcp(baseUrl, accessToken, "resources/read", {
     uri: "ui://alice/save/v1.html",
@@ -131,6 +143,10 @@ test("project discovery is governed by Alice permissions, not provider toggles",
     arguments: {},
   });
   assert.equal(snapshot.payload.result.structuredContent.projects[0].id, identity.project_id);
+  assert.equal(
+    snapshot.payload.result.structuredContent.contract_version,
+    "alice_workspace_app_v3",
+  );
   assert.equal(
     snapshot.payload.result.structuredContent.projects[0].project_url,
     `http://127.0.0.1/projects/${identity.project_id}`,

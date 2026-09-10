@@ -115,7 +115,7 @@ async function inChatWorkspaceSnapshot(database, { userId, connectionId, publicU
   if (!connection || !connection.provider) return undefined;
   const projects = await listProjects(database, userId);
   return {
-    contract_version: "alice_workspace_app_v2",
+    contract_version: "alice_workspace_app_v3",
     provider: connection.provider,
     projects: projects.map((project) => ({
       ...project,
@@ -265,11 +265,16 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         };
       }
       const output = {
-        contract_version: "alice_workspace_app_v2",
+        contract_version: "alice_workspace_app_v3",
         provider: connection.provider,
       };
       return {
-        content: [{ type: "text", text: "Use the alice. card to view or create projects." }],
+        content: [
+          {
+            type: "text",
+            text: 'Welcome to alice. Choose a project or create one to get started. To save something from this chat, say "Save this to Alice."',
+          },
+        ],
         structuredContent: output,
       };
     },
