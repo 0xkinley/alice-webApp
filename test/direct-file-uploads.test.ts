@@ -240,7 +240,6 @@ test("direct upload HTTP routes require the authenticated exact origin", async (
     assert.doesNotMatch(homeHtml, /await uploadLegacy\(files\[index\],createdProject\)/);
     const bytes = Buffer.from("route fixture");
     const body = {
-      context_id: context.id,
       file_name: "route.txt",
       claimed_media_type: "text/plain",
       byte_size: bytes.length,
@@ -275,11 +274,14 @@ test("direct upload HTTP routes require the authenticated exact origin", async (
     assert.equal(pending.status, 202);
     assert.deepEqual(await pending.json(), { status: "pending" });
 
-    const page = await fetch(`${baseUrl}/projects/${project.id}/files?context_id=${context.id}`, {
+    const page = await fetch(`${baseUrl}/projects/${project.id}/files`, {
       headers: { cookie },
     });
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /files\/direct\/intents/);
+    const pageHtml = await page.text();
+    assert.match(pageHtml, /files\/direct\/intents/);
+    assert.doesNotMatch(pageHtml, new RegExp(context.id));
+    assert.doesNotMatch(pageHtml, /__alice_project_default/);
   } finally {
     if (server) {
       server.closeAllConnections();

@@ -2,7 +2,7 @@ import {
   getProject,
   getProjectLifecycle,
   listIntegrationConnections,
-  listWorkContexts,
+  projectDefaultContextForUser,
 } from "@alice/domain";
 import type { PrivateFileStore } from "@alice/domain";
 import { roleLabel } from "./product-copy.ts";
@@ -21,9 +21,9 @@ function escapeHtml(value: unknown): string {
 export async function getProjectShell(database, userId: string, projectId: string) {
   const project = await getProject(database, userId, projectId);
   if (!project) return undefined;
-  const [connections, contexts, lifecycle] = await Promise.all([
+  const [connections, uploadContext, lifecycle] = await Promise.all([
     listIntegrationConnections(database, userId),
-    listWorkContexts(database, userId, projectId),
+    projectDefaultContextForUser(database, { userId, projectId, capability: "read" }),
     project.project_role === "owner"
       ? getProjectLifecycle(database, { userId, projectId })
       : undefined,
@@ -36,25 +36,20 @@ export async function getProjectShell(database, userId: string, projectId: strin
         .map(({ client_classification: provider }) => provider),
     ),
     archivePreviewVersion: lifecycle?.preview_version,
-    uploadContextId: contexts?.find(({ context_kind: kind }) => kind === "work")?.id || undefined,
+    uploadEnabled: Boolean(uploadContext),
   };
 }
 
 function quickUploadScript({
-  contextId,
   directUpload,
   projectId,
 }: {
-  contextId: string;
   directUpload: boolean;
   projectId: string;
 }): string {
-  const configuration = JSON.stringify({ contextId, directUpload, projectId }).replaceAll(
-    "<",
-    "\\u003c",
-  );
+  const configuration = JSON.stringify({ directUpload, projectId }).replaceAll("<", "\\u003c");
   return `<script>
-(()=>{const config=${configuration},button=document.getElementById("project-add-files"),input=document.getElementById("project-file-picker"),status=document.getElementById("project-file-status");if(!button||!input||!status)return;const announce=(message,tone="")=>{status.textContent=message;status.className=tone?"project-file-status "+tone:"project-file-status"},fail=message=>{button.disabled=false;input.value="";announce(message||"The file upload did not finish.","danger")},sha256=async file=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",await file.arrayBuffer()))).map(byte=>byte.toString(16).padStart(2,"0")).join(""),putDirect=(file,intent)=>new Promise((resolve,reject)=>{const xhr=new XMLHttpRequest();xhr.open("PUT",intent.upload_url);for(const [name,value] of Object.entries(intent.upload_headers))xhr.setRequestHeader(name,value);xhr.onerror=()=>reject(new Error("The private storage upload failed."));xhr.onload=()=>{if(xhr.status<200||xhr.status>=300)return reject(new Error("The private storage upload failed."));const versionId=xhr.getResponseHeader("x-amz-version-id");if(!versionId)return reject(new Error("Private storage did not expose the immutable object version."));resolve(versionId)};xhr.send(file)}),finalize=async(intentId,versionId)=>{for(;;){const response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files/direct/intents/"+encodeURIComponent(intentId)+"/finalize",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({storage_version_id:versionId})});if(response.status===202){await new Promise(resolve=>setTimeout(resolve,3000));continue}if(!response.ok)throw new Error(await response.text());return}},uploadDirect=async file=>{const digest=await sha256(file),response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files/direct/intents",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({context_id:config.contextId,file_name:file.name,claimed_media_type:file.type||"application/octet-stream",byte_size:file.size,sha256:digest})});if(!response.ok)throw new Error(await response.text());const intent=await response.json(),versionId=await putDirect(file,intent);await finalize(intent.intent_id,versionId)},uploadLegacy=async file=>{const response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files",{method:"POST",headers:{"Content-Type":file.type||"application/octet-stream","X-Alice-File-Name":encodeURIComponent(file.name)},body:file});if(!response.ok)throw new Error(await response.text())};button.addEventListener("click",()=>input.click());input.addEventListener("change",async()=>{const files=Array.from(input.files||[]);if(files.length===0)return;button.disabled=true;try{for(let index=0;index<files.length;index+=1){announce("Uploading "+(index+1)+" of "+files.length+"…");if(config.directUpload)await uploadDirect(files[index]);else await uploadLegacy(files[index])}announce("Files received. Opening Files…");location.href="/projects/"+encodeURIComponent(config.projectId)+"/files"}catch(error){fail(error instanceof Error?error.message:String(error))}})})();
+(()=>{const config=${configuration},button=document.getElementById("project-add-files"),input=document.getElementById("project-file-picker"),status=document.getElementById("project-file-status");if(!button||!input||!status)return;const announce=(message,tone="")=>{status.textContent=message;status.className=tone?"project-file-status "+tone:"project-file-status"},fail=message=>{button.disabled=false;input.value="";announce(message||"The file upload did not finish.","danger")},sha256=async file=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",await file.arrayBuffer()))).map(byte=>byte.toString(16).padStart(2,"0")).join(""),putDirect=(file,intent)=>new Promise((resolve,reject)=>{const xhr=new XMLHttpRequest();xhr.open("PUT",intent.upload_url);for(const [name,value] of Object.entries(intent.upload_headers))xhr.setRequestHeader(name,value);xhr.onerror=()=>reject(new Error("The private storage upload failed."));xhr.onload=()=>{if(xhr.status<200||xhr.status>=300)return reject(new Error("The private storage upload failed."));const versionId=xhr.getResponseHeader("x-amz-version-id");if(!versionId)return reject(new Error("Private storage did not expose the immutable object version."));resolve(versionId)};xhr.send(file)}),finalize=async(intentId,versionId)=>{for(;;){const response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files/direct/intents/"+encodeURIComponent(intentId)+"/finalize",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({storage_version_id:versionId})});if(response.status===202){await new Promise(resolve=>setTimeout(resolve,3000));continue}if(!response.ok)throw new Error(await response.text());return}},uploadDirect=async file=>{const digest=await sha256(file),response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files/direct/intents",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({file_name:file.name,claimed_media_type:file.type||"application/octet-stream",byte_size:file.size,sha256:digest})});if(!response.ok)throw new Error(await response.text());const intent=await response.json(),versionId=await putDirect(file,intent);await finalize(intent.intent_id,versionId)},uploadLegacy=async file=>{const response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files",{method:"POST",headers:{"Content-Type":file.type||"application/octet-stream","X-Alice-File-Name":encodeURIComponent(file.name)},body:file});if(!response.ok)throw new Error(await response.text())};button.addEventListener("click",()=>input.click());input.addEventListener("change",async()=>{const files=Array.from(input.files||[]);if(files.length===0)return;button.disabled=true;try{for(let index=0;index<files.length;index+=1){announce("Uploading "+(index+1)+" of "+files.length+"…");if(config.directUpload)await uploadDirect(files[index]);else await uploadLegacy(files[index])}announce("Files received. Opening Files…");location.href="/projects/"+encodeURIComponent(config.projectId)+"/files"}catch(error){fail(error instanceof Error?error.message:String(error))}})})();
 </script>`;
 }
 
@@ -82,7 +77,7 @@ export function renderProjectShell({
   shell: Awaited<ReturnType<typeof getProjectShell>>;
 }): string {
   if (!shell) return "";
-  const { connectedProviders, archivePreviewVersion, project, uploadContextId } = shell;
+  const { connectedProviders, archivePreviewVersion, project, uploadEnabled } = shell;
   const canWrite = project.project_role === "owner" || project.project_role === "editor";
   const isOwner = project.project_role === "owner";
   const providers = [
@@ -102,7 +97,7 @@ export function renderProjectShell({
       ? `<form class="project-menu-action" method="post" action="/projects/${encodedProjectId}/archive" onsubmit="return window.confirm('Are you sure you want to archive this project?')"><input type="hidden" name="expected_preview_version" value="${escapeHtml(archivePreviewVersion)}"><button class="destructive" type="submit">Archive project</button></form>`
       : "",
   ].join("");
-  const filesEnabled = Boolean(fileStore && uploadContextId);
+  const filesEnabled = Boolean(fileStore && uploadEnabled);
   const addFiles =
     filesEnabled && canWrite
       ? `<div class="project-file-action"><button id="project-add-files" type="button" aria-controls="project-file-picker">Add files</button><input id="project-file-picker" type="file" accept="${PROJECT_FILE_ACCEPT}" multiple hidden tabindex="-1"><span id="project-file-status" class="project-file-status" role="status"></span></div>`
@@ -110,7 +105,6 @@ export function renderProjectShell({
   const uploadScript =
     filesEnabled && canWrite
       ? quickUploadScript({
-          contextId: uploadContextId,
           directUpload: Boolean(fileStore?.createSignedUpload),
           projectId: project.id,
         })

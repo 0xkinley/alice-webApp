@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
 import { createUserSession } from "@alice/domain";
 import { createApp } from "../apps/web/src/app.ts";
-import { createTestIdentity } from "./helpers.ts";
+import { createTestIdentity, getProjectDefaultContext } from "./helpers.ts";
 
 let baseUrl;
 let cookie;
@@ -159,12 +159,7 @@ test("disconnected providers each show one connect action", async () => {
 });
 
 test("connection management exposes no active-target mutation", async () => {
-  const general = created.database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
-    )
-    .get(owner.project_id);
+  const general = await getProjectDefaultContext(created.database, owner.project_id);
   const response = await fetch(`${baseUrl}/connections/connection_owner/target`, {
     method: "POST",
     headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
@@ -220,12 +215,7 @@ test("connection management exposes no active-target mutation", async () => {
 });
 
 test("connection center shows private immutable host-read receipts without package content", async () => {
-  const general = created.database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'work'`,
-    )
-    .get(owner.workspace_id, owner.project_id);
+  const general = await getProjectDefaultContext(created.database, owner.project_id);
   created.database
     .prepare(
       `INSERT INTO context_read_events

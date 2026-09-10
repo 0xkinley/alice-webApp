@@ -9,6 +9,7 @@ import {
   validateProjectFileUploadDeclaration,
 } from "@alice/domain";
 import { createApp } from "../apps/web/src/app.ts";
+import { getProjectDefaultContext } from "./helpers.ts";
 
 class FakePrivateFileStore {
   objects = new Map();
@@ -54,6 +55,7 @@ let otherCookie;
 let ownerProjectId;
 let contexts;
 let cleanReferenceId;
+let legacyContextId;
 let currentReferenceId;
 let server;
 let workContextId;
@@ -157,15 +159,26 @@ before(async () => {
   assert.equal(createResponse.status, 201);
   const createdProject = await createResponse.json();
   assert.match(createdProject.project_id, /^project_/);
-  assert.match(createdProject.context_id, /^context_/);
+  assert.equal(createdProject.context_id, undefined);
   ownerProjectId = createdProject.project_id;
+  const owner = created.database
+    .prepare("SELECT id FROM users WHERE lower(email) = ?")
+    .get("file-owner@alice.example");
+  const legacy = await createWorkContext(created.database, {
+    userId: owner.id,
+    projectId: ownerProjectId,
+    input: {
+      name: "Legacy project files",
+      description: "Pre-migration file references retained for compatibility coverage.",
+    },
+  });
+  legacyContextId = legacy.id;
   contexts = created.database
     .prepare(
-      "SELECT id, context_kind FROM work_contexts WHERE project_id = ? ORDER BY context_kind, id",
+      "SELECT id, name, context_kind FROM work_contexts WHERE project_id = ? ORDER BY name, id",
     )
     .all(ownerProjectId);
-  workContextId = contexts.find(({ context_kind: kind }) => kind === "work").id;
-  assert.equal(createdProject.context_id, workContextId);
+  workContextId = (await getProjectDefaultContext(created.database, ownerProjectId)).id;
 });
 
 after(async () => {
@@ -373,7 +386,7 @@ test("accepts bounded structured text and modern Office packages only", () => {
 });
 
 test("keeps uploaded bytes unavailable until a clean scan and issues only a short-lived download", async () => {
-  const workContext = contexts.find(({ context_kind: kind }) => kind === "work");
+  const workContext = contexts.find(({ id }) => id === workContextId);
   const bytes = Buffer.from("# Alpha plan\nNo document claim is automatically trusted.\n");
   const uploaded = await upload(workContext.id, bytes);
   assert.equal(uploaded.status, 201);
@@ -419,7 +432,7 @@ test("keeps uploaded bytes unavailable until a clean scan and issues only a shor
 });
 
 test("deduplicates exact bytes only inside the workspace while keeping context references distinct", async () => {
-  const projectWide = contexts.find(({ context_kind: kind }) => kind === "project_wide");
+  const projectWide = contexts.find(({ id }) => id === legacyContextId);
   const response = await upload(
     projectWide.id,
     Buffer.from("# Alpha plan\nNo document claim is automatically trusted.\n"),
@@ -616,7 +629,7 @@ test("keeps the old clean version current until a changed replacement scans clea
 });
 
 test("previews verified images as sandboxed bytes and refuses inline PDF rendering", async () => {
-  const projectWide = contexts.find(({ context_kind: kind }) => kind === "project_wide");
+  const projectWide = contexts.find(({ id }) => id === legacyContextId);
   const png = Buffer.alloc(24);
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png);
   Buffer.from("IHDR").copy(png, 12);
@@ -960,12 +973,12 @@ test("references one clean immutable object from another authorized context with
       `SELECT r.id, r.file_object_id, r.source_host, r.uploader_user_id
        FROM file_context_references r
        JOIN work_contexts c ON c.id = r.context_id
-       WHERE r.project_id = ? AND c.context_kind = 'project_wide'
+       WHERE r.project_id = ? AND c.id = ?
          AND r.file_object_id = (
            SELECT file_object_id FROM file_context_references WHERE id = ?
          )`,
     )
-    .get(ownerProjectId, cleanReferenceId);
+    .get(ownerProjectId, legacyContextId, cleanReferenceId);
   const countsBefore = {
     objects: created.database.prepare("SELECT COUNT(*) AS count FROM file_objects").get().count,
     references: created.database

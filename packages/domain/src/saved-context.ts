@@ -258,9 +258,15 @@ export async function getSavedContextView(database, { userId, projectId, context
     .get(projectId, projectAccess.projectWorkspaceId);
   if (!project) return undefined;
   const contexts = (await listWorkContexts(database, userId, projectId)) || [];
+  const defaultMapping = await database
+    .prepare(
+      `SELECT context_id FROM project_default_contexts
+       WHERE workspace_id = ? AND project_id = ?`,
+    )
+    .get(projectAccess.projectWorkspaceId, projectId);
   const context = contextId
     ? contexts.find(({ id }) => id === contextId)
-    : contexts.find(({ context_kind: kind }) => kind === "project_wide");
+    : contexts.find(({ id }) => id === defaultMapping?.context_id);
   if (!context) return undefined;
   const access = await contextScopeForUser(database, {
     userId,

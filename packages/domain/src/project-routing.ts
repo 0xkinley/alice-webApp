@@ -1,19 +1,65 @@
 import {
   contextScopeForConnection,
+  contextScopeForUser,
   projectScopeForConnection,
+  projectScopeForUser,
   type ContextCapability,
 } from "./authorization.ts";
 
-/**
- * Resolve the internal destination used for project-level MCP operations.
- *
- * Work-context records remain an implementation detail during the private
- * alpha. Newer projects use their General work record; older projects fall
- * back to another accessible work record and finally the project-wide record.
- * The returned context is always re-authorized for the authenticated user and
- * connection, so this compatibility layer never broadens project membership or
- * legacy context access.
- */
+async function mappedDefault(database, workspaceId: string, projectId: string) {
+  return await database
+    .prepare(
+      `SELECT context.id, context.name, context.description, context.context_kind,
+              context.visibility, context.created_at, context.updated_at
+       FROM project_default_contexts mapping
+       JOIN work_contexts context
+         ON context.workspace_id = mapping.workspace_id
+        AND context.project_id = mapping.project_id
+        AND context.id = mapping.context_id
+       WHERE mapping.workspace_id = ? AND mapping.project_id = ?
+         AND context.archived_at IS NULL`,
+    )
+    .get(workspaceId, projectId);
+}
+
+function routedContext(project, context, access) {
+  return Object.freeze({
+    ...access,
+    projectName: project.name,
+    contextName: context.name,
+    contextDescription: context.description,
+    createdAt: context.created_at,
+    updatedAt: context.updated_at,
+    routingVersion: "project_default_v1",
+  });
+}
+
+/** Resolve the immutable hidden destination for project-level human actions. */
+export async function projectDefaultContextForUser(
+  database,
+  input: {
+    userId: string;
+    projectId: string;
+    capability?: ContextCapability;
+  },
+) {
+  const project = await projectScopeForUser(database, {
+    ...input,
+    capability: input.capability === "read" || !input.capability ? "read" : "write",
+  });
+  if (!project) return undefined;
+  const context = await mappedDefault(database, project.projectWorkspaceId, project.projectId);
+  if (!context) return undefined;
+  const access = await contextScopeForUser(database, { ...input, contextId: context.id });
+  if (!access) return undefined;
+  const projectRow = await database
+    .prepare("SELECT name FROM projects WHERE workspace_id = ? AND id = ?")
+    .get(project.projectWorkspaceId, project.projectId);
+  if (!projectRow) return undefined;
+  return routedContext(projectRow, context, access);
+}
+
+/** Resolve the same hidden destination after reauthorizing the exact MCP connection. */
 export async function projectDestinationForConnection(
   database,
   input: {
@@ -28,42 +74,13 @@ export async function projectDestinationForConnection(
     capability: input.capability === "read" || !input.capability ? "read" : "write",
   });
   if (!project) return undefined;
-
-  const contexts = await database
-    .prepare(
-      `SELECT id, name, description, context_kind, visibility, created_at, updated_at
-       FROM work_contexts
-       WHERE workspace_id = ? AND project_id = ? AND archived_at IS NULL
-       ORDER BY
-         CASE
-           WHEN context_kind = 'work' AND lower(name) = 'general' THEN 0
-           WHEN context_kind = 'work' THEN 1
-           ELSE 2
-         END,
-         created_at,
-         id`,
-    )
-    .all(project.projectWorkspaceId, project.projectId);
-
-  for (const context of contexts) {
-    const access = await contextScopeForConnection(database, {
-      ...input,
-      contextId: context.id,
-    });
-    if (!access) continue;
-    const projectRow = await database
-      .prepare("SELECT name FROM projects WHERE workspace_id = ? AND id = ?")
-      .get(project.projectWorkspaceId, project.projectId);
-    if (!projectRow) return undefined;
-    return Object.freeze({
-      ...access,
-      projectName: projectRow.name,
-      contextName: context.name,
-      contextDescription: context.description,
-      createdAt: context.created_at,
-      updatedAt: context.updated_at,
-      routingVersion: "project_explicit_v1",
-    });
-  }
-  return undefined;
+  const context = await mappedDefault(database, project.projectWorkspaceId, project.projectId);
+  if (!context) return undefined;
+  const access = await contextScopeForConnection(database, { ...input, contextId: context.id });
+  if (!access) return undefined;
+  const projectRow = await database
+    .prepare("SELECT name FROM projects WHERE workspace_id = ? AND id = ?")
+    .get(project.projectWorkspaceId, project.projectId);
+  if (!projectRow) return undefined;
+  return routedContext(projectRow, context, access);
 }

@@ -3,6 +3,7 @@ import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
 import { issueAlphaInvitation } from "@alice/domain";
 import { createApp } from "../apps/web/src/app.ts";
+import { getProjectDefaultContext } from "./helpers.ts";
 
 let baseUrl;
 let created;
@@ -102,12 +103,7 @@ test("creates and revisits a project in the authenticated private workspace", as
   });
   assert.equal(projectWidePreview.status, 200);
 
-  const generalContext = created.database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
-    )
-    .get(ownerProjectId);
+  const generalContext = await getProjectDefaultContext(created.database, ownerProjectId);
   const receiptsBeforePreview = created.database
     .prepare("SELECT COUNT(*) AS count FROM context_read_events")
     .get().count;

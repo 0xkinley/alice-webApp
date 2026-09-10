@@ -49,9 +49,9 @@ The audit also found that user-facing terminology is not isolated to templates. 
 
 ### Explicit default mapping
 
-A versioned PostgreSQL migration will add an explicit project-to-default-context mapping. The mapping is internal and is never serialized into user-facing or model-visible content.
+PostgreSQL migration `022_project_default_contexts.sql` adds an explicit project-to-default-context mapping. The mapping is internal and is never serialized into user-facing or model-visible content. Update and delete triggers protect it from ordinary mutation; privileged erasure temporarily disables the same bounded trigger set before deleting the exact project dependency row.
 
-New projects create exactly one hidden default context and designate it in that mapping. They do not create a visible `General`, `Project-wide`, research, feature, or other named context. The hidden default is used for new files, saved updates, permissions, AI retrieval, capture, review, removal, export, archive, and erasure. Project creation stores an empty internal brief until project description editing is separately admitted; the creation form does not ask for a brief.
+New projects create exactly one hidden default context and designate it in that mapping in the project-creation transaction. They do not create a visible `General`, `Project-wide`, research, feature, or other named context. The hidden default is used for new files, saved updates, permissions, AI retrieval, capture, review, removal, export, archive, and erasure. Project creation stores an empty internal brief until project description editing is separately admitted; the creation form does not ask for a brief.
 
 Product-owner correction on 2026-09-09 makes the creation contract exact: Project name, optional Add files, and Create project are the only controls. The web and shared ChatGPT/Claude embedded form must not request human/provider options or any brief. Project lists, detail views, invitations, review summaries, confirmation data, exports, and model-visible packages omit the legacy brief field.
 
@@ -61,7 +61,7 @@ The hidden default uses project membership as its human-access boundary. A new p
 
 ### Legacy projects and records
 
-Migration must not rename, move, rewrite, merge, or delete an existing context, candidate target, accepted entry, file reference, grant, active-target history row, provider-authorization row, evidence event, or audit event. Each existing project receives a new empty hidden default mapping for future writes; legacy rows remain attached to their original internal contexts.
+Migration `022` does not rename, move, rewrite, merge, or delete an existing context, candidate target, accepted entry, file reference, grant, active-target history row, provider-authorization row, evidence event, or audit event. Each existing project receives a new empty hidden default mapping for future writes; legacy rows remain attached to their original internal contexts. An isolated real-PostgreSQL upgrade fixture verifies that both representative legacy contexts remain unchanged and that exactly one new mapping is added.
 
 Project-level reads may assemble legacy information only after rechecking the requesting human's current project/context capability. For MCP, the exact non-revoked connection and required read or write scope are checked as well. A hidden project presentation never makes an inaccessible selected-members or personal record discoverable. Counts, freshness, filenames, provenance, and conflict existence from an inaccessible source remain undisclosed.
 

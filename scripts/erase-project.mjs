@@ -37,6 +37,7 @@ const DELETE_TRIGGER_TABLES = [
   "host_file_save_transfer_completions",
   "host_file_save_transfer_intents",
   "project_deletion_requests",
+  "project_default_contexts",
   "project_invitations",
   "project_memberships",
   "projects",
@@ -392,6 +393,10 @@ async function deleteProjectRows(database, input, plan) {
   );
   await remove(
     "DELETE FROM context_provider_authorizations WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove(
+    "DELETE FROM project_default_contexts WHERE workspace_id = ? AND project_id = ?",
     ...scoped,
   );
   await remove("DELETE FROM work_contexts WHERE workspace_id = ? AND project_id = ?", ...scoped);

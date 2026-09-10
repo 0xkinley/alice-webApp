@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import pg from "pg";
 import {
@@ -54,7 +55,7 @@ import {
   updateProjectMemberRole,
 } from "@alice/domain";
 import { eraseProject, previewProjectErasure } from "../../scripts/erase-project.mjs";
-import { createTestIdentity } from "../helpers.ts";
+import { createTestIdentity, getProjectDefaultContext } from "../helpers.ts";
 
 const connectionString = process.env.ALICE_TEST_DATABASE_URL;
 assert.ok(connectionString, "ALICE_TEST_DATABASE_URL is required for PostgreSQL tests.");
@@ -246,14 +247,155 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 19, filename: "019_popular_file_formats.sql" },
     { version: 20, filename: "020_context_provider_authorizations.sql" },
     { version: 21, filename: "021_single_action_save_previews.sql" },
+    { version: 22, filename: "022_project_default_contexts.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    21,
+    22,
   );
   await reopened.close();
+});
+
+test("migration 022 backfills a new empty default without rewriting legacy contexts", async () => {
+  const upgradeSchema = `upgrade_${randomUUID().replaceAll("-", "_")}`;
+  const bootstrap = new Pool({ connectionString, max: 1 });
+  let upgradePool;
+  try {
+    await bootstrap.query(`CREATE SCHEMA "${upgradeSchema}"`);
+    upgradePool = new Pool({
+      connectionString,
+      max: 1,
+      options: `-c search_path=${upgradeSchema}`,
+    });
+    const upgrade = new AliceDatabase(upgradePool, upgradeSchema);
+    await upgrade.exec(`
+      CREATE TABLE projects (
+        id text NOT NULL,
+        workspace_id text NOT NULL,
+        name text NOT NULL,
+        created_at timestamptz NOT NULL,
+        updated_at timestamptz NOT NULL,
+        UNIQUE (workspace_id, id)
+      );
+      CREATE TABLE project_memberships (
+        id text PRIMARY KEY,
+        workspace_id text NOT NULL,
+        project_id text NOT NULL,
+        user_id text NOT NULL,
+        role text NOT NULL,
+        ended_at timestamptz,
+        created_at timestamptz NOT NULL
+      );
+      CREATE TABLE work_contexts (
+        id text NOT NULL,
+        workspace_id text NOT NULL,
+        project_id text NOT NULL,
+        name text NOT NULL,
+        description text NOT NULL,
+        context_kind text NOT NULL,
+        visibility text NOT NULL,
+        created_by_user_id text NOT NULL,
+        created_at timestamptz NOT NULL,
+        updated_at timestamptz NOT NULL,
+        archived_at timestamptz,
+        UNIQUE (workspace_id, project_id, id)
+      );
+      CREATE FUNCTION alice_reject_immutable_change() RETURNS trigger
+      LANGUAGE plpgsql AS $$
+      BEGIN
+        RAISE EXCEPTION 'row is immutable' USING ERRCODE = '55000';
+      END;
+      $$;
+      INSERT INTO projects
+        (id, workspace_id, name, created_at, updated_at)
+      VALUES
+        ('legacy_project', 'legacy_workspace', 'Legacy project',
+         '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z');
+      INSERT INTO project_memberships
+        (id, workspace_id, project_id, user_id, role, ended_at, created_at)
+      VALUES
+        ('legacy_owner', 'legacy_workspace', 'legacy_project', 'legacy_user',
+         'owner', NULL, '2026-01-01T00:00:00Z');
+      INSERT INTO work_contexts
+        (id, workspace_id, project_id, name, description, context_kind, visibility,
+         created_by_user_id, created_at, updated_at)
+      VALUES
+        ('legacy_general', 'legacy_workspace', 'legacy_project', 'General', 'Retained',
+         'work', 'all_members', 'legacy_user', '2026-01-01T00:00:00Z',
+         '2026-02-01T00:00:00Z'),
+        ('legacy_project_wide', 'legacy_workspace', 'legacy_project', 'Project-wide',
+         'Retained', 'project_wide', 'all_members', 'legacy_user',
+         '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z');
+    `);
+    const migrationSql = await readFile(
+      new URL(
+        "../../packages/database/migrations/022_project_default_contexts.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    await upgrade.exec(migrationSql);
+    assert.deepEqual(
+      await upgrade
+        .prepare(
+          `SELECT name, context_kind FROM work_contexts
+           WHERE project_id = 'legacy_project' ORDER BY name`,
+        )
+        .all(),
+      [
+        { name: "General", context_kind: "work" },
+        { name: "Project-wide", context_kind: "project_wide" },
+        {
+          name: "__alice_project_default_698a2f47b9a00cfff2391f04af0305ce",
+          context_kind: "work",
+        },
+      ],
+    );
+    const mapping = await upgrade
+      .prepare(
+        "SELECT context_id FROM project_default_contexts WHERE project_id = 'legacy_project'",
+      )
+      .get();
+    assert.equal(mapping.context_id, "context_default_698a2f47b9a00cfff2391f04af0305ce");
+    await assert.rejects(
+      upgrade
+        .prepare("DELETE FROM project_default_contexts WHERE project_id = 'legacy_project'")
+        .run(),
+      /immutable/i,
+    );
+  } finally {
+    if (upgradePool) await upgradePool.end();
+    await bootstrap.query(`DROP SCHEMA IF EXISTS "${upgradeSchema}" CASCADE`);
+    await bootstrap.end();
+  }
+});
+
+test("PostgreSQL protects one hidden default mapping for every new project", async () => {
+  const mapped = await getProjectDefaultContext(database, owner.project_id);
+  assert.ok(mapped);
+  assert.match(mapped.name, /^__alice_project_default_/);
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM work_contexts WHERE project_id = ?")
+        .get(owner.project_id)
+    ).count,
+    1,
+  );
+  await assert.rejects(
+    database
+      .prepare("UPDATE project_default_contexts SET context_id = ? WHERE project_id = ?")
+      .run("context_rewritten", owner.project_id),
+    /permission denied|immutable/i,
+  );
+  await assert.rejects(
+    database
+      .prepare("DELETE FROM project_default_contexts WHERE project_id = ?")
+      .run(owner.project_id),
+    /permission denied|immutable/i,
+  );
 });
 
 test("single-action Save is preview-only until exact PostgreSQL confirmation", async () => {
@@ -1674,7 +1816,8 @@ test("PostgreSQL project lifecycle preserves data behind constrained-role archiv
     projectId: lifecycleOwner.project_id,
   });
   assert.equal(exported.format, "alice.project-export");
-  assert.ok(exported.contexts.some(({ name }) => name === "General"));
+  assert.ok(exported.contexts.some(({ scope }) => scope === "project"));
+  assert.doesNotMatch(JSON.stringify(exported), /__alice_project_default|context_default_/);
 
   const archived = await archiveProject(database, {
     userId: lifecycleOwner.id,
@@ -1697,7 +1840,7 @@ test("PostgreSQL project lifecycle preserves data behind constrained-role archiv
         .prepare("SELECT COUNT(*) AS count FROM work_contexts WHERE project_id = ?")
         .get(lifecycleOwner.project_id)
     ).count,
-    2,
+    1,
   );
 
   const archivedView = await getProjectLifecycle(database, {
@@ -1767,12 +1910,8 @@ test("privileged erasure removes exact project rows and unshared object versions
   const retainedProject = await createProject(database, owner.id, {
     name: "Retained erasure control",
   });
-  const erasedContext = await database
-    .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND context_kind = 'work'")
-    .get(erasedProject.id);
-  const retainedContext = await database
-    .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND context_kind = 'work'")
-    .get(retainedProject.id);
+  const erasedContext = await getProjectDefaultContext(database, erasedProject.id);
+  const retainedContext = await getProjectDefaultContext(database, retainedProject.id);
   const storedVersions = new Map();
   const store = {
     async putObject({ key, bytes }) {
@@ -2111,7 +2250,7 @@ test("cross-tenant and mismatched-connection access disclose nothing and mutate 
     projectId: owner.project_id,
   });
   assert.equal(ownerAccess.project.current_user_role, "owner");
-  assert.ok(ownerAccess.contexts.length >= 2);
+  assert.ok(ownerAccess.contexts.length >= 1);
   assert.ok(
     ownerAccess.connections.some(
       ({ client_name: clientName }) => clientName === "PostgreSQL concurrency fixture",

@@ -4,6 +4,7 @@ import { openSqliteTestDatabase } from "@alice/database/testing";
 import {
   cancelCapturedUpdate,
   confirmCapturedUpdate,
+  createWorkContext,
   createUserSession,
   getCapturePreview,
   getProjectContext,
@@ -12,7 +13,7 @@ import {
   saveCandidateUpdate,
 } from "@alice/domain";
 import { createApp } from "../apps/web/src/app.ts";
-import { createTestIdentity } from "./helpers.ts";
+import { createTestIdentity, getProjectDefaultContext } from "./helpers.ts";
 
 let baseUrl;
 let cookie;
@@ -45,12 +46,15 @@ before(async () => {
     email: "saved-context-owner@alice.example",
     projectId: "project_saved_context",
   });
-  general = database
-    .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND name = 'General'")
-    .get(owner.project_id);
-  const projectWide = database
-    .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND context_kind = 'project_wide'")
-    .get(owner.project_id);
+  general = await getProjectDefaultContext(database, owner.project_id);
+  const projectWide = await createWorkContext(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    input: {
+      name: "Legacy project information",
+      description: "Pre-migration information retained for compatibility tests.",
+    },
+  });
   const now = new Date().toISOString();
   database
     .prepare(

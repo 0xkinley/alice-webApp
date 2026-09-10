@@ -10,6 +10,7 @@ import {
   issueAlphaInvitation,
 } from "@alice/domain";
 import { createApp } from "../apps/web/src/app.ts";
+import { getProjectDefaultContext } from "./helpers.ts";
 
 let baseUrl;
 let created;
@@ -116,9 +117,7 @@ before(async () => {
   const ownerWorkspace = created.database
     .prepare("SELECT workspace_id FROM projects WHERE id = ?")
     .get(projectId);
-  const generalContext = created.database
-    .prepare("SELECT id FROM work_contexts WHERE project_id = ? AND name = 'General'")
-    .get(projectId);
+  const generalContext = await getProjectDefaultContext(created.database, projectId);
   await created.database
     .prepare(
       `INSERT INTO oauth_clients
@@ -202,7 +201,8 @@ test("Owner lifecycle controls archive without erasure and export only permitted
   assert.equal(exported.version, 1);
   assert.equal(exported.project.brief, undefined);
   assert.match(exported.scope, /omitted without names or counts/i);
-  assert.ok(exported.contexts.some(({ name }) => name === "General"));
+  assert.ok(exported.contexts.some(({ scope }) => scope === "project"));
+  assert.doesNotMatch(exportedText, /__alice_project_default|context_default_/);
   assert.doesNotMatch(exportedText, /Restricted launch secret|KESTREL/);
   assert.doesNotMatch(exportedText, /Editor's private secret|ORIOLE/);
   assert.doesNotMatch(
@@ -262,7 +262,7 @@ test("Owner lifecycle controls archive without erasure and export only permitted
     created.database
       .prepare("SELECT COUNT(*) AS count FROM work_contexts WHERE project_id = ?")
       .get(projectId).count,
-    4,
+    3,
   );
   assert.equal((await fetch(exportUrl, { headers: { cookie: ownerCookie } })).status, 200);
 

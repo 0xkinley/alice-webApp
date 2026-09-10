@@ -71,21 +71,21 @@ async function candidateContextId(database, workspaceId, candidate) {
     )
     .get(workspaceId, candidate.project_id, candidate.id);
   if (targeted) return targeted.context_id;
-  const projectWide = await database
+  const projectDefault = await database
     .prepare(
-      `SELECT id FROM work_contexts
-       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'project_wide'`,
+      `SELECT context_id AS id FROM project_default_contexts
+       WHERE workspace_id = ? AND project_id = ?`,
     )
     .get(workspaceId, candidate.project_id);
-  if (!projectWide) throw new Error("Candidate project context is missing.");
+  if (!projectDefault) throw new Error("Candidate project destination is missing.");
   await database
     .prepare(
       `INSERT INTO candidate_context_targets
         (candidate_id, workspace_id, project_id, context_id, targeted_at)
        VALUES (?, ?, ?, ?, ?)`,
     )
-    .run(candidate.id, workspaceId, candidate.project_id, projectWide.id, candidate.created_at);
-  return projectWide.id;
+    .run(candidate.id, workspaceId, candidate.project_id, projectDefault.id, candidate.created_at);
+  return projectDefault.id;
 }
 
 async function currentAcceptedState(database, workspaceId, candidate, contextId) {
@@ -112,7 +112,15 @@ async function currentAcceptedState(database, workspaceId, candidate, contextId)
                SELECT 1 FROM work_contexts context
                WHERE context.id = ? AND context.workspace_id = accepted.workspace_id
                  AND context.project_id = accepted.project_id
-                 AND context.context_kind = 'project_wide'
+                 AND (
+                   context.context_kind = 'project_wide'
+                   OR EXISTS (
+                     SELECT 1 FROM project_default_contexts mapping
+                     WHERE mapping.workspace_id = context.workspace_id
+                       AND mapping.project_id = context.project_id
+                       AND mapping.context_id = context.id
+                   )
+                 )
              )
            )
          )

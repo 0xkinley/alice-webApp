@@ -106,20 +106,13 @@ export async function provisionInitialWorkContexts(
     projectId,
     createdAt,
     providerAvailability = { chatgpt: false, claude: false },
-    initialWorkContextVisibility = "all_members",
   },
 ) {
   const contexts = [
     {
       id: `context_${randomUUID()}`,
-      name: "Project-wide",
-      description: "Active context shared across every work context in this project.",
-      context_kind: "project_wide",
-    },
-    {
-      id: `context_${randomUUID()}`,
-      name: "General",
-      description: "Default work context for uncategorized project work.",
+      name: "__alice_project_default__",
+      description: "Internal project default.",
       context_kind: "work",
     },
   ];
@@ -138,7 +131,7 @@ export async function provisionInitialWorkContexts(
         context.name,
         context.description,
         context.context_kind,
-        context.context_kind === "project_wide" ? "all_members" : initialWorkContextVisibility,
+        "all_members",
         userId,
         createdAt,
         createdAt,
@@ -160,6 +153,13 @@ export async function provisionInitialWorkContexts(
       metadata: { context_id: context.id, context_kind: context.context_kind },
     });
   }
+  await database
+    .prepare(
+      `INSERT INTO project_default_contexts
+        (workspace_id, project_id, context_id, created_at)
+       VALUES (?, ?, ?, ?)`,
+    )
+    .run(workspaceId, projectId, contexts[0]!.id, createdAt);
   return contexts;
 }
 
@@ -196,12 +196,19 @@ export async function listWorkContexts(database, userId, projectId) {
 }
 
 export async function suggestSimilarWorkContexts(database, { userId, projectId, input }) {
-  if (!(await projectForUser(database, userId, projectId, "write"))) return undefined;
+  const access = await projectForUser(database, userId, projectId, "write");
+  if (!access) return undefined;
   const parsed = createWorkContextSchema.parse(input);
   const contexts = await listWorkContexts(database, userId, projectId);
   if (!contexts) return undefined;
+  const projectDefault = await database
+    .prepare(
+      `SELECT context_id FROM project_default_contexts
+       WHERE workspace_id = ? AND project_id = ?`,
+    )
+    .get(access.projectWorkspaceId, projectId);
   return contexts
-    .filter(({ context_kind: kind }) => kind === "work")
+    .filter(({ id, context_kind: kind }) => kind === "work" && id !== projectDefault?.context_id)
     .map((context) => ({ ...context, similarity_score: similarityScore(parsed, context) }))
     .filter(({ similarity_score: score }) => score > 0)
     .sort(

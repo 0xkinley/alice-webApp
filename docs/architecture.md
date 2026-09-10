@@ -64,8 +64,8 @@ User
 Private Workspace
   ↓
 Projects
-  ├── Project-wide context
-  ├── Work contexts
+  ├── Hidden project default
+  ├── Legacy context records (internal compatibility only)
   ├── Evidence
   ├── Candidate Claims
   ├── Trusted State

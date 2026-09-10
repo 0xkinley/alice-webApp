@@ -11,7 +11,7 @@ import {
 } from "@alice/domain";
 import { createApp as createMcpApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
-import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
+import { authorize, callMcp, createTestIdentity, getProjectDefaultContext } from "./helpers.ts";
 
 class HostTransferStore {
   objects = new Map<string, { bytes: Buffer; versionId: string }>();
@@ -79,12 +79,7 @@ before(async () => {
     password: "host transfer owner private password",
     projectId: "project_host_transfer",
   });
-  target = database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
-    )
-    .get(identity.project_id);
+  target = await getProjectDefaultContext(database, identity.project_id);
   selectedWorkContext = await createWorkContext(database, {
     userId: identity.id,
     projectId: identity.project_id,

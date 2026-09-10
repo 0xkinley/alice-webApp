@@ -8,10 +8,7 @@ export async function createProject(
   database,
   userId,
   input,
-  {
-    providerAvailability = { chatgpt: false, claude: false },
-    initialWorkContextVisibility = "all_members",
-  } = {},
+  { providerAvailability = { chatgpt: false, claude: false } } = {},
 ) {
   const tenant = await tenantScopeForUser(database, userId);
   if (!tenant) return undefined;
@@ -32,7 +29,6 @@ export async function createProject(
         projectId,
         createdAt,
         providerAvailability,
-        initialWorkContextVisibility,
       });
       await appendAuditEvent(database, {
         workspaceId: tenant.workspaceId,

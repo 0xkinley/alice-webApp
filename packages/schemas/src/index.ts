@@ -511,30 +511,40 @@ export const getProjectContextOutputSchema = z
     ),
     file_artifacts: z.array(fileArtifactSchema.omit({ context_id: true, context_scope: true })),
     unresolved_conflicts: z.array(
-      z
-        .object({
-          state_key: z.string(),
-          status: z.literal("unresolved"),
-          trusted_current: z
-            .object({
-              version: z.number().int().positive(),
-              provenance: acceptedProvenanceSchema,
-            })
-            .strict(),
-          unreviewed_alternatives: z.array(
-            z
+      z.union([
+        z
+          .object({
+            state_key: z.string(),
+            status: z.literal("unresolved"),
+            trusted_current: z
               .object({
-                candidate_id: z.string(),
-                evidence_id: z.string(),
-                evidence_payload_hash: z.string(),
-                evidence_captured_at: z.string(),
-                review_status: z.literal("pending"),
+                version: z.number().int().positive(),
+                provenance: acceptedProvenanceSchema,
               })
               .strict(),
-          ),
-          notice: z.string(),
-        })
-        .strict(),
+            unreviewed_alternatives: z.array(
+              z
+                .object({
+                  candidate_id: z.string(),
+                  evidence_id: z.string(),
+                  evidence_payload_hash: z.string(),
+                  evidence_captured_at: z.string(),
+                  review_status: z.literal("pending"),
+                })
+                .strict(),
+            ),
+            notice: z.string(),
+          })
+          .strict(),
+        z
+          .object({
+            state_key: z.string(),
+            status: z.literal("unresolved"),
+            saved_value_count: z.number().int().min(2),
+            notice: z.string(),
+          })
+          .strict(),
+      ]),
     ),
     package: z
       .object({

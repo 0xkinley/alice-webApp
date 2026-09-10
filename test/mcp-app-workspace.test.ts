@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
 import { createApp } from "../apps/mcp/src/app.ts";
-import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
+import { authorize, callMcp, createTestIdentity, getProjectDefaultContext } from "./helpers.ts";
 
 let accessToken;
 let baseUrl;
@@ -80,19 +80,8 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
 });
 
 test("project discovery is governed by Alice permissions, not provider toggles", async () => {
-  const general = created.database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
-    )
-    .get(identity.project_id);
-  const projectWide = created.database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE project_id = ? AND context_kind = 'project_wide'`,
-    )
-    .get(identity.project_id);
-  for (const contextId of [general.id, projectWide.id]) {
+  const general = await getProjectDefaultContext(created.database, identity.project_id);
+  for (const contextId of [general.id]) {
     const current = created.database
       .prepare(
         `SELECT provider, version FROM context_provider_authorizations
@@ -214,12 +203,7 @@ test("the app creates a name-only project that is immediately discoverable", asy
   assert.equal(createdProject.payload.result.structuredContent.name, "MCP App Project");
   assert.equal(createdProject.payload.result.structuredContent.brief, undefined);
   const projectId = createdProject.payload.result.structuredContent.id;
-  const general = created.database
-    .prepare(
-      `SELECT id, visibility FROM work_contexts
-       WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
-    )
-    .get(projectId);
+  const general = await getProjectDefaultContext(created.database, projectId);
   assert.equal(general.visibility, "all_members");
 
   const discovery = await callMcp(baseUrl, accessToken, "tools/call", {

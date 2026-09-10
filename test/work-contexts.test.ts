@@ -12,16 +12,32 @@ import {
 } from "@alice/domain";
 import { createTestIdentity } from "./helpers.ts";
 
-test("projects have durable project-wide and selectable default work contexts", async () => {
+test("projects have one durable hidden default mapping", async () => {
   const database = openSqliteTestDatabase();
   const owner = await createTestIdentity(database);
   const contexts = await listWorkContexts(database, owner.id, owner.project_id);
   assert.deepEqual(
-    contexts.map(({ name, context_kind: kind }) => [name, kind]),
-    [
-      ["Project-wide", "project_wide"],
-      ["General", "work"],
-    ],
+    contexts.map(({ context_kind: kind }) => kind),
+    ["work"],
+  );
+  assert.match(contexts[0].name, /^__alice_project_default_/);
+  const mapping = database
+    .prepare("SELECT * FROM project_default_contexts WHERE project_id = ?")
+    .get(owner.project_id);
+  assert.equal(mapping.context_id, contexts[0].id);
+  assert.throws(
+    () =>
+      database
+        .prepare("UPDATE project_default_contexts SET context_id = ? WHERE project_id = ?")
+        .run("context_rewritten", owner.project_id),
+    /immutable/,
+  );
+  assert.throws(
+    () =>
+      database
+        .prepare("DELETE FROM project_default_contexts WHERE project_id = ?")
+        .run(owner.project_id),
+    /immutable/,
   );
 
   const created = await createWorkContext(database, {
@@ -71,7 +87,7 @@ test("similarity suggestions are deterministic and never create or group a conte
   assert.deepEqual(second, first);
   assert.equal(first[0].id, launch.id);
   assert.ok(first[0].similarity_score > 0);
-  assert.equal((await listWorkContexts(database, owner.id, owner.project_id)).length, 3);
+  assert.equal((await listWorkContexts(database, owner.id, owner.project_id)).length, 2);
 
   const other = await createTestIdentity(database, {
     email: "context-outsider@alice.example",

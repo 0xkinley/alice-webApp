@@ -11,7 +11,7 @@ import {
   getProjectFileRemovalPreview,
   getProjectFileView,
   listProjectFiles,
-  listWorkContexts,
+  projectDefaultContextForUser,
   refreshProjectFileScan,
   referenceProjectFileInContext,
   removeProjectFileReference,
@@ -60,24 +60,44 @@ function statusCopy(status: string): string {
 
 async function fileContextId(database, userId: string, projectId: string, requested: unknown) {
   if (typeof requested === "string" && requested) return requested;
-  const contexts = (await listWorkContexts(database, userId, projectId)) || [];
-  return contexts.find(({ context_kind: kind }) => kind === "work")?.id || "";
+  const context = await projectDefaultContextForUser(database, {
+    userId,
+    projectId,
+    capability: "read",
+  });
+  return context?.contextId || "";
+}
+
+async function uploadContextId(
+  database,
+  userId: string,
+  projectId: string,
+  requested: unknown,
+  replacesReferenceId?: string,
+) {
+  if (typeof requested === "string" && requested) return requested;
+  if (replacesReferenceId) {
+    const replaced = await getProjectFileView(database, {
+      userId,
+      projectId,
+      referenceId: replacesReferenceId,
+    });
+    return replaced?.context_id || "";
+  }
+  return await fileContextId(database, userId, projectId, requested);
 }
 
 function directUploadScript({
   projectId,
-  contextId,
   replacesReferenceId,
   successLocation,
 }: {
   projectId: string;
-  contextId: string;
   replacesReferenceId?: string;
   successLocation: "reload" | "receipt";
 }): string {
   const configuration = JSON.stringify({
     projectId,
-    contextId,
     replacesReferenceId: replacesReferenceId || null,
     successLocation,
   }).replaceAll("<", "\\u003c");
@@ -87,7 +107,7 @@ const announce=(message,tone="")=>{status.textContent=message;status.className=t
 const fail=message=>{announce(message||"Upload failed.","danger");progress.hidden=true};
 const sha256=async file=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",await file.arrayBuffer()))).map(byte=>byte.toString(16).padStart(2,"0")).join("");
 const finalize=async(intentId,versionId)=>{const response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files/direct/intents/"+encodeURIComponent(intentId)+"/finalize",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({storage_version_id:versionId})});if(response.status===202){announce("Security scan in progress…","warning");setTimeout(()=>finalize(intentId,versionId).catch(error=>fail(error.message)),3000);return}if(!response.ok)throw new Error(await response.text());const receipt=await response.json();if(config.successLocation==="receipt")location.href="/projects/"+encodeURIComponent(config.projectId)+"/files/"+encodeURIComponent(receipt.file_reference_id);else location.reload()};
-form.addEventListener("submit",async event=>{event.preventDefault();const file=input.files[0];if(!file)return;progress.hidden=false;progress.value=0;announce("Preparing private upload…");try{const digest=await sha256(file);const response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files/direct/intents",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({context_id:config.contextId,file_name:file.name,claimed_media_type:file.type||"application/octet-stream",byte_size:file.size,sha256:digest,replace_reference_id:config.replacesReferenceId})});if(!response.ok)throw new Error(await response.text());const intent=await response.json();const xhr=new XMLHttpRequest();xhr.open("PUT",intent.upload_url);for(const [name,value] of Object.entries(intent.upload_headers))xhr.setRequestHeader(name,value);xhr.upload.onprogress=e=>{if(e.lengthComputable)progress.value=e.loaded/e.total*100};xhr.onerror=()=>fail("The private storage upload failed.");xhr.onload=()=>{if(xhr.status<200||xhr.status>=300)return fail("The private storage upload failed.");const versionId=xhr.getResponseHeader("x-amz-version-id");if(!versionId)return fail("Private storage did not expose the immutable object version.");announce("Upload received. Waiting for security scan…","warning");finalize(intent.intent_id,versionId).catch(error=>fail(error.message))};announce("Uploading directly to private storage…");xhr.send(file)}catch(error){fail(error.message)}});
+form.addEventListener("submit",async event=>{event.preventDefault();const file=input.files[0];if(!file)return;progress.hidden=false;progress.value=0;announce("Preparing private upload…");try{const digest=await sha256(file);const response=await fetch("/projects/"+encodeURIComponent(config.projectId)+"/files/direct/intents",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({file_name:file.name,claimed_media_type:file.type||"application/octet-stream",byte_size:file.size,sha256:digest,replace_reference_id:config.replacesReferenceId})});if(!response.ok)throw new Error(await response.text());const intent=await response.json();const xhr=new XMLHttpRequest();xhr.open("PUT",intent.upload_url);for(const [name,value] of Object.entries(intent.upload_headers))xhr.setRequestHeader(name,value);xhr.upload.onprogress=e=>{if(e.lengthComputable)progress.value=e.loaded/e.total*100};xhr.onerror=()=>fail("The private storage upload failed.");xhr.onload=()=>{if(xhr.status<200||xhr.status>=300)return fail("The private storage upload failed.");const versionId=xhr.getResponseHeader("x-amz-version-id");if(!versionId)return fail("Private storage did not expose the immutable object version.");announce("Upload received. Waiting for security scan…","warning");finalize(intent.intent_id,versionId).catch(error=>fail(error.message))};announce("Uploading directly to private storage…");xhr.send(file)}catch(error){fail(error.message)}});
 </script>`;
 }
 
@@ -167,17 +187,25 @@ export function createFilesRouter({
     express.json({ limit: "8kb" }),
     async (request, response) => {
       try {
+        const replacesReferenceId = request.body.replace_reference_id
+          ? String(request.body.replace_reference_id)
+          : undefined;
+        const contextId = await uploadContextId(
+          database,
+          request.aliceUser!.id,
+          request.params.projectId,
+          request.body.context_id,
+          replacesReferenceId,
+        );
         const intent = await createProjectFileUploadIntent(database, fileStore, {
           userId: request.aliceUser!.id,
           projectId: request.params.projectId,
-          contextId: String(request.body.context_id || ""),
+          contextId,
           fileName: String(request.body.file_name || ""),
           claimedMediaType: String(request.body.claimed_media_type || ""),
           byteSize: Number(request.body.byte_size),
           sha256: String(request.body.sha256 || ""),
-          ...(request.body.replace_reference_id
-            ? { replacesReferenceId: String(request.body.replace_reference_id) }
-            : {}),
+          ...(replacesReferenceId ? { replacesReferenceId } : {}),
         });
         if (!intent) return notFound(response);
         response.set("Cache-Control", "no-store").status(201).json(intent);
@@ -239,11 +267,12 @@ export function createFilesRouter({
         const replacesReferenceId = request.query.replace_reference_id
           ? String(request.query.replace_reference_id)
           : undefined;
-        const contextId = await fileContextId(
+        const contextId = await uploadContextId(
           database,
           request.aliceUser!.id,
           request.params.projectId,
           request.query.context_id,
+          replacesReferenceId,
         );
         const uploadInput = {
           userId: request.aliceUser!.id,
@@ -401,7 +430,7 @@ export function createFilesRouter({
       .send(
         renderAppPage(
           "Upload replacement",
-          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "files" })}<section><div class="section-heading"><div><p class="eyebrow">Replacement upload</p><h2>Replace ${escapeHtml(file.display_name)}</h2></div></div><p>The old clean version remains current while the replacement is scanned. A failed replacement never replaces the current clean version.</p><form id="file-upload"><label>Choose the exact replacement file<input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><p id="selection" class="notice" role="status">Choose the exact replacement file.</p><button type="submit">Upload replacement and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form></section></div><script>document.getElementById("file").addEventListener("change",event=>{const selected=event.target.files[0];document.getElementById("selection").textContent=selected?selected.name+" · "+selected.type+" · "+selected.size+" bytes":"Choose the exact replacement file."})</script>${fileStore.createSignedUpload ? directUploadScript({ projectId: request.params.projectId, contextId: file.context_id, replacesReferenceId: file.id, successLocation: "receipt" }) : legacyUploadScript(`/projects/${encodeURIComponent(request.params.projectId)}/files?context_id=${encodeURIComponent(file.context_id)}&replace_reference_id=${encodeURIComponent(file.id)}`, "receipt")}`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "files" })}<section><div class="section-heading"><div><p class="eyebrow">Replacement upload</p><h2>Replace ${escapeHtml(file.display_name)}</h2></div></div><p>The old clean version remains current while the replacement is scanned. A failed replacement never replaces the current clean version.</p><form id="file-upload"><label>Choose the exact replacement file<input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.tsv,.json,.docx,.xlsx,.pptx" required></label><p id="selection" class="notice" role="status">Choose the exact replacement file.</p><button type="submit">Upload replacement and scan</button><progress id="progress" max="100" value="0" hidden></progress><p id="upload-status" role="status"></p></form></section></div><script>document.getElementById("file").addEventListener("change",event=>{const selected=event.target.files[0];document.getElementById("selection").textContent=selected?selected.name+" · "+selected.type+" · "+selected.size+" bytes":"Choose the exact replacement file."})</script>${fileStore.createSignedUpload ? directUploadScript({ projectId: request.params.projectId, replacesReferenceId: file.id, successLocation: "receipt" }) : legacyUploadScript(`/projects/${encodeURIComponent(request.params.projectId)}/files?replace_reference_id=${encodeURIComponent(file.id)}`, "receipt")}`,
           { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );

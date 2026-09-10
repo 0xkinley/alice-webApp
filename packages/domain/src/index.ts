@@ -67,7 +67,10 @@ export {
   userForSession,
 } from "./authentication.ts";
 export { ContextBudgetError, getProjectContext, listProjects } from "./project-context.ts";
-export { projectDestinationForConnection } from "./project-routing.ts";
+export {
+  projectDefaultContextForUser,
+  projectDestinationForConnection,
+} from "./project-routing.ts";
 export { getPrivateAlphaSignals } from "./product-signals.ts";
 export { getProjectAccessOverview } from "./project-access.ts";
 export {

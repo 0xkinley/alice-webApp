@@ -44,6 +44,25 @@ function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+function canonicalJson(valueJson) {
+  const normalize = (value) => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.keys(value)
+          .sort(compareText)
+          .map((key) => [key, normalize(value[key])]),
+      );
+    }
+    return value;
+  };
+  try {
+    return JSON.stringify(normalize(JSON.parse(valueJson)));
+  } catch {
+    return valueJson;
+  }
+}
+
 function categoryForStateKey(stateKey) {
   if (/^(?:question|questions|open_question|open_questions)[._-]/.test(stateKey)) {
     return "open_questions";
@@ -151,55 +170,42 @@ export async function listProjects(database, userId) {
   const visible: any[] = [];
   for (const project of projects) {
     const contexts = (await listWorkContexts(database, userId, project.id)) || [];
-    let acceptedStateCount = 0;
-    let acceptedStateUpdatedAt = null;
-    for (const context of contexts) {
-      const current = await database
-        .prepare(
-          `SELECT COUNT(accepted.id) AS accepted_state_count,
-                  MAX(accepted.accepted_at) AS accepted_state_updated_at
-           FROM accepted_project_state accepted
-           JOIN accepted_context_entries entry
-             ON entry.workspace_id = accepted.workspace_id
-            AND entry.project_id = accepted.project_id
-            AND entry.accepted_state_id = accepted.id
-            AND entry.context_id = ?
-           WHERE accepted.workspace_id = ? AND accepted.project_id = ?
-             AND NOT EXISTS (
-               SELECT 1 FROM context_entry_exclusions exclusion
-               WHERE exclusion.workspace_id = accepted.workspace_id
-                 AND exclusion.project_id = accepted.project_id
-                 AND exclusion.accepted_state_id = accepted.id
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM accepted_project_state newer
-               JOIN accepted_context_entries newer_entry
-                 ON newer_entry.workspace_id = newer.workspace_id
-                AND newer_entry.project_id = newer.project_id
-                AND newer_entry.accepted_state_id = newer.id
-                AND newer_entry.context_id = entry.context_id
-               WHERE newer.workspace_id = accepted.workspace_id
-                 AND newer.project_id = accepted.project_id
-                 AND newer.state_key = accepted.state_key
-                 AND newer.version > accepted.version
-             )`,
-        )
-        .get(context.id, project.workspace_id, project.id);
-      acceptedStateCount += Number(current.accepted_state_count);
-      if (
-        current.accepted_state_updated_at &&
-        (!acceptedStateUpdatedAt || current.accepted_state_updated_at > acceptedStateUpdatedAt)
-      ) {
-        acceptedStateUpdatedAt = current.accepted_state_updated_at;
-      }
-    }
+    const defaultMapping = await database
+      .prepare(
+        `SELECT context_id FROM project_default_contexts
+         WHERE workspace_id = ? AND project_id = ?`,
+      )
+      .get(project.workspace_id, project.id);
+    if (!defaultMapping) continue;
+    const permittedContextIds = new Set(contexts.map(({ id }) => id));
+    const projectWide = contexts.find(({ context_kind: kind }) => kind === "project_wide");
+    const acceptedRows = await database
+      .prepare(
+        `SELECT accepted.id AS accepted_state_id, accepted.state_key, accepted.value_json,
+                accepted.version, accepted.accepted_at,
+                COALESCE(entry.context_id, ?) AS context_id, exclusion.removed_at
+         FROM accepted_project_state accepted
+         LEFT JOIN accepted_context_entries entry
+           ON entry.workspace_id = accepted.workspace_id
+          AND entry.project_id = accepted.project_id
+          AND entry.accepted_state_id = accepted.id
+         LEFT JOIN context_entry_exclusions exclusion
+           ON exclusion.workspace_id = accepted.workspace_id
+          AND exclusion.project_id = accepted.project_id
+          AND exclusion.accepted_state_id = accepted.id
+         WHERE accepted.workspace_id = ? AND accepted.project_id = ?
+         ORDER BY accepted.state_key, accepted.version, accepted.id`,
+      )
+      .all(projectWide?.id || defaultMapping.context_id, project.workspace_id, project.id);
+    const permittedRows = acceptedRows.filter(({ context_id: id }) => permittedContextIds.has(id));
+    const resolution = projectLevelAcceptedRows(permittedRows, defaultMapping.context_id);
     visible.push({
       id: project.id,
       name: project.name,
       created_at: project.created_at,
       updated_at: project.updated_at,
-      accepted_state_count: acceptedStateCount,
-      accepted_state_updated_at: acceptedStateUpdatedAt,
+      accepted_state_count: resolution.effectiveByStateKey.size,
+      accepted_state_updated_at: latestTimestamp(permittedRows.map((row) => row.accepted_at)),
     });
   }
   return visible;
@@ -231,6 +237,54 @@ function latestEffectiveAcceptedRows(acceptedRows, projectWideId, selectedContex
   return effectiveByStateKey;
 }
 
+function projectLevelAcceptedRows(acceptedRows, defaultContextId) {
+  const latestByContextAndKey = new Map();
+  for (const row of acceptedRows) {
+    const key = `${row.context_id}\u0000${row.state_key}`;
+    const previous = latestByContextAndKey.get(key);
+    if (!previous || row.version > previous.version) latestByContextAndKey.set(key, row);
+  }
+
+  const rowsByStateKey = new Map();
+  for (const row of latestByContextAndKey.values()) {
+    if (row.removed_at) continue;
+    const values = rowsByStateKey.get(row.state_key) || [];
+    values.push(row);
+    rowsByStateKey.set(row.state_key, values);
+  }
+
+  const effectiveByStateKey = new Map();
+  const legacyConflicts: any[] = [];
+  for (const [stateKey, values] of rowsByStateKey) {
+    const defaultValue = values.find(({ context_id: contextId }) => contextId === defaultContextId);
+    if (defaultValue) {
+      effectiveByStateKey.set(stateKey, defaultValue);
+      continue;
+    }
+    const distinctValues = new Set(
+      values.map(({ value_json: valueJson }) => canonicalJson(valueJson)),
+    );
+    if (distinctValues.size > 1) {
+      legacyConflicts.push({
+        state_key: stateKey,
+        status: "unresolved",
+        saved_value_count: distinctValues.size,
+        notice:
+          "Saved project information disagrees. Review it and save one project-level resolution before using this item.",
+      });
+      continue;
+    }
+    const representative = [...values].sort(
+      (left, right) =>
+        Number(right.version) - Number(left.version) ||
+        compareText(left.context_id, right.context_id) ||
+        compareText(left.accepted_state_id, right.accepted_state_id),
+    )[0];
+    effectiveByStateKey.set(stateKey, representative);
+  }
+  return { effectiveByStateKey, legacyConflicts };
+}
+
 export async function getProjectContext(
   database,
   {
@@ -255,19 +309,26 @@ export async function getProjectContext(
 
   const contexts = await database
     .prepare(
-      `SELECT id, name, description, context_kind, visibility, updated_at
-       FROM work_contexts
-       WHERE workspace_id = ? AND project_id = ? AND archived_at IS NULL
-         AND (context_kind = 'project_wide' OR id = ?)
-       ORDER BY context_kind, id`,
+      `SELECT context.id, context.name, context.description, context.context_kind,
+              context.visibility, context.updated_at,
+              CASE WHEN mapping.context_id = context.id THEN 1 ELSE 0 END AS is_project_default
+       FROM work_contexts context
+       LEFT JOIN project_default_contexts mapping
+         ON mapping.workspace_id = context.workspace_id
+        AND mapping.project_id = context.project_id
+       WHERE context.workspace_id = ? AND context.project_id = ?
+         AND context.archived_at IS NULL
+       ORDER BY context.context_kind, context.id`,
     )
-    .all(scope.projectWorkspaceId, projectId, contextId || "");
+    .all(scope.projectWorkspaceId, projectId);
+  const projectDefault = contexts.find(({ is_project_default: isDefault }) => isDefault);
   const projectWide = contexts.find(({ context_kind: kind }) => kind === "project_wide");
   const selectedContext = contextId
     ? contexts.find(({ id, context_kind: kind }) => id === contextId && kind === "work")
     : undefined;
-  if (!projectWide || (contextId && !selectedContext)) return undefined;
-  const selectedForAuthorization = selectedContext || projectWide;
+  if (!projectDefault || (contextId && !selectedContext)) return undefined;
+  const projectLevel = !contextId || contextId === projectDefault.id;
+  const selectedForAuthorization = projectLevel ? projectDefault : selectedContext;
   const authorizeContext = (authorizedContextId) =>
     connectionId
       ? contextScopeForConnection(database, {
@@ -284,17 +345,26 @@ export async function getProjectContext(
   if (!(await authorizeContext(selectedForAuthorization.id))) {
     return undefined;
   }
-  const projectWideAuthorized = Boolean(await authorizeContext(projectWide.id));
-  const allowedContextIds = new Set(
-    [projectWideAuthorized ? projectWide.id : undefined, selectedContext?.id].filter(Boolean),
-  );
-  const selectedContextRow = selectedContext || projectWide;
+  const compatibilityContexts = projectLevel
+    ? contexts
+    : contexts.filter(
+        ({ id, context_kind: kind }) => id === selectedContext?.id || kind === "project_wide",
+      );
+  const authorizedContexts: any[] = [];
+  for (const candidate of compatibilityContexts) {
+    if (await authorizeContext(candidate.id)) authorizedContexts.push(candidate);
+  }
+  const allowedContextIds = new Set(authorizedContexts.map(({ id }) => id));
+  const selectedContextRow = selectedForAuthorization;
+  const projectWideAuthorized = Boolean(projectWide && allowedContextIds.has(projectWide.id));
   const context = {
     id: selectedContextRow.id,
     name: selectedContextRow.name,
     description: selectedContextRow.description,
     visibility: selectedContextRow.visibility,
-    updated_at: selectedContextRow.updated_at,
+    updated_at: projectLevel
+      ? latestTimestamp(authorizedContexts.map(({ updated_at: updatedAt }) => updatedAt))
+      : selectedContextRow.updated_at,
     includes_project_wide: projectWideAuthorized,
   };
 
@@ -328,12 +398,16 @@ export async function getProjectContext(
        WHERE accepted.project_id = ? AND accepted.workspace_id = ?
        ORDER BY accepted.state_key, accepted.version, accepted.id`,
     )
-    .all(projectWide.id, projectId, scope.projectWorkspaceId);
-  const effectiveByStateKey = latestEffectiveAcceptedRows(
-    acceptedRows,
-    projectWide.id,
-    selectedContext?.id,
+    .all(projectWide?.id || projectDefault.id, projectId, scope.projectWorkspaceId);
+  const permittedAcceptedRows = acceptedRows.filter(({ context_id: id }) =>
+    allowedContextIds.has(id),
   );
+  const projectLevelResolution = projectLevel
+    ? projectLevelAcceptedRows(permittedAcceptedRows, projectDefault.id)
+    : undefined;
+  const effectiveByStateKey = projectLevelResolution
+    ? projectLevelResolution.effectiveByStateKey
+    : latestEffectiveAcceptedRows(permittedAcceptedRows, projectWide?.id, selectedContext?.id);
   const rows = [...effectiveByStateKey.values()].sort((left, right) =>
     compareText(left.state_key, right.state_key),
   );
@@ -359,18 +433,18 @@ export async function getProjectContext(
          AND alternative.status = 'pending'
        ORDER BY alternative.state_key, alternative.id`,
     )
-    .all(projectWide.id, scope.projectWorkspaceId, projectId);
+    .all(projectWide?.id || projectDefault.id, scope.projectWorkspaceId, projectId);
   const conflictRows = pendingRows
     .filter((row) => allowedContextIds.has(row.context_id))
     .map((row) => ({ ...row, accepted: effectiveByStateKey.get(row.state_key) }))
     .filter(({ accepted, value_json: valueJson }) => accepted && accepted.value_json !== valueJson);
 
-  const fileRows = await database
+  const candidateFileRows = await database
     .prepare(
       `SELECT reference.id AS file_reference_id, reference.logical_file_id,
               reference.version, reference.display_name, reference.source_host,
               reference.referenced_at, reference.context_id,
-              object.content_sha256, object.byte_size,
+              object.id AS file_object_id, object.content_sha256, object.byte_size,
               object.verified_media_type AS media_type
        FROM file_context_references reference
        JOIN file_objects object
@@ -378,7 +452,6 @@ export async function getProjectContext(
         AND object.id = reference.file_object_id
         AND object.scan_status = 'clean'
        WHERE reference.workspace_id = ? AND reference.project_id = ?
-         AND reference.context_id IN (?, ?)
          AND NOT EXISTS (
            SELECT 1 FROM file_context_references grouped
            JOIN file_reference_exclusions exclusion
@@ -405,12 +478,27 @@ export async function getProjectContext(
          )
        ORDER BY reference.context_id, lower(reference.display_name), reference.id`,
     )
-    .all(
-      scope.projectWorkspaceId,
-      projectId,
-      projectWide.id,
-      selectedContext?.id || projectWide.id,
-    );
+    .all(scope.projectWorkspaceId, projectId);
+  const permittedFileRows = candidateFileRows.filter(({ context_id: id }) =>
+    allowedContextIds.has(id),
+  );
+  const fileRows = projectLevel
+    ? [
+        ...permittedFileRows
+          .sort(
+            (left, right) =>
+              Number(right.context_id === projectDefault.id) -
+                Number(left.context_id === projectDefault.id) ||
+              compareText(right.referenced_at, left.referenced_at) ||
+              compareText(left.file_reference_id, right.file_reference_id),
+          )
+          .reduce((files, row) => {
+            if (!files.has(row.file_object_id)) files.set(row.file_object_id, row);
+            return files;
+          }, new Map())
+          .values(),
+      ]
+    : permittedFileRows;
 
   const taskTerms = normalizedTerms(task);
   const rankedAccepted = rows.map((row) => {
@@ -475,6 +563,17 @@ export async function getProjectContext(
       review_status: "pending",
     });
   }
+  for (const conflict of projectLevelResolution?.legacyConflicts || []) {
+    conflictsByStateKey.set(conflict.state_key, {
+      category: "unresolved_conflicts",
+      item: conflict,
+      relevance: normalizedTerms(conflict.state_key).reduce(
+        (score, term) => score + (taskTerms.includes(term) ? 8 : 0),
+        0,
+      ),
+      stableId: `legacy-conflict:${conflict.state_key}`,
+    });
+  }
 
   const rankedEntries = [...rankedAccepted, ...conflictsByStateKey.values()].sort(
     compareRankedEntries,
@@ -491,7 +590,7 @@ export async function getProjectContext(
         byte_size: Number(row.byte_size),
         content_sha256: row.content_sha256,
         context_id: row.context_id,
-        context_scope: row.context_id === projectWide.id ? "project_wide" : "selected_context",
+        context_scope: row.context_id === projectWide?.id ? "project_wide" : "selected_context",
         source_host: row.source_host,
         referenced_at: row.referenced_at,
         handling: "reference_only_untrusted",
@@ -526,9 +625,9 @@ export async function getProjectContext(
     file_artifacts: [],
     unresolved_conflicts: [],
   };
-  const acceptedStateAsOf = latestTimestamp(rows.map((row) => row.accepted_at));
+  const acceptedStateAsOf = latestTimestamp(permittedAcceptedRows.map((row) => row.accepted_at));
   const evidenceAsOf = latestTimestamp([
-    ...rows.map((row) => row.evidence_captured_at),
+    ...permittedAcceptedRows.map((row) => row.evidence_captured_at),
     ...conflictRows.map((row) => row.alternative_evidence_captured_at),
   ]);
   const fileReferenceAsOf = latestTimestamp(fileRows.map((row) => row.referenced_at));
@@ -595,7 +694,7 @@ export async function getProjectContext(
 
   const omissions = omissionCounts(availableCounts, selected);
   const sourceInventory = {
-    accepted_state: rows.map((row) => ({
+    accepted_state: permittedAcceptedRows.map((row) => ({
       accepted_state_id: row.accepted_state_id,
       state_key: row.state_key,
       value_json: row.value_json,

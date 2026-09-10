@@ -1002,9 +1002,37 @@ export async function listProjectFiles(
 ) {
   const context = await authorizedContext(database, input.userId, input.projectId, input.contextId);
   if (!context) return undefined;
+  const mapping = await database
+    .prepare(
+      `SELECT context_id FROM project_default_contexts
+       WHERE workspace_id = ? AND project_id = ?`,
+    )
+    .get(context.workspaceId, input.projectId);
+  const projectLevel = mapping?.context_id === input.contextId;
+  const authorizedContextIds = new Set([input.contextId]);
+  if (projectLevel) {
+    const contexts = await database
+      .prepare(
+        `SELECT id FROM work_contexts
+         WHERE workspace_id = ? AND project_id = ? AND archived_at IS NULL
+         ORDER BY id`,
+      )
+      .all(context.workspaceId, input.projectId);
+    for (const candidate of contexts) {
+      if (
+        await contextScopeForUser(database, {
+          userId: input.userId,
+          projectId: input.projectId,
+          contextId: candidate.id,
+        })
+      ) {
+        authorizedContextIds.add(candidate.id);
+      }
+    }
+  }
   const rows = await database
     .prepare(
-      `SELECT r.id, r.logical_file_id, r.version, r.display_name, r.source_host,
+      `SELECT r.id, r.context_id, r.logical_file_id, r.version, r.display_name, r.source_host,
               r.access_scope, r.referenced_at,
               o.id AS object_id, o.byte_size, o.verified_media_type AS media_type,
               o.content_sha256, o.scan_status, o.scan_updated_at,
@@ -1023,24 +1051,30 @@ export async function listProjectFiles(
             AND excluded_reference.logical_file_id = r.logical_file_id
             AND excluded_reference.id = e.file_reference_id
         )
-       WHERE r.workspace_id = ? AND r.project_id = ? AND r.context_id = ?
+       WHERE r.workspace_id = ? AND r.project_id = ?
+         AND (? = 1 OR r.context_id = ?)
        ORDER BY r.referenced_at DESC, r.id DESC`,
     )
-    .all(context.workspaceId, input.projectId, input.contextId);
+    .all(context.workspaceId, input.projectId, projectLevel ? 1 : 0, input.contextId);
+  const permittedRows = rows.filter(({ context_id: id }) => authorizedContextIds.has(id));
   const activeGroups = new Map<string, any[]>();
-  for (const row of rows) {
+  for (const row of permittedRows) {
     if (
-      rows.some(
-        (candidate) => candidate.logical_file_id === row.logical_file_id && candidate.exclusion_id,
+      permittedRows.some(
+        (candidate) =>
+          candidate.context_id === row.context_id &&
+          candidate.logical_file_id === row.logical_file_id &&
+          candidate.exclusion_id,
       )
     ) {
       continue;
     }
-    const versions = activeGroups.get(row.logical_file_id) || [];
+    const groupKey = `${row.context_id}\u0000${row.logical_file_id}`;
+    const versions = activeGroups.get(groupKey) || [];
     versions.push(row);
-    activeGroups.set(row.logical_file_id, versions);
+    activeGroups.set(groupKey, versions);
   }
-  const files = [...activeGroups.values()].map(
+  const currentFiles = [...activeGroups.values()].map(
     (versions) =>
       [...versions].sort((left, right) => {
         const cleanDifference =
@@ -1048,14 +1082,47 @@ export async function listProjectFiles(
         return cleanDifference || Number(right.version) - Number(left.version);
       })[0],
   );
-  const removed = [
-    ...new Set(rows.filter((row) => row.exclusion_id).map((row) => row.logical_file_id)),
+  const files = projectLevel
+    ? [
+        ...currentFiles
+          .sort(
+            (left, right) =>
+              Number(right.context_id === input.contextId) -
+                Number(left.context_id === input.contextId) ||
+              String(right.referenced_at).localeCompare(String(left.referenced_at)) ||
+              String(left.id).localeCompare(String(right.id)),
+          )
+          .reduce((deduplicated, row) => {
+            if (!deduplicated.has(row.object_id)) deduplicated.set(row.object_id, row);
+            return deduplicated;
+          }, new Map<string, any>())
+          .values(),
+      ]
+    : currentFiles;
+  const removedByContext = [
+    ...new Set(
+      permittedRows
+        .filter((row) => row.exclusion_id)
+        .map((row) => `${row.context_id}\u0000${row.logical_file_id}`),
+    ),
   ].map(
-    (logicalFileId) =>
-      rows
-        .filter((row) => row.logical_file_id === logicalFileId)
+    (groupKey) =>
+      permittedRows
+        .filter((row) => `${row.context_id}\u0000${row.logical_file_id}` === groupKey)
         .sort((left, right) => Number(right.version) - Number(left.version))[0],
   );
+  const activeObjectIds = new Set(files.map(({ object_id: objectId }) => objectId));
+  const removed = projectLevel
+    ? [
+        ...removedByContext
+          .filter(({ object_id: objectId }) => !activeObjectIds.has(objectId))
+          .reduce((deduplicated, row) => {
+            if (!deduplicated.has(row.object_id)) deduplicated.set(row.object_id, row);
+            return deduplicated;
+          }, new Map<string, any>())
+          .values(),
+      ]
+    : removedByContext;
   return {
     context,
     access: {
@@ -1066,7 +1133,7 @@ export async function listProjectFiles(
     },
     files,
     removed,
-    versions: rows,
+    versions: permittedRows,
   };
 }
 
@@ -2028,6 +2095,34 @@ export async function exportProjectFileMetadata(
 ) {
   const context = await authorizedContext(database, input.userId, input.projectId, input.contextId);
   if (!context) return undefined;
+  const mapping = await database
+    .prepare(
+      `SELECT context_id FROM project_default_contexts
+       WHERE workspace_id = ? AND project_id = ?`,
+    )
+    .get(context.workspaceId, input.projectId);
+  if (mapping?.context_id === input.contextId) {
+    const view = await listProjectFiles(database, input);
+    if (!view) return undefined;
+    return {
+      format: "alice.project-files.v1",
+      exported_at: new Date().toISOString(),
+      project: { id: context.project_id, name: context.project_name },
+      scope: "project",
+      files: view.versions
+        .map((file) => {
+          const exportedFile = { ...file };
+          delete exportedFile.context_id;
+          return exportedFile;
+        })
+        .sort(
+          (left, right) =>
+            String(left.logical_file_id).localeCompare(String(right.logical_file_id)) ||
+            Number(left.version) - Number(right.version) ||
+            String(left.id).localeCompare(String(right.id)),
+        ),
+    };
+  }
   const files = await database
     .prepare(
       `SELECT r.id AS file_reference_id, r.logical_file_id, r.version, r.display_name,

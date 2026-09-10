@@ -9,7 +9,7 @@ import {
   removeSavedContextEntry,
   saveCandidateUpdate,
 } from "@alice/domain";
-import { createTestIdentity } from "./helpers.ts";
+import { createTestIdentity, getProjectDefaultContext } from "./helpers.ts";
 
 test("private-alpha signals aggregate workflow metadata without reading project content", async () => {
   const database = openSqliteTestDatabase();
@@ -21,12 +21,7 @@ test("private-alpha signals aggregate workflow metadata without reading project 
     email: "signals-other@alice.example",
     projectId: "project_signals_other",
   });
-  const context = database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'work'`,
-    )
-    .get(owner.workspace_id, owner.project_id);
+  const context = await getProjectDefaultContext(database, owner.project_id);
   const clients = [
     ["signals-chatgpt-client", "ChatGPT test", "chatgpt", "signals-chatgpt-connection"],
     ["signals-claude-client", "Claude test", "claude", "signals-claude-connection"],

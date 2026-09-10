@@ -284,8 +284,13 @@ async function exportableContexts(database, view, userId: string) {
       `SELECT context.id, context.name, context.description, context.context_kind,
               context.visibility, context.created_by_user_id,
               context.created_at, context.updated_at, context.archived_at,
+              CASE WHEN mapping.context_id IS NULL THEN 0 ELSE 1 END AS is_project_default,
               context_grant.role AS granted_role
        FROM work_contexts context
+       LEFT JOIN project_default_contexts mapping
+         ON mapping.workspace_id = context.workspace_id
+        AND mapping.project_id = context.project_id
+        AND mapping.context_id = context.id
        LEFT JOIN context_access_grants context_grant
          ON context_grant.workspace_id = context.workspace_id
         AND context_grant.project_id = context.project_id
@@ -389,14 +394,31 @@ async function exportContext(database, project, context) {
        ORDER BY reference.logical_file_id, reference.version, reference.id`,
     )
     .all(project.workspace_id, project.id, context.id);
-  return {
-    ...context,
-    history: history.map((event) => ({
+  const historyExport = history.map((event) => {
+    const metadata = parseJson(event.safe_metadata_json);
+    if (context.is_project_default && metadata && typeof metadata === "object") {
+      delete metadata.context_id;
+      delete metadata.context_kind;
+    }
+    return {
       action: event.action,
       actor_user_id: event.actor_user_id,
-      safe_metadata: parseJson(event.safe_metadata_json),
+      safe_metadata: metadata,
       created_at: event.created_at,
-    })),
+    };
+  });
+  const exportedContext = context.is_project_default
+    ? {
+        scope: "project",
+        created_at: context.created_at,
+        updated_at: context.updated_at,
+        archived_at: context.archived_at,
+        granted_role: context.granted_role,
+      }
+    : Object.fromEntries(Object.entries(context).filter(([key]) => key !== "is_project_default"));
+  return {
+    ...exportedContext,
+    history: historyExport,
     evidence,
     candidates: candidates.map(({ value_json: valueJson, ...candidate }) => ({
       ...candidate,

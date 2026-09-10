@@ -13,7 +13,14 @@ import {
   saveCandidateUpdate,
   supersedeAcceptedState,
 } from "@alice/domain";
-import { authorize, callMcp, createTestIdentity, TEST_EMAIL, TEST_PASSWORD } from "./helpers.ts";
+import {
+  authorize,
+  callMcp,
+  createTestIdentity,
+  getProjectDefaultContext,
+  TEST_EMAIL,
+  TEST_PASSWORD,
+} from "./helpers.ts";
 
 let accessToken;
 let baseUrl;
@@ -190,12 +197,7 @@ test("an explicit authenticated review accepts a candidate into versioned truste
 });
 
 test("one exact authenticated preview confirms every proposed entry atomically", async () => {
-  const general = created.database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE project_id = 'project_switchboard_launch' AND name = 'General'`,
-    )
-    .get();
+  const general = await getProjectDefaultContext(created.database, "project_switchboard_launch");
   const receipt = await capturePending({
     project_id: "project_switchboard_launch",
     context_id: general.id,

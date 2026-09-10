@@ -260,6 +260,9 @@ export async function configureApplicationRole(
     await database.exec(
       `GRANT UPDATE (enabled, version, updated_at) ON TABLE ${schema}.context_provider_authorizations TO ${role}`,
     );
+    await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.project_default_contexts FROM ${role}`,
+    );
     await database.exec(`REVOKE ALL ON TABLE ${schema}.project_erasure_jobs FROM ${role}`);
     await database.exec(
       `REVOKE INSERT, UPDATE, DELETE ON TABLE ${schema}.alice_schema_migrations FROM ${role}`,

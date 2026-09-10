@@ -12,7 +12,7 @@ import {
 } from "@alice/domain";
 import { createApp as createMcpApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
-import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
+import { authorize, callMcp, createTestIdentity, getProjectDefaultContext } from "./helpers.ts";
 
 class NoByteFileStore {
   putCount = 0;
@@ -56,12 +56,7 @@ before(async () => {
     password: "host file owner private password",
     projectId: "project_host_file_offer",
   });
-  target = database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
-    )
-    .get(identity.project_id);
+  target = await getProjectDefaultContext(database, identity.project_id);
   selectedWorkContext = await createWorkContext(database, {
     userId: identity.id,
     projectId: identity.project_id,
@@ -568,12 +563,11 @@ test("dismissal and a forged Cancel create no transfer authority or project stat
 });
 
 test("legacy provider toggles do not block a permission-authorized attachment offer", async () => {
-  const active = database
-    .prepare(
-      `SELECT project_id, id AS context_id FROM work_contexts
-       WHERE project_id = ? AND context_kind = 'work' AND name = 'General'`,
-    )
-    .get(identity.project_id);
+  const mappedDefault = await getProjectDefaultContext(database, identity.project_id);
+  const active = {
+    project_id: mappedDefault.project_id,
+    context_id: mappedDefault.id,
+  };
   const currentRows = database
     .prepare(
       `SELECT provider, version FROM context_provider_authorizations

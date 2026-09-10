@@ -331,6 +331,32 @@ function createSchema(database: DatabaseSync) {
     CREATE UNIQUE INDEX work_contexts_one_project_wide
       ON work_contexts (project_id) WHERE context_kind = 'project_wide';
 
+    CREATE TABLE project_default_contexts (
+      workspace_id TEXT NOT NULL,
+      project_id TEXT PRIMARY KEY,
+      context_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id)
+    ) STRICT;
+
+    CREATE INDEX project_default_contexts_lookup
+      ON project_default_contexts (workspace_id, project_id, context_id);
+
+    CREATE TRIGGER project_default_contexts_no_update
+    BEFORE UPDATE ON project_default_contexts
+    BEGIN
+      SELECT RAISE(ABORT, 'project default context mapping is immutable');
+    END;
+
+    CREATE TRIGGER project_default_contexts_no_delete
+    BEFORE DELETE ON project_default_contexts
+    BEGIN
+      SELECT RAISE(ABORT, 'project default context mapping is immutable');
+    END;
+
     CREATE TABLE context_access_grants (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,

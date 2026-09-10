@@ -38,6 +38,20 @@ export async function createTestIdentity(
   return { ...user, project_id: projectId };
 }
 
+export async function getProjectDefaultContext(database, projectId) {
+  return await database
+    .prepare(
+      `SELECT context.*
+       FROM project_default_contexts mapping
+       JOIN work_contexts context
+         ON context.workspace_id = mapping.workspace_id
+        AND context.project_id = mapping.project_id
+        AND context.id = mapping.context_id
+       WHERE mapping.project_id = ?`,
+    )
+    .get(projectId);
+}
+
 // Shared round-trip helpers exercise the workspace source entry points.
 
 export async function authorize(

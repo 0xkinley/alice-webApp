@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
-import { createProject } from "@alice/domain";
+import { createProject, createWorkContext, getProjectContext } from "@alice/domain";
 import { createApp } from "../apps/mcp/src/app.ts";
-import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
+import { authorize, callMcp, createTestIdentity, getProjectDefaultContext } from "./helpers.ts";
 
 let accessToken;
 let baseUrl;
@@ -11,6 +11,75 @@ let created;
 let fixtureTimestamp;
 let identity;
 let server;
+
+async function insertAcceptedFixture({ contextId, stateKey, valueJson, version, suffix }) {
+  const connection = created.database
+    .prepare("SELECT * FROM integration_connections LIMIT 1")
+    .get();
+  const timestamp = new Date(Date.now() + version).toISOString();
+  created.database
+    .prepare(
+      `INSERT INTO evidence_events
+        (id, workspace_id, project_id, exact_payload_json, actor_type, connection_id,
+         connection_workspace_id, client_id, client_classification, tool_name,
+         idempotency_key, payload_hash, created_at)
+       VALUES (?, ?, ?, '{}', 'host', ?, ?, ?, ?, 'legacy_fixture', ?, ?, ?)`,
+    )
+    .run(
+      `evidence_${suffix}`,
+      identity.workspace_id,
+      identity.project_id,
+      connection.id,
+      identity.workspace_id,
+      connection.client_id,
+      connection.client_classification,
+      `legacy-${suffix}`,
+      `hash-${suffix}`,
+      timestamp,
+    );
+  created.database
+    .prepare(
+      `INSERT INTO candidate_claims
+        (id, workspace_id, project_id, evidence_id, state_key, value_json, summary,
+         status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'accepted', ?)`,
+    )
+    .run(
+      `candidate_${suffix}`,
+      identity.workspace_id,
+      identity.project_id,
+      `evidence_${suffix}`,
+      stateKey,
+      valueJson,
+      `Legacy ${suffix}`,
+      timestamp,
+    );
+  created.database
+    .prepare(
+      `INSERT INTO accepted_project_state
+        (id, workspace_id, project_id, candidate_id, evidence_id, state_key,
+         value_json, version, accepted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      `accepted_${suffix}`,
+      identity.workspace_id,
+      identity.project_id,
+      `candidate_${suffix}`,
+      `evidence_${suffix}`,
+      stateKey,
+      valueJson,
+      version,
+      timestamp,
+    );
+  created.database
+    .prepare(
+      `INSERT INTO accepted_context_entries
+        (accepted_state_id, workspace_id, project_id, context_id, added_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(`accepted_${suffix}`, identity.workspace_id, identity.project_id, contextId, timestamp);
+}
 
 before(async () => {
   created = await createApp({
@@ -85,12 +154,7 @@ before(async () => {
       1,
       now,
     );
-  const projectWide = created.database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'project_wide'`,
-    )
-    .get(identity.workspace_id, identity.project_id);
+  const projectWide = await getProjectDefaultContext(created.database, identity.project_id);
   created.database
     .prepare(
       `INSERT INTO accepted_context_entries
@@ -152,12 +216,7 @@ test("lists only projects in the authenticated workspace", async () => {
 });
 
 test("uses the only accessible project without a stored active target", async () => {
-  const general = created.database
-    .prepare(
-      `SELECT id FROM work_contexts
-       WHERE workspace_id = ? AND project_id = ? AND context_kind = 'work'`,
-    )
-    .get(identity.workspace_id, identity.project_id);
+  const general = await getProjectDefaultContext(created.database, identity.project_id);
   const { payload } = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "get_active_context",
     arguments: { task: "Continue launch planning" },
@@ -403,6 +462,101 @@ test("fails closed for a project outside the authenticated workspace", async () 
   });
   assert.equal(payload.result.isError, true);
   assert.match(payload.result.content[0].text, /not found/i);
+});
+
+test("project-level reads merge equal legacy values and fail closed on disagreement", async () => {
+  const legacyOne = await createWorkContext(created.database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    input: { name: "Legacy one", description: "First retained legacy scope." },
+  });
+  const legacyTwo = await createWorkContext(created.database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    input: { name: "Legacy two", description: "Second retained legacy scope." },
+  });
+  await insertAcceptedFixture({
+    contextId: legacyOne.id,
+    stateKey: "legacy.equal",
+    valueJson: '{"alpha":1,"beta":2}',
+    version: 1,
+    suffix: "legacy_equal_one",
+  });
+  await insertAcceptedFixture({
+    contextId: legacyTwo.id,
+    stateKey: "legacy.equal",
+    valueJson: '{"beta":2,"alpha":1}',
+    version: 2,
+    suffix: "legacy_equal_two",
+  });
+  await insertAcceptedFixture({
+    contextId: legacyOne.id,
+    stateKey: "legacy.conflict",
+    valueJson: '"private alternative one"',
+    version: 1,
+    suffix: "legacy_conflict_one",
+  });
+  await insertAcceptedFixture({
+    contextId: legacyTwo.id,
+    stateKey: "legacy.conflict",
+    valueJson: '"private alternative two"',
+    version: 2,
+    suffix: "legacy_conflict_two",
+  });
+
+  const unresolved = await getProjectContext(created.database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    task: "Review legacy information",
+    contextBudget: 16_000,
+  });
+  assert.deepEqual(
+    unresolved.accepted_decisions
+      .filter(({ state_key: key }) => key === "legacy.equal")
+      .map(({ value }) => value),
+    [{ beta: 2, alpha: 1 }],
+  );
+  assert.equal(
+    unresolved.accepted_decisions.some(({ state_key: key }) => key === "legacy.conflict"),
+    false,
+  );
+  assert.deepEqual(
+    unresolved.unresolved_conflicts.find(({ state_key: key }) => key === "legacy.conflict"),
+    {
+      state_key: "legacy.conflict",
+      status: "unresolved",
+      saved_value_count: 2,
+      notice:
+        "Saved project information disagrees. Review it and save one project-level resolution before using this item.",
+    },
+  );
+  assert.doesNotMatch(
+    JSON.stringify(unresolved),
+    /private alternative one|private alternative two|Legacy one|Legacy two/,
+  );
+
+  const projectDefault = await getProjectDefaultContext(created.database, identity.project_id);
+  await insertAcceptedFixture({
+    contextId: projectDefault.id,
+    stateKey: "legacy.conflict",
+    valueJson: '"human resolved value"',
+    version: 3,
+    suffix: "legacy_conflict_resolution",
+  });
+  const resolved = await getProjectContext(created.database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    task: "Use the resolved legacy information",
+    contextBudget: 16_000,
+  });
+  assert.equal(
+    resolved.accepted_decisions.find(({ state_key: key }) => key === "legacy.conflict").value,
+    "human resolved value",
+  );
+  assert.equal(
+    resolved.unresolved_conflicts.some(({ state_key: key }) => key === "legacy.conflict"),
+    false,
+  );
 });
 
 test("asks for an exact project when more than one accessible project exists", async () => {
