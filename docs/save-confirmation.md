@@ -26,6 +26,8 @@ The app receives a random authority through tool-result metadata; only its diges
 
 The portable MCP App is shared by ChatGPT and Claude. When a host cannot render it, an authenticated alice.-controlled web preview provides the same one-button authority. Foreign and guessed preview identifiers return the same not-found response, reveal no project or proposal metadata, and cannot save anything.
 
+The embedded card formats `created_at` and `expires_at` with the host browser's locale and local timezone. Its formatter uses explicit year/month/day/hour/minute fields with a short timezone name; it does not combine `dateStyle`/`timeStyle` with `timeZoneName`, which is invalid in `Intl.DateTimeFormat` and previously crashed the ChatGPT card before its Save button could render.
+
 ## Attachment transfer states
 
 An attachment preview distinguishes human confirmation from byte transfer. Before the click it says `Waiting for confirmation`; after `Save` it says `Transfer authorized` and `Waiting for transfer`, never `Saved`. The host may transfer the exact bytes through its supported capability. When it cannot, the same exact preview offers an alice.-controlled browser fallback with the destination project locked and the expected filename visible.

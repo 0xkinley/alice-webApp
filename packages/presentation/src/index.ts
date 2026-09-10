@@ -78,8 +78,11 @@ export function formatLocalTime(value: unknown): string {
   const date = value instanceof Date ? value : new Date(String(value ?? ""));
   if (Number.isNaN(date.getTime())) return "Time unavailable";
   return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
     timeZoneName: "short",
   }).format(date);
 }
