@@ -4,11 +4,11 @@ Status: Single-action project Save implemented locally for Milestone 06
 
 Decision date: 2026-08-30; project-routing amendment 2026-09-09
 
-The 2026-09-09 project-first amendment retains one authenticated alice. `Save` action but removes visible context names, state keys, versions, hashes, identifiers, and raw JSON from the preview. See [`docs/project-first-private-alpha-redesign.md`](project-first-private-alpha-redesign.md). Every new save request must name one exact project; neither an active target nor an internal context identifier may supply or override it. alice. resolves the internal compatibility destination only after reauthorizing the project.
+The 2026-09-09 project-first amendment retains one authenticated alice. `Save` action but removes visible context names, state keys, versions, hashes, identifiers, and raw JSON from the preview. See [`docs/project-first-private-alpha-redesign.md`](project-first-private-alpha-redesign.md). The 2026-09-10 resolver amendment lets the host supply one exact unique accessible project name, or omit it only when the connection has one permitted project. Neither an active target nor an internal context identifier may supply or override it. alice. resolves the internal project and compatibility destination only after reauthorizing the connection.
 
 ## Authority boundary
 
-`save_project_update` creates one exact, immutable, short-lived preview and no durable evidence, candidate, Needs attention item, accepted state, or audit event. Its strict input requires `project_id`; `context_id` is not accepted. A model-visible tool call cannot accept, supersede, reject, or otherwise activate project information.
+`save_project_update` creates one exact, immutable, short-lived preview and no durable evidence, candidate, Needs attention item, accepted state, or audit event. Its strict input accepts an optional legacy-named `project_id` as an exact name/reference; omission succeeds only for one permitted project. `context_id` is not accepted. A model-visible tool call cannot accept, supersede, reject, or otherwise activate project information.
 
 `suggest_project_updates_from_file` preserves the same human authority boundary. Its eventual evidence carries server-generated exact PDF reference/version/content hash, extraction contract/range, excerpt hash, and source text, backed by an immutable relational source row. The preview labels that PDF evidence untrusted and renders readable provenance before the proposed information. Successful extraction or capture cannot activate a statement.
 

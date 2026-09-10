@@ -1709,7 +1709,7 @@ test("PostgreSQL serves only current authorized clean text as bounded untrusted 
     contextBudget: 4_000,
     fileTextReadAvailable: true,
   });
-  assert.equal(packageResult.contract_version, "2.3");
+  assert.equal(packageResult.contract_version, "2.4");
   assert.equal(packageResult.file_artifacts.length, 1);
   assert.equal(packageResult.file_artifacts[0].file_reference_id, reference.id);
   assert.equal(packageResult.file_artifacts[0].handling, "reference_only_untrusted");

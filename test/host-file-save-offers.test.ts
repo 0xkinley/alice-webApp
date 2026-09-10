@@ -147,8 +147,8 @@ test("the MCP contract previews an exact save to the named project", async () =>
   assert.deepEqual(tool._meta.securitySchemes, [{ type: "oauth2", scopes: ["mcp:write"] }]);
   assert.equal(tool.annotations.idempotentHint, true);
   assert.match(tool.description, /accepts no bytes, host URL, credential, cookie, prompt text/i);
-  assert.match(tool.description, /exact alice\. project/i);
-  assert.ok(tool.inputSchema.required.includes("project_id"));
+  assert.match(tool.description, /exact unique project name/i);
+  assert.equal(tool.inputSchema.required.includes("project_id"), false);
   assert.match(tool.description, /Only the user's Save action can authorize/i);
   assert.equal(tool._meta.ui.resourceUri, "ui://alice/save/v1.html");
 
@@ -458,7 +458,7 @@ test("a collaborator offer keeps connection and project workspaces distinct", as
   assert.equal(offered.payload.result.isError, undefined);
   const receipt = offered.payload.result.structuredContent;
   assert.equal(receipt.source_host, "claude");
-  assert.equal(receipt.destination.project_id, identity.project_id);
+  assert.equal(receipt.destination.project_id, undefined);
   const stored = database
     .prepare(
       `SELECT workspace_id, connection_workspace_id

@@ -15,7 +15,7 @@ export const captureValidationLimits = Object.freeze({
   payloadBytes: 32 * 1_024,
 });
 
-export const consumptionContractVersion = "2.3";
+export const consumptionContractVersion = "2.4";
 export const fileTextReadContractVersion = "1.0";
 export const pdfFileReadContractVersion = "1.0";
 export const pdfExtractionVersion = "pdfjs_embedded_text_v1";
@@ -66,6 +66,15 @@ export const projectIdSchema = z
   .max(captureValidationLimits.projectIdCharacters)
   .regex(boundedIdentifierPattern)
   .describe("Project identifier returned by list_projects");
+
+export const mcpProjectReferenceSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(captureValidationLimits.projectIdCharacters)
+  .describe(
+    "Exact unique project name returned by list_projects, or a legacy internal project identifier",
+  );
 
 export const contextIdSchema = z
   .string()
@@ -164,9 +173,11 @@ export const candidateClaimSchema = z
 
 export const saveProjectUpdateSchema = z
   .object({
-    project_id: projectIdSchema.describe(
-      "Exact project identifier from list_projects; required for every save preview",
-    ),
+    project_id: mcpProjectReferenceSchema
+      .describe(
+        "Exact unique project name from list_projects; optional when only one is accessible",
+      )
+      .optional(),
     summary: z.string().trim().min(1).max(captureValidationLimits.summaryCharacters),
     candidate_claims: z
       .array(candidateClaimSchema)
@@ -359,7 +370,7 @@ const artifactSnapshotSchema = z
 const artifactCreateSaveSchema = artifactSnapshotSchema
   .extend({
     save_type: z.literal("artifact"),
-    project_id: projectIdSchema,
+    project_id: mcpProjectReferenceSchema.optional(),
     idempotency_key: z
       .string()
       .trim()
@@ -388,7 +399,7 @@ export const saveToAliceSchema = z.discriminatedUnion("save_type", [
 
 export const saveArtifactVersionSchema = artifactSnapshotSchema
   .extend({
-    project_id: projectIdSchema,
+    project_id: mcpProjectReferenceSchema.optional(),
     artifact_id: z.string().trim().min(1).max(200).regex(boundedIdentifierPattern),
     idempotency_key: z
       .string()
@@ -406,7 +417,7 @@ export const saveArtifactVersionSchema = artifactSnapshotSchema
 
 export const searchAliceSchema = z
   .object({
-    project_id: projectIdSchema.optional(),
+    project_id: mcpProjectReferenceSchema.optional(),
     project_name: z.string().trim().min(1).max(120).optional(),
     query: z.string().trim().min(1).max(300).optional(),
     categories: z.array(z.enum(aliceArtifactCategories)).max(10).default([]),
@@ -421,15 +432,11 @@ export const searchAliceSchema = z
       .default("all_time"),
     limit: z.number().int().min(1).max(50).default(20),
   })
-  .strict()
-  .refine(
-    (input) => !(input.project_id && input.project_name),
-    "Use project_id or project_name, not both.",
-  );
+  .strict();
 
 export const getArtifactSchema = z
   .object({
-    project_id: projectIdSchema,
+    project_id: mcpProjectReferenceSchema.optional(),
     artifact_id: z.string().trim().min(1).max(200).regex(boundedIdentifierPattern),
     version: z.number().int().positive().optional(),
     include_history: z.boolean().default(false),
@@ -452,7 +459,7 @@ export const listProjectsSchema = z.object({}).strict();
 
 export const getProjectContextSchema = z
   .object({
-    project_id: projectIdSchema,
+    project_id: mcpProjectReferenceSchema.optional(),
     task: z
       .string()
       .trim()
@@ -474,7 +481,7 @@ export const getActiveContextSchema = getProjectContextSchema.omit({ project_id:
 
 export const readProjectFileTextSchema = z
   .object({
-    project_id: projectIdSchema,
+    project_id: mcpProjectReferenceSchema.optional(),
     file_reference_id: z
       .string()
       .trim()
@@ -535,7 +542,7 @@ export const pdfExtractionReceiptSchema = z
 
 export const suggestProjectUpdatesFromFileSchema = z
   .object({
-    project_id: projectIdSchema,
+    project_id: mcpProjectReferenceSchema.optional(),
     file_reference_id: z
       .string()
       .trim()
@@ -587,9 +594,11 @@ export const projectFileMediaTypes = [
 
 export const hostFileSaveOfferSchema = z
   .object({
-    project_id: projectIdSchema.describe(
-      "Exact project identifier from list_projects; required for every attachment save preview",
-    ),
+    project_id: mcpProjectReferenceSchema
+      .describe(
+        "Exact unique project name from list_projects; optional when only one is accessible",
+      )
+      .optional(),
     file_name: z.string().min(1).max(180),
     declared_media_type: z.enum(projectFileMediaTypes).optional(),
     declared_byte_size: z
@@ -661,7 +670,6 @@ export const finalizeHostFileTransferSchema = z
 
 const projectIdentitySchema = z
   .object({
-    id: z.string(),
     name: z.string(),
     created_at: z.string(),
     updated_at: z.string(),
@@ -826,7 +834,6 @@ export const readProjectFileTextOutputSchema = z
         text_read_tool: true,
         pdf_read_tool: true,
       })
-      .extend({ project_id: z.string() })
       .strict(),
     excerpt: z
       .object({
@@ -877,7 +884,7 @@ export const readProjectFilePdfTextOutputSchema = z
         text_read_tool: true,
         pdf_read_tool: true,
       })
-      .extend({ project_id: z.string(), media_type: z.literal("application/pdf") })
+      .extend({ media_type: z.literal("application/pdf") })
       .strict(),
     extraction: z
       .object({

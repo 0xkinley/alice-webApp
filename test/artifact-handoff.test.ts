@@ -229,7 +229,10 @@ test("canonical tags and exact project routing prevent host-invented taxonomy or
     name: "search_alice",
     arguments: { query: "stablecoin" },
   });
-  assert.equal(ambiguous.payload.result.structuredContent.status, "project_required");
   assert.equal(ambiguous.payload.result.isError, true);
-  assert.equal(ambiguous.payload.result.structuredContent.results.length, 0);
+  assert.match(
+    ambiguous.payload.result.content[0].text,
+    /Available projects: Private project, Second project/,
+  );
+  assert.doesNotMatch(ambiguous.payload.result.content[0].text, /project_artifact_handoff/);
 });

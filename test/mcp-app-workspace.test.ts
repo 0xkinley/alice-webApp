@@ -118,9 +118,10 @@ test("project discovery is governed by Alice permissions, not provider toggles",
     arguments: {},
   });
   assert.deepEqual(
-    discovery.payload.result.structuredContent.projects.map(({ id }) => id),
-    [identity.project_id],
+    discovery.payload.result.structuredContent.projects.map(({ name }) => name),
+    ["Private project"],
   );
+  assert.equal(discovery.payload.result.structuredContent.projects[0].id, undefined);
 
   const {
     tokens: { access_token: claudeAccessToken },
@@ -236,5 +237,9 @@ test("the app creates a name-only project that is immediately discoverable", asy
     name: "list_projects",
     arguments: {},
   });
-  assert.ok(discovery.payload.result.structuredContent.projects.some(({ id }) => id === projectId));
+  assert.ok(
+    discovery.payload.result.structuredContent.projects.some(
+      ({ name }) => name === "MCP App Project",
+    ),
+  );
 });

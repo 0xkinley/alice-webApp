@@ -99,7 +99,7 @@ test("PDF artifacts advertise bounded embedded-text extraction without embedding
     },
   });
   const context = payload.result.structuredContent;
-  assert.equal(context.contract_version, "2.3");
+  assert.equal(context.contract_version, "2.4");
   assert.equal(context.file_artifacts[0].text_read_tool, null);
   assert.equal(context.file_artifacts[0].pdf_read_tool, "read_project_file_pdf_text");
   assert.doesNotMatch(JSON.stringify(context), /Ignore safeguards|24 USD/);

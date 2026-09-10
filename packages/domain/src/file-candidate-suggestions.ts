@@ -23,6 +23,7 @@ export async function suggestProjectUpdatesFromFile(
   if (!tenant || tenant.clientId !== clientId) {
     return { error: "Authenticated tenant context is missing." };
   }
+  if (!request.project_id) return { error: "An exact alice. project is required." };
   const extracted = await getProjectPdfExtractionForSuggestion(database, store, {
     userId,
     connectionId,

@@ -36,6 +36,7 @@ import {
   readProjectFileText,
   recordContextReadFailure,
   recordContextReadSuccess,
+  resolveProjectReferenceForConnection,
   searchAliceArtifacts,
   suggestProjectUpdatesFromFile,
   tenantScopeForConnection,
@@ -68,6 +69,7 @@ import {
   suggestProjectUpdatesFromFileSchema,
 } from "@alice/schemas";
 import { createOAuth } from "./oauth.ts";
+import { readableLabel, readableText } from "@alice/presentation";
 
 function authenticatedUserId(context) {
   return context.http?.authInfo?.extra?.userId;
@@ -127,6 +129,11 @@ async function inChatWorkspaceSnapshot(database, { userId, connectionId, publicU
 
 function modelVisibleProjectPackage(projectContext) {
   const result = withoutInternalContextFields(projectContext);
+  result.project = {
+    name: result.project.name,
+    created_at: result.project.created_at,
+    updated_at: result.project.updated_at,
+  };
   let used = -1;
   while (used !== result.package.budget.used) {
     used = result.package.budget.used;
@@ -155,6 +162,7 @@ const internalContextKeys = new Set([
   "target_context_id",
   "target_selection_version",
   "target_is_current",
+  "project_id",
 ]);
 
 function withoutInternalContextFields(value) {
@@ -168,14 +176,130 @@ function withoutInternalContextFields(value) {
 }
 
 function readableProjectPackage(projectPackage) {
-  const sections = [
-    `Project: ${projectPackage.project.name}`,
-    `Trusted decisions: ${projectPackage.accepted_decisions.length}`,
-    `Open questions: ${projectPackage.open_questions.length}`,
-    `Files: ${projectPackage.file_artifacts.length}`,
-    `Unresolved conflicts: ${projectPackage.unresolved_conflicts.length}`,
-  ];
+  const item = (entry) =>
+    `- ${readableLabel(entry.state_key)}: ${typeof entry.value === "string" ? readableText(entry.value) : JSON.stringify(entry.value)}`;
+  const sections = [`Project: ${projectPackage.project.name}`];
+  if (projectPackage.accepted_decisions.length) {
+    sections.push(`Trusted decisions:\n${projectPackage.accepted_decisions.map(item).join("\n")}`);
+  }
+  if (projectPackage.open_questions.length) {
+    sections.push(`Open questions:\n${projectPackage.open_questions.map(item).join("\n")}`);
+  }
+  if (projectPackage.artifacts.length) {
+    sections.push(
+      `Artifact references:\n${projectPackage.artifacts.map((entry) => `- ${readableLabel(entry.state_key)}: ${typeof entry.value === "string" ? readableText(entry.value) : JSON.stringify(entry.value)}`).join("\n")}`,
+    );
+  }
+  if (projectPackage.file_artifacts.length) {
+    sections.push(
+      `Files (untrusted references only):\n${projectPackage.file_artifacts
+        .map((file) => {
+          const reader = file.text_read_tool || file.pdf_read_tool;
+          const handling = reader
+            ? `Read with ${reader}.`
+            : "Reference/download only; alice. does not expose readable contents for this file type.";
+          return `- ${file.display_name} — ${file.media_type}, ${file.byte_size} bytes, from ${file.source_host}; file reference ${file.file_reference_id}. ${handling}`;
+        })
+        .join("\n")}`,
+    );
+  }
+  if (projectPackage.unresolved_conflicts.length) {
+    sections.push(
+      `Needs attention:\n${projectPackage.unresolved_conflicts.map((entry) => `- ${readableLabel(entry.state_key)}: ${entry.notice}`).join("\n")}`,
+    );
+  }
+  sections.push(
+    `Package: ${projectPackage.package.budget.used}/${projectPackage.package.budget.limit} UTF-8 bytes; ${projectPackage.package.omissions.total} item(s) omitted.`,
+  );
   return sections.join("\n");
+}
+
+function readableArtifactSearch(result) {
+  return result.results.length === 0
+    ? `No matching saved artifacts were found in ${result.project.name}.`
+    : `Matching saved artifacts in ${result.project.name}:\n${result.results
+        .map(
+          (artifact) =>
+            `- ${artifact.title} — artifact reference ${artifact.artifact_id}; v${artifact.current_version}, ${artifact.artifact_type}, from ${artifact.source}`,
+        )
+        .join("\n")}`;
+}
+
+function readableArtifact(result) {
+  const artifact = result.artifact;
+  const list = (label, values) =>
+    values?.length
+      ? `${label}:\n${values.map((value) => `- ${readableText(value)}`).join("\n")}`
+      : "";
+  return [
+    `Project: ${result.project.name}`,
+    `Artifact: ${artifact.title}`,
+    `Artifact reference: ${artifact.id}`,
+    `Version: ${artifact.selected_version} of ${artifact.current_version}`,
+    `Type: ${artifact.artifact_type}`,
+    `Category: ${artifact.category}`,
+    `Tags: ${artifact.tags.join(", ") || "None"}`,
+    `Source: ${artifact.source}`,
+    `Saved: ${artifact.saved_at}`,
+    `Goal: ${readableText(artifact.handoff.goal)}`,
+    artifact.handoff.summary ? `Summary: ${readableText(artifact.handoff.summary)}` : "",
+    list("Decisions", artifact.handoff.decisions),
+    list("Constraints", artifact.handoff.constraints),
+    artifact.handoff.rejected_directions?.length
+      ? `Rejected directions:\n${artifact.handoff.rejected_directions
+          .map((entry) => `- ${readableText(entry.direction)} — ${readableText(entry.reason)}`)
+          .join("\n")}`
+      : "",
+    list("Open questions", artifact.handoff.open_questions),
+    list("Next steps", artifact.handoff.next_steps),
+    list("Relevant context", artifact.handoff.relevant_context),
+    `Full artifact content:\n${artifact.content}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+async function resolveToolProject(
+  database: any,
+  context: any,
+  projectReference: string | undefined,
+  capability: "read" | "write",
+  projectName?: string,
+) {
+  return await resolveProjectReferenceForConnection(database, {
+    userId: authenticatedUserId(context),
+    connectionId: authenticatedConnectionId(context),
+    ...(projectReference ? { projectReference } : {}),
+    ...(projectName ? { projectName } : {}),
+    capability,
+  });
+}
+
+function projectResolutionError(resolution: any) {
+  if (resolution.status === "project_required") {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text:
+            resolution.projectNames.length === 0
+              ? "No alice. projects are available."
+              : `Choose one exact alice. project by name. Available projects: ${resolution.projectNames.join(", ")}.`,
+        },
+      ],
+      isError: true,
+    };
+  }
+  const messages = {
+    project_ambiguous:
+      "That alice. project name is ambiguous. Use an exact unique accessible project name.",
+    project_conflict: "The supplied alice. project references conflict.",
+    project_unavailable: "The named alice. project is unavailable.",
+  };
+  return {
+    content: [{ type: "text" as const, text: messages[resolution.status] }],
+    isError: true,
+  };
 }
 
 function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes }) {
@@ -361,7 +485,15 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
       }
       const output = {
         contract_version: consumptionContractVersion,
-        projects: await listProjects(database, userId),
+        projects: (await listProjects(database, userId)).map(
+          ({ name, created_at, updated_at, accepted_state_count, accepted_state_updated_at }) => ({
+            name,
+            created_at,
+            updated_at,
+            accepted_state_count,
+            accepted_state_updated_at,
+          }),
+        ),
       };
       return {
         content: [
@@ -389,6 +521,14 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (input, context) => {
+      const resolution = await resolveToolProject(
+        database,
+        context,
+        input.project_id,
+        "read",
+        input.project_name,
+      );
+      if (resolution.status !== "ok") return projectResolutionError(resolution);
       const result = await searchAliceArtifacts(database, {
         categories: input.categories,
         tags: input.tags,
@@ -397,8 +537,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         timeline: input.timeline,
         limit: input.limit,
         ...(input.query ? { query: input.query } : {}),
-        ...(input.project_id ? { project_id: input.project_id } : {}),
-        ...(input.project_name ? { project_name: input.project_name } : {}),
+        project_id: resolution.projectId,
         userId: authenticatedUserId(context),
         connectionId: authenticatedConnectionId(context),
       });
@@ -418,23 +557,12 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           isError: true,
         };
       }
-      const project = result.project!;
       return {
-        content: [
-          {
-            type: "text",
-            text:
-              result.results.length === 0
-                ? `No matching saved artifacts were found in ${project.name}.`
-                : `Matching saved artifacts in ${project.name}:\n${result.results
-                    .map(
-                      (artifact) =>
-                        `- ${artifact.title} (v${artifact.current_version}, ${artifact.artifact_type}, from ${artifact.source})`,
-                    )
-                    .join("\n")}`,
-          },
-        ],
-        structuredContent: result,
+        content: [{ type: "text", text: readableArtifactSearch(result) }],
+        structuredContent: {
+          ...result,
+          project: { name: result.project!.name },
+        },
       };
     },
   );
@@ -453,10 +581,12 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
       { project_id: projectId, artifact_id: artifactId, version, include_history: includeHistory },
       context,
     ) => {
+      const resolution = await resolveToolProject(database, context, projectId, "read");
+      if (resolution.status !== "ok") return projectResolutionError(resolution);
       const result = await getAliceArtifact(database, {
         userId: authenticatedUserId(context),
         connectionId: authenticatedConnectionId(context),
-        projectId,
+        projectId: resolution.projectId,
         artifactId,
         ...(version ? { version } : {}),
         includeHistory,
@@ -468,13 +598,8 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         };
       }
       return {
-        content: [
-          {
-            type: "text",
-            text: `Retrieved ${result.artifact.title} v${result.artifact.selected_version} from ${result.project.name}. The complete artifact content and current handoff state are in structured content.`,
-          },
-        ],
-        structuredContent: result,
+        content: [{ type: "text", text: readableArtifact(result) }],
+        structuredContent: { ...result, project: { name: result.project.name } },
       };
     },
   );
@@ -502,8 +627,24 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           isError: true,
         };
       }
-      if (payload.save_type === "project_information") {
-        const { save_type: _saveType, record_type: _recordType, ...projectPayload } = payload;
+      const resolution = await resolveToolProject(database, context, payload.project_id, "write");
+      if (resolution.status !== "ok") return projectResolutionError(resolution);
+      const canonical = saveToAliceSchema.safeParse({
+        ...payload,
+        project_id: resolution.projectId,
+      });
+      if (!canonical.success) {
+        return {
+          content: [{ type: "text", text: "The exact save request is too large." }],
+          isError: true,
+        };
+      }
+      if (canonical.data.save_type === "project_information") {
+        const {
+          save_type: _saveType,
+          record_type: _recordType,
+          ...projectPayload
+        } = canonical.data;
         void _saveType;
         void _recordType;
         const result = await createCaptureSavePreview(database, {
@@ -511,7 +652,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           connectionId: authenticatedConnectionId(context),
           publicUrl,
           userId: authenticatedUserId(context),
-          payload: projectPayload,
+          payload: { ...projectPayload, project_id: resolution.projectId },
         });
         if ("error" in result) {
           return { content: [{ type: "text", text: result.error }], isError: true };
@@ -523,7 +664,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
               text: `Nothing has been saved. Present the exact alice. Save card for the user to decide personally. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
             },
           ],
-          structuredContent: result.preview,
+          structuredContent: withoutInternalContextFields(result.preview),
           _meta: {
             "alice/saveAuthority": {
               kind: "context_capture",
@@ -533,14 +674,14 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           },
         };
       }
-      const { save_type: _saveType, ...artifactPayload } = payload;
+      const { save_type: _saveType, ...artifactPayload } = canonical.data;
       void _saveType;
       const result = await createArtifactSavePreview(database, {
         clientId: authInfo.clientId,
         connectionId: authenticatedConnectionId(context),
         publicUrl,
         userId: authenticatedUserId(context),
-        payload: artifactPayload,
+        payload: { ...artifactPayload, project_id: resolution.projectId },
       });
       if ("error" in result) {
         return { content: [{ type: "text", text: result.error }], isError: true };
@@ -552,7 +693,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
             text: `Nothing has been saved. Present the exact alice. artifact Save card for the user to decide personally. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
           },
         ],
-        structuredContent: result.preview,
+        structuredContent: withoutInternalContextFields(result.preview),
         _meta: {
           "alice/saveAuthority": {
             kind: "artifact",
@@ -587,13 +728,25 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           isError: true,
         };
       }
-      const { artifact_id: artifactId, ...artifactPayload } = payload;
+      const resolution = await resolveToolProject(database, context, payload.project_id, "write");
+      if (resolution.status !== "ok") return projectResolutionError(resolution);
+      const canonical = saveArtifactVersionSchema.safeParse({
+        ...payload,
+        project_id: resolution.projectId,
+      });
+      if (!canonical.success) {
+        return {
+          content: [{ type: "text", text: "The exact artifact version is too large." }],
+          isError: true,
+        };
+      }
+      const { artifact_id: artifactId, ...artifactPayload } = canonical.data;
       const result = await createArtifactSavePreview(database, {
         clientId: authInfo.clientId,
         connectionId: authenticatedConnectionId(context),
         publicUrl,
         userId: authenticatedUserId(context),
-        payload: artifactPayload,
+        payload: { ...artifactPayload, project_id: resolution.projectId },
         artifactId,
       });
       if ("error" in result) {
@@ -606,7 +759,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
             text: `Nothing has been saved. Present the exact alice. version Save card for the user to decide personally. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
           },
         ],
-        structuredContent: result.preview,
+        structuredContent: withoutInternalContextFields(result.preview),
         _meta: {
           "alice/saveAuthority": {
             kind: "artifact",
@@ -667,7 +820,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
       {
         title: "Prepare one requested host attachment save",
         description:
-          "Use only after the user explicitly asks to save one specific ChatGPT or Claude attachment to an exact alice. project. The project_id is required. Creates only a short-lived metadata preview for an alice. Save card. It accepts no bytes, host URL, credential, cookie, prompt text, or model-generated confirmation. Only the user's Save action can authorize a later exact-byte transfer; closing or ignoring the card does nothing. This tool never queues project suggestions, stores the attachment, creates a file reference, or changes trusted project state.",
+          "Use only after the user explicitly asks to save one specific ChatGPT or Claude attachment to alice. Identify the destination by its exact unique project name; when only one project is accessible it may be omitted. Creates only a short-lived metadata preview for an alice. Save card. It accepts no bytes, host URL, credential, cookie, prompt text, or model-generated confirmation. Only the user's Save action can authorize a later exact-byte transfer; closing or ignoring the card does nothing. This tool never queues project suggestions, stores the attachment, creates a file reference, or changes trusted project state.",
         inputSchema: hostFileSaveOfferSchema,
         _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
         annotations: {
@@ -685,12 +838,14 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
             isError: true,
           };
         }
+        const resolution = await resolveToolProject(database, context, payload.project_id, "write");
+        if (resolution.status !== "ok") return projectResolutionError(resolution);
         try {
           const created = await createHostFileSaveOffer(database, {
             userId: authenticatedUserId(context),
             connectionId: authenticatedConnectionId(context),
             publicUrl,
-            payload,
+            payload: { ...payload, project_id: resolution.projectId },
           });
           if ("error" in created) {
             return { content: [{ type: "text", text: created.error }], isError: true };
@@ -939,11 +1094,13 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         },
         context,
       ) => {
+        const resolution = await resolveToolProject(database, context, projectId, "read");
+        if (resolution.status !== "ok") return projectResolutionError(resolution);
         try {
           const result = await readProjectFileText(database, fileStore, {
             userId: authenticatedUserId(context),
             connectionId: authenticatedConnectionId(context),
-            projectId,
+            projectId: resolution.projectId,
             referenceId,
             startCharacter,
             contextBudget,
@@ -998,11 +1155,13 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         },
         context,
       ) => {
+        const resolution = await resolveToolProject(database, context, projectId, "read");
+        if (resolution.status !== "ok") return projectResolutionError(resolution);
         try {
           const result = await readProjectFilePdfText(database, fileStore, {
             userId: authenticatedUserId(context),
             connectionId: authenticatedConnectionId(context),
-            projectId,
+            projectId: resolution.projectId,
             referenceId,
             startCharacter,
             contextBudget,
@@ -1060,13 +1219,15 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
             isError: true,
           };
         }
+        const resolution = await resolveToolProject(database, context, payload.project_id, "write");
+        if (resolution.status !== "ok") return projectResolutionError(resolution);
         try {
           const result = await suggestProjectUpdatesFromFile(database, fileStore, {
             clientId: authInfo.clientId,
             connectionId: authenticatedConnectionId(context),
             publicUrl,
             userId: authenticatedUserId(context),
-            payload,
+            payload: { ...payload, project_id: resolution.projectId },
           });
           if ("error" in result) {
             return { content: [{ type: "text", text: result.error }], isError: true };
@@ -1104,31 +1265,20 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     async ({ task, context_budget: contextBudget }, context) => {
       const userId = authenticatedUserId(context);
       const connectionId = authenticatedConnectionId(context);
-      const projects = await listProjects(database, userId);
-      if (projects.length !== 1) {
+      const resolution = await resolveToolProject(database, context, undefined, "read");
+      if (resolution.status !== "ok") {
         await recordContextReadFailure(database, {
           userId,
           connectionId,
           requestedVia: "active_target",
           failureCode: "no_active_target",
         });
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                projects.length === 0
-                  ? "No alice. projects are available to this user."
-                  : "Several alice. projects are available. Call list_projects, use the project named in the conversation, or ask the user which project they mean.",
-            },
-          ],
-          isError: true,
-        };
+        return projectResolutionError(resolution);
       }
       const target = await projectDestinationForConnection(database, {
         userId,
         connectionId,
-        projectId: projects[0].id,
+        projectId: resolution.projectId,
       });
       if (!target) {
         return {
@@ -1213,10 +1363,21 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     async ({ project_id: projectId, task, context_budget: contextBudget }, context) => {
       const userId = authenticatedUserId(context);
       const connectionId = authenticatedConnectionId(context);
+      const resolution = await resolveToolProject(database, context, projectId, "read");
+      if (resolution.status !== "ok") {
+        await recordContextReadFailure(database, {
+          userId,
+          connectionId,
+          requestedVia: "explicit_fallback",
+          failureCode:
+            resolution.status === "project_required" ? "no_active_target" : "not_accessible",
+        });
+        return projectResolutionError(resolution);
+      }
       const destination = await projectDestinationForConnection(database, {
         userId,
         connectionId,
-        projectId,
+        projectId: resolution.projectId,
       });
       if (!destination) {
         await recordContextReadFailure(database, {
@@ -1235,7 +1396,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         projectContext = await getProjectContext(database, {
           userId,
           connectionId,
-          projectId,
+          projectId: resolution.projectId,
           contextId: destination.contextId,
           task,
           contextBudget,
@@ -1248,7 +1409,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
             connectionId,
             requestedVia: "explicit_fallback",
             failureCode: "budget_error",
-            projectId,
+            projectId: resolution.projectId,
             contextId: destination.contextId,
           });
           return { content: [{ type: "text", text: error.message }], isError: true };
@@ -1258,7 +1419,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           connectionId,
           requestedVia: "explicit_fallback",
           failureCode: "internal_error",
-          projectId,
+          projectId: resolution.projectId,
           contextId: destination.contextId,
         });
         throw error;
@@ -1269,7 +1430,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           connectionId,
           requestedVia: "explicit_fallback",
           failureCode: "not_accessible",
-          projectId,
+          projectId: resolution.projectId,
           contextId: destination.contextId,
         });
         return {
@@ -1299,7 +1460,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     {
       title: "Prepare an exact alice. Save card",
       description:
-        "Use only after the user explicitly asks to save or record an update in an exact alice. project. Do not call for ordinary project work, suggestions, summaries, or inferred save intent. project_id is always required. Creates only a short-lived exact preview for the alice. Save card. The initial call creates no evidence, candidate, Needs attention item, or accepted state. Only the user's authenticated Save action can atomically create and accept the exact preview.",
+        "Use only after the user explicitly asks to save or record an update in alice. Identify the destination by its exact unique project name; when only one project is accessible it may be omitted. Do not call for ordinary project work, suggestions, summaries, or inferred save intent. Creates only a short-lived exact preview for the alice. Save card. The initial call creates no evidence, candidate, Needs attention item, or accepted state. Only the user's authenticated Save action can atomically create and accept the exact preview.",
       inputSchema: saveProjectUpdateSchema,
       _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
       annotations: {
@@ -1317,12 +1478,24 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           isError: true,
         };
       }
+      const resolution = await resolveToolProject(database, context, payload.project_id, "write");
+      if (resolution.status !== "ok") return projectResolutionError(resolution);
+      const canonical = saveProjectUpdateSchema.safeParse({
+        ...payload,
+        project_id: resolution.projectId,
+      });
+      if (!canonical.success) {
+        return {
+          content: [{ type: "text", text: "The exact project save request is too large." }],
+          isError: true,
+        };
+      }
       const result = await createCaptureSavePreview(database, {
         clientId: authInfo.clientId,
         connectionId: authenticatedConnectionId(context),
         publicUrl,
         userId: authenticatedUserId(context),
-        payload,
+        payload: canonical.data,
       });
       if ("error" in result) {
         return { content: [{ type: "text", text: result.error }], isError: true };
@@ -1334,7 +1507,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
             text: `Nothing has been saved. Present the exact alice. Save card for the user to decide personally. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
           },
         ],
-        structuredContent: result.preview,
+        structuredContent: withoutInternalContextFields(result.preview),
         _meta: {
           "alice/saveAuthority": {
             kind: "context_capture",

@@ -87,7 +87,9 @@ export { ContextBudgetError, getProjectContext, listProjects } from "./project-c
 export {
   projectDefaultContextForUser,
   projectDestinationForConnection,
+  resolveProjectReferenceForConnection,
 } from "./project-routing.ts";
+export type { ProjectReferenceResolution } from "./project-routing.ts";
 export { getPrivateAlphaSignals } from "./product-signals.ts";
 export { getProjectAccessOverview } from "./project-access.ts";
 export {

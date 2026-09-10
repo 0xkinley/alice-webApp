@@ -132,7 +132,7 @@ test("context packages reference permitted clean files without embedding untrust
     },
   });
   const context = payload.result.structuredContent;
-  assert.equal(context.contract_version, "2.3");
+  assert.equal(context.contract_version, "2.4");
   assert.equal(context.file_artifacts.length, 1);
   assert.deepEqual(context.file_artifacts[0], {
     file_reference_id: reference.id,
@@ -384,12 +384,21 @@ test("foreign, guessed, and removed references share one non-disclosing read fai
       },
     });
   const foreignDenied = await read(foreignAccessToken, reference.id);
+  const unknownProjectDenied = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "read_project_file_text",
+    arguments: {
+      project_id: "unknown-project",
+      file_reference_id: reference.id,
+      context_budget: 2_000,
+    },
+  });
   const guessedDenied = await read(accessToken, "file_ref_random_guess");
   assert.equal(foreignDenied.payload.result.isError, true);
+  assert.equal(unknownProjectDenied.payload.result.isError, true);
   assert.equal(guessedDenied.payload.result.isError, true);
   assert.equal(
     foreignDenied.payload.result.content[0].text,
-    guessedDenied.payload.result.content[0].text,
+    unknownProjectDenied.payload.result.content[0].text,
   );
   assert.doesNotMatch(JSON.stringify(foreignDenied.payload), /roadmap|launch notes/);
 

@@ -200,11 +200,12 @@ test("lists only projects in the authenticated workspace", async () => {
     arguments: {},
   });
   assert.equal(response.status, 200);
-  assert.equal(payload.result.structuredContent.contract_version, "2.3");
+  assert.equal(payload.result.structuredContent.contract_version, "2.4");
   assert.deepEqual(
-    payload.result.structuredContent.projects.map((project) => project.id),
-    ["project_switchboard_launch"],
+    payload.result.structuredContent.projects.map((project) => project.name),
+    ["Switchboard Launch"],
   );
+  assert.equal(payload.result.structuredContent.projects[0].id, undefined);
   assert.equal(payload.result.structuredContent.projects[0].accepted_state_count, 1);
   assert.equal(payload.result.structuredContent.projects[0].brief, undefined);
   assert.equal(
@@ -223,7 +224,8 @@ test("uses the only accessible project without a stored active target", async ()
   });
   const context = payload.result.structuredContent;
   assert.equal(context.project.brief, undefined);
-  assert.equal(context.project.id, identity.project_id);
+  assert.equal(context.project.name, "Switchboard Launch");
+  assert.equal(context.project.id, undefined);
   assert.equal(context.context, undefined);
   assert.equal(context.accepted_decisions[0].state_key, "launch.icp");
   const receipt = created.database
@@ -343,7 +345,7 @@ test("returns accepted context with provenance and excludes pending candidates",
     evidence_captured_at: fixtureTimestamp,
   });
   assert.doesNotMatch(JSON.stringify(context), /must not leak/);
-  assert.equal(context.contract_version, "2.3");
+  assert.equal(context.contract_version, "2.4");
   assert.equal(context.package.selection_strategy, "deterministic_full_text_v2");
   assert.equal(context.context, undefined);
   assert.equal(context.package.budget.unit, "utf8_bytes");
@@ -424,7 +426,8 @@ test("saves require an exact accessible project and no active target", async () 
   });
   assert.equal(saved.payload.result.isError, undefined);
   const preview = saved.payload.result.structuredContent;
-  assert.equal(preview.destination.project_id, identity.project_id);
+  assert.equal(preview.destination.project_id, undefined);
+  assert.equal(preview.destination.project_name, "Switchboard Launch");
   assert.equal(preview.destination.context_id, undefined);
   assert.equal(
     created.database
@@ -461,7 +464,7 @@ test("fails closed for a project outside the authenticated workspace", async () 
     arguments: { project_id: "project_other", task: "Steal context" },
   });
   assert.equal(payload.result.isError, true);
-  assert.match(payload.result.content[0].text, /not found/i);
+  assert.match(payload.result.content[0].text, /unavailable/i);
 });
 
 test("project-level reads merge equal legacy values and fail closed on disagreement", async () => {
@@ -571,6 +574,6 @@ test("asks for an exact project when more than one accessible project exists", a
   });
 
   assert.equal(payload.result.isError, true);
-  assert.match(payload.result.content[0].text, /several alice\. projects/i);
-  assert.match(payload.result.content[0].text, /project named|which project/i);
+  assert.match(payload.result.content[0].text, /Choose one exact alice\. project by name/i);
+  assert.match(payload.result.content[0].text, /Second accessible project, Switchboard Launch/);
 });

@@ -1,8 +1,8 @@
 # alice. MCP Contract
 
-Status: Project-level consumption, capability-gated file reads, and capture contracts extended in Milestone 06
+Status: Project-name resolution, project-level consumption, capability-gated file reads, and capture contracts extended in Milestone 06
 
-Decision date: 2026-08-28; project-routing amendment 2026-09-09
+Decision date: 2026-08-28; project-routing amendments 2026-09-09 and 2026-09-10
 
 ## Design principles
 
@@ -19,25 +19,25 @@ Decision date: 2026-08-28; project-routing amendment 2026-09-09
 
 Lists every project currently available to the authenticated alice. user, including shared projects.
 
-Input is a strict empty object. Output contract `2.3` contains each project identity and current accepted-state count/freshness. It contains no internal context list, provider flag, or active target. Projects have deterministic ordering; foreign projects are absent rather than disclosed. Current authenticated ChatGPT and Claude connections receive the same permission-filtered catalog.
+Input is a strict empty object. Output contract `2.4` contains each exact usable project name and current accepted-state count/freshness. Opaque project identifiers, internal contexts, provider flags, and active targets are omitted. Projects have deterministic ordering; foreign projects are absent rather than disclosed. Current authenticated ChatGPT and Claude connections receive the same permission-filtered catalog and may pass an exact returned name in the legacy-named `project_id` field.
 
 Project-state side effects: none. The read does not append audit rows or mutate projects, evidence, candidates, or accepted state. Bearer authentication may update safe connection-usage metadata outside the project-intelligence boundary.
 
 ### `get_active_context` (compatibility convenience)
 
-The strict input contains only `task` and optional `context_budget`. The tool builds a bounded version `2.3` project package only when the authenticated user can access exactly one project. With no projects it tells the host to create one; with more than one it tells the host to use the project named in the conversation or ask which project, then call `get_project_context`. It does not read or write the retained active-target table and never combines several projects.
+The strict input contains only `task` and optional `context_budget`. The tool builds a bounded version `2.4` project package only when the authenticated connection can access exactly one project. With no projects it tells the host to create one; with more than one it returns a project-required response containing only accessible project names. It does not read or write the retained active-target table and never combines several projects.
 
 ### `get_project_context`
 
 Builds a bounded, task-specific context package from accepted project state.
 
-Version `2.3` input:
+Version `2.4` input:
 
-- `project_id`
+- optional `project_id`, which accepts one exact unique project name from `list_projects` or a legacy opaque identifier; omission is allowed only when exactly one project is accessible
 - `task`: 1-2,000 trimmed characters
 - optional `context_budget`: 2,000-32,000 UTF-8 bytes; default 16,000
 
-Version `2.3` output:
+Version `2.4` output:
 
 - project identity
 - accepted decisions and constraints selected for the task
@@ -51,7 +51,13 @@ The input and output objects are strict MCP schemas. The same authenticated proj
 
 Pending and rejected candidate values are excluded from trusted decisions by default. An unresolved-conflict notice may identify pending candidate/evidence references for the same accepted state key, but it does not expose the proposed value or present the alternative as trusted. Accepted-state artifact values and uploaded file artifacts are returned as references only; alice. does not fetch or execute their content during package assembly. File selection includes only the latest clean, non-removed logical-file version in the resolved internal scope, and never exposes that scope, storage keys, object versions, credentials, signed URLs, or bytes.
 
-Project-state side effects: none. Ordinary reads and context assembly cannot mutate evidence, candidates, accepted state, audit history, or projects. Bearer authentication may update safe connection-usage metadata outside the project-intelligence boundary.
+Project-state side effects: none. Ordinary reads and context assembly cannot mutate evidence, candidates, accepted state, audit history, or projects. Bearer authentication may update safe connection-usage metadata outside the project-intelligence boundary. Model-visible text contains the selected trusted items and usable file references rather than only section counts, so a host that does not consume `structuredContent` still receives the bounded package.
+
+### Shared project resolver
+
+Every MCP project context, artifact search/retrieval/save/version, project-information save, host-file offer, text/PDF file read, and file-backed suggestion uses one server-side resolver before its domain operation. It compares an exact supplied value only against the authenticated connection's current permission-filtered active catalog. A sole accessible project is selected when the field is omitted. Multiple projects with no reference return only their accessible names. Exact-name collisions, unknown names, archived projects, inaccessible projects, and conflicting `project_id`/`project_name` references fail before content lookup or preview creation and disclose no unauthorized identifier, name, count, freshness, artifact, file, or provenance.
+
+Legacy opaque identifiers remain accepted for compatibility but are no longer returned by `list_projects` or project objects in model-visible structured results. The app-only workspace snapshot may retain them for exact internal navigation. ChatGPT and Claude use the same resolver and authorization path.
 
 ### `read_project_file_text`
 
@@ -108,7 +114,7 @@ The input object and each candidate object are strict; unrecognized fields are r
 
 The idempotency key identifies one explicit save within the authenticated connection and project. Reusing it with an identical validated payload returns the original evidence and candidate identifiers. Reusing it with any different validated payload fails closed. Whitespace normalization on bounded textual fields occurs before the exact validated payload is serialized, hashed, and retained as evidence.
 
-The host must identify one exact project from the permission-filtered catalog. The server resolves its internal destination after reauthorizing the connection owner. Foreign, archived, or inaccessible projects fail without a durable preview, evidence, candidates, or audit writes. MCP cannot set or change a project target.
+The host identifies one exact project name from the permission-filtered catalog, or omits it only when the connection has one accessible writable project. The server resolves the internal project identifier and hidden destination after reauthorizing the connection owner. Foreign, archived, ambiguous, conflicting, or inaccessible references fail without a durable preview, evidence, candidates, or audit writes. MCP cannot set or change a project target.
 
 The server must atomically:
 

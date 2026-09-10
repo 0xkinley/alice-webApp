@@ -726,7 +726,8 @@ test("MCP project listing, accepted context, and candidate capture deny the othe
       arguments: {},
     });
     const listedJson = JSON.stringify(listed.payload.result.structuredContent);
-    assert.match(listedJson, new RegExp(actor.projectId));
+    assert.match(listedJson, new RegExp(actor.projectName));
+    assert.doesNotMatch(listedJson, new RegExp(actor.projectId));
     assert.doesNotMatch(listedJson, new RegExp(target.projectId));
     assert.doesNotMatch(listedJson, new RegExp(target.projectName));
 

@@ -72,6 +72,12 @@ Search uses exact project permission scope plus normal deterministic matching ac
 
 Custom date ranges and unified search over legacy memories/decisions are follow-on search refinements. The first private-alpha handoff proves complete artifact portability before broadening search UX.
 
+## Project names and text-only hosts
+
+Every artifact tool resolves an exact unique accessible project name server-side and accepts omission only for a sole accessible project. Legacy opaque project IDs remain compatible inputs but are absent from the model-visible catalog and project results. Missing multi-project selection returns only accessible names; ambiguous, conflicting, archived, unknown, and inaccessible references fail before artifact lookup or preview creation.
+
+`search_alice` includes each usable artifact reference in both structured output and model-visible text. `get_artifact` includes the complete selected artifact and current handoff state in model-visible text as well as structured output. This keeps the ChatGPT/Claude handoff usable when a host consumes only MCP text content.
+
 ## Verification standard
 
 The canonical integration test exercises this measurable loop:
