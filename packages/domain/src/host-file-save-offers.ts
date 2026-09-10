@@ -27,6 +27,7 @@ function canonicalRequest(input) {
     declared_byte_size: input.declaredByteSize || null,
     declared_sha256: input.declaredSha256 || null,
     conversation_reference: input.conversationReference || null,
+    batch_manifest_hash: input.batchManifestHash || null,
   });
 }
 
@@ -108,6 +109,28 @@ async function createAppAuthority(database, offer) {
   return token;
 }
 
+async function createBatchAppAuthority(database, offers) {
+  const token = `alice_file_save_${randomBytes(32).toString("base64url")}`;
+  const tokenHash = sha256(token);
+  const createdAt = new Date().toISOString();
+  for (const offer of offers) {
+    await database
+      .prepare(
+        `INSERT INTO host_file_save_offer_authorities
+          (id, offer_id, token_hash, created_at, expires_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        `file_save_authority_${randomUUID()}`,
+        offer.id,
+        tokenHash,
+        createdAt,
+        Number(offer.expires_at),
+      );
+  }
+  return token;
+}
+
 async function offerForConnectionRetry(database, input) {
   return await database
     .prepare(
@@ -140,6 +163,8 @@ export async function createHostFileSaveOffer(
       conversation_reference?: string | undefined;
       idempotency_key: string;
     };
+    batchManifestHash?: string;
+    createAuthority?: boolean;
   },
 ) {
   const fileName = sanitizeProjectFileDisplayName(input.payload.file_name);
@@ -150,6 +175,7 @@ export async function createHostFileSaveOffer(
     declaredByteSize: input.payload.declared_byte_size || null,
     declaredSha256: input.payload.declared_sha256 || null,
     conversationReference: input.payload.conversation_reference || null,
+    batchManifestHash: input.batchManifestHash || null,
   };
   const requestHash = sha256(canonicalRequest(request));
   const created = await database.transaction(async () => {
@@ -245,7 +271,7 @@ export async function createHostFileSaveOffer(
   });
   if (created && "error" in created) return created;
   const authorityToken =
-    !created.decision && Number(created.expires_at) > Date.now()
+    input.createAuthority !== false && !created.decision && Number(created.expires_at) > Date.now()
       ? await createAppAuthority(database, created)
       : undefined;
   return { ...safeOfferResult(created, input.publicUrl), authorityToken };
@@ -291,6 +317,142 @@ export async function getHostFileSaveOfferPreview(database, input) {
     target_is_current: offer.target_is_current,
     transfer: completion ? safeTransferReceipt(completion) : null,
   };
+}
+
+function hostFileBatchPreviewVersion(files): string {
+  return sha256(
+    JSON.stringify({
+      contract: "alice_host_file_batch_v1",
+      offers: files.map((file) => ({
+        offer_id: file.offer_id,
+        preview_version: file.preview_version,
+      })),
+    }),
+  );
+}
+
+function safeBatchResult(previews) {
+  const statuses = new Set(previews.map((preview) => preview.status));
+  const status =
+    statuses.size === 1 && statuses.has("pending")
+      ? "pending"
+      : statuses.size === 1 && statuses.has("save_file_only")
+        ? "save_file_only"
+        : "partially_authorized";
+  const files = previews.map((preview) => ({
+    offer_id: preview.offer_id,
+    name: preview.file.name,
+    declared_media_type: preview.file.declared_media_type,
+    declared_byte_size: preview.file.declared_byte_size,
+    source_host: preview.source_host,
+    status: preview.status,
+    transfer: preview.transfer,
+    confirmation_url: preview.confirmation_url,
+    preview_version: preview.preview_version,
+  }));
+  return {
+    status,
+    files,
+    destination: previews[0].destination,
+    source_host: previews[0].source_host,
+    created_at: previews[0].created_at,
+    expires_at: previews.reduce(
+      (earliest, preview) => (preview.expires_at < earliest ? preview.expires_at : earliest),
+      previews[0].expires_at,
+    ),
+    preview_version: hostFileBatchPreviewVersion(files),
+    bytes_received: files.some((file) => Boolean(file.transfer)),
+    trusted_state_changed: false,
+  };
+}
+
+export async function createHostFileSaveOffers(
+  database,
+  input: {
+    userId: string;
+    connectionId: string;
+    publicUrl: string;
+    payload: {
+      project_id: string;
+      files: Array<{
+        file_name: string;
+        declared_media_type?: string | undefined;
+        declared_byte_size?: number | undefined;
+        declared_sha256?: string | undefined;
+      }>;
+      conversation_reference?: string | undefined;
+      idempotency_key: string;
+    };
+  },
+) {
+  if (input.payload.files.length < 2 || input.payload.files.length > 10) {
+    throw new HostFileSaveOfferUserError("A Save all preview requires two to ten files.");
+  }
+  const files = input.payload.files.map((file) => ({
+    file_name: sanitizeProjectFileDisplayName(file.file_name),
+    declared_media_type: file.declared_media_type || null,
+    declared_byte_size: file.declared_byte_size || null,
+    declared_sha256: file.declared_sha256 || null,
+  }));
+  const manifestHash = sha256(
+    JSON.stringify({
+      project_id: input.payload.project_id,
+      files,
+      conversation_reference: input.payload.conversation_reference || null,
+    }),
+  );
+  const idempotencyPrefix = `host-batch-${sha256(input.payload.idempotency_key).slice(0, 32)}`;
+  return await database.transaction(async () => {
+    const createdOffers: any[] = [];
+    for (const [index, file] of files.entries()) {
+      const created = await createHostFileSaveOffer(database, {
+        userId: input.userId,
+        connectionId: input.connectionId,
+        publicUrl: input.publicUrl,
+        batchManifestHash: manifestHash,
+        createAuthority: false,
+        payload: {
+          project_id: input.payload.project_id,
+          file_name: file.file_name,
+          ...(file.declared_media_type ? { declared_media_type: file.declared_media_type } : {}),
+          ...(file.declared_byte_size ? { declared_byte_size: file.declared_byte_size } : {}),
+          ...(file.declared_sha256 ? { declared_sha256: file.declared_sha256 } : {}),
+          ...(input.payload.conversation_reference
+            ? { conversation_reference: input.payload.conversation_reference }
+            : {}),
+          idempotency_key: `${idempotencyPrefix}-${index + 1}`,
+        },
+      });
+      if ("error" in created) throw new HostFileSaveOfferUserError(created.error);
+      createdOffers.push(created);
+    }
+    const previews = await Promise.all(
+      createdOffers.map((offer) =>
+        getHostFileSaveOfferPreview(database, {
+          userId: input.userId,
+          offerId: offer.offer_id,
+          publicUrl: input.publicUrl,
+        }),
+      ),
+    );
+    if (previews.some((preview) => !preview)) {
+      throw new HostFileSaveOfferUserError("The exact batch save preview is unavailable.");
+    }
+    const result = safeBatchResult(previews);
+    const canAuthorize = result.status === "pending" && Date.parse(result.expires_at) > Date.now();
+    const authorityOffers = canAuthorize
+      ? await Promise.all(
+          createdOffers.map((offer) => offerForUser(database, input.userId, offer.offer_id)),
+        )
+      : [];
+    if (canAuthorize && authorityOffers.some((offer) => !offer)) {
+      throw new HostFileSaveOfferUserError("The exact batch save preview is unavailable.");
+    }
+    const authorityToken = canAuthorize
+      ? await createBatchAppAuthority(database, authorityOffers)
+      : undefined;
+    return { ...result, authorityToken };
+  });
 }
 
 export async function decideHostFileSaveOffer(
@@ -382,6 +544,133 @@ export async function decideHostFileSaveOffer(
       status: input.decision,
       decision_at: decidedAt,
     };
+  });
+}
+
+export async function decideHostFileSaveOffers(
+  database,
+  input: {
+    userId: string;
+    offers: Array<{ offer_id: string; preview_version: string }>;
+    previewVersion: string;
+    authorityToken: string;
+    publicUrl: string;
+  },
+) {
+  return await database.transaction(async () => {
+    const tokenHash = sha256(String(input.authorityToken || ""));
+    await database
+      .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
+      .get(`host-file-batch-decision:${tokenHash}`);
+    const authorized = await database
+      .prepare(
+        `SELECT offer_id FROM host_file_save_offer_authorities
+         WHERE token_hash = ? AND expires_at > ? ORDER BY offer_id`,
+      )
+      .all(tokenHash, Date.now());
+    const requestedIds = [...new Set(input.offers.map((offer) => offer.offer_id))].sort();
+    const authorizedIds = authorized.map((row) => row.offer_id).sort();
+    if (
+      requestedIds.length !== input.offers.length ||
+      JSON.stringify(requestedIds) !== JSON.stringify(authorizedIds)
+    ) {
+      throw new HostFileSaveOfferUserError(
+        "The authenticated Save all authority is unavailable, incomplete, or expired.",
+      );
+    }
+    const offers: any[] = [];
+    for (const requested of input.offers) {
+      const offer = await offerForUser(database, input.userId, requested.offer_id);
+      if (!offer) {
+        throw new HostFileSaveOfferUserError("The exact batch save preview is unavailable.");
+      }
+      if (offer.decision) {
+        throw new HostFileSaveOfferUserError(
+          "At least one file in this Save all preview was already decided.",
+        );
+      }
+      if (Number(offer.expires_at) <= Date.now()) {
+        throw new HostFileSaveOfferUserError(
+          "This Save all preview expired. Ask the host for a new exact preview.",
+        );
+      }
+      const exactVersion = decisionVersion(offer);
+      if (!equalHash(exactVersion, requested.preview_version)) {
+        throw new HostFileSaveOfferUserError(
+          "The Save all preview changed. Reload it before making a decision.",
+        );
+      }
+      offers.push({ offer, exactVersion });
+    }
+    const common = offers[0].offer;
+    if (
+      offers.some(
+        ({ offer }) =>
+          offer.workspace_id !== common.workspace_id ||
+          offer.project_id !== common.project_id ||
+          offer.context_id !== common.context_id ||
+          offer.connection_id !== common.connection_id ||
+          offer.source_host !== common.source_host,
+      )
+    ) {
+      throw new HostFileSaveOfferUserError(
+        "The Save all preview does not describe one exact source and destination.",
+      );
+    }
+    const exactBatchVersion = hostFileBatchPreviewVersion(input.offers);
+    if (!equalHash(exactBatchVersion, input.previewVersion)) {
+      throw new HostFileSaveOfferUserError(
+        "The Save all preview changed. Reload it before making a decision.",
+      );
+    }
+    const decidedAt = new Date().toISOString();
+    for (const { offer, exactVersion } of offers) {
+      await database
+        .prepare(
+          `INSERT INTO host_file_save_decisions
+            (offer_id, workspace_id, project_id, context_id, decided_by_user_id,
+             decision, decision_version, decided_at)
+           VALUES (?, ?, ?, ?, ?, 'save_file_only', ?, ?)`,
+        )
+        .run(
+          offer.id,
+          offer.workspace_id,
+          offer.project_id,
+          offer.context_id,
+          input.userId,
+          exactVersion,
+          decidedAt,
+        );
+      await appendAuditEvent(database, {
+        workspaceId: offer.workspace_id,
+        projectId: offer.project_id,
+        action: "host_file_save_transfer_authorized",
+        actorType: "human_user",
+        actorId: input.userId,
+        correlationId: offer.id,
+        metadata: {
+          offer_id: offer.id,
+          context_id: offer.context_id,
+          decision: "save_file_only",
+          batch_preview_version: exactBatchVersion,
+          batch_file_count: offers.length,
+          bytes_received: false,
+        },
+      });
+    }
+    await database
+      .prepare("DELETE FROM host_file_save_offer_authorities WHERE token_hash = ?")
+      .run(tokenHash);
+    const previews = await Promise.all(
+      offers.map(({ offer }) =>
+        getHostFileSaveOfferPreview(database, {
+          userId: input.userId,
+          offerId: offer.id,
+          publicUrl: input.publicUrl,
+        }),
+      ),
+    );
+    return { ...safeBatchResult(previews), status: "save_file_only", decision_at: decidedAt };
   });
 }
 

@@ -40,6 +40,8 @@ The allowed cell statuses are `pass`, `fail`, `provider_blocked`, and `untested`
 
 Registry contract `alice.host-surface-compatibility.v2` and the deterministic harness describe the local single-action Save flow. Local MCP `0.8.0` contains the portable workspace and Save apps plus migrations `020` and `021`; the version change does not promote any live provider capability cell. Every exact surface remains untested, unsupported, and unadvertised until its own dated live run.
 
+The 2026-09-10 source-only handoff repair adds a two-to-ten-attachment `Save all` preview without changing the registry result. Local automated tests prove complete-manifest rendering, atomic authorization, exact per-file fallback, and partial-transfer isolation for ChatGPT- and Claude-classified connections. They do not prove that any live provider surface renders the batch card, exposes original attachment bytes, performs the native signed PUT, or returns transfer results correctly. Those cells remain `untested` and unadvertised until the repaired source is separately approved, deployed, and exercised on each exact surface.
+
 ## Recording a live run
 
 Never overwrite a prior live run. Append a new run record, increment the matrix version, and point only the capabilities exercised by that run to its identifier. A qualifying record contains:

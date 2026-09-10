@@ -23,8 +23,10 @@ import {
   createArtifactSavePreview,
   createProject,
   createHostFileSaveOffer,
+  createHostFileSaveOffers,
   createCaptureSavePreview,
   decideHostFileSaveOffer,
+  decideHostFileSaveOffers,
   finalizeHostFileSaveTransfer,
   getAliceArtifact,
   getProjectContext,
@@ -48,6 +50,7 @@ import {
   consumptionContractVersion,
   commitAliceCaptureSaveSchema,
   commitAliceHostFileSaveSchema,
+  commitAliceHostFilesSaveSchema,
   createAliceWorkspaceProjectSchema,
   finalizeHostFileTransferSchema,
   getActiveContextSchema,
@@ -55,6 +58,7 @@ import {
   getProjectContextOutputSchema,
   getProjectContextSchema,
   hostFileSaveOfferSchema,
+  hostFilesSaveOfferSchema,
   listProjectsOutputSchema,
   listProjectsSchema,
   openAliceWorkspaceSchema,
@@ -900,6 +904,93 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     );
 
     server.registerTool(
+      "offer_host_files_save",
+      {
+        title: "Prepare one requested multi-attachment save",
+        description:
+          "Use only after the user explicitly asks to save two to ten specific ChatGPT or Claude attachments to alice. Identify the destination by its exact unique project name; when only one project is accessible it may be omitted. Creates one immutable, complete metadata preview for an alice. Save all card. It accepts no bytes, host URLs, credentials, cookies, prompt text, or model-generated confirmation. Only the user's single Save all action can atomically authorize later per-file exact-byte transfers; closing or ignoring the card does nothing. Each transfer and security result remains independent so a failed file cannot erase or misreport a successful file.",
+        inputSchema: hostFilesSaveOfferSchema,
+        _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async (payload, context) => {
+        const authInfo = context.http?.authInfo;
+        if (!authInfo?.scopes.includes("mcp:write")) {
+          return {
+            content: [{ type: "text", text: "The connection does not grant mcp:write." }],
+            isError: true,
+          };
+        }
+        const resolution = await resolveToolProject(database, context, payload.project_id, "write");
+        if (resolution.status !== "ok") return projectResolutionError(resolution);
+        try {
+          const created = await createHostFileSaveOffers(database, {
+            userId: authenticatedUserId(context),
+            connectionId: authenticatedConnectionId(context),
+            publicUrl,
+            payload: { ...payload, project_id: resolution.projectId },
+          });
+          const { authorityToken, ...batch } = created;
+          const result = {
+            contract_version: "alice_save_card_v1",
+            card_type: "host_attachments",
+            ...batch,
+            status: batch.status === "pending" ? "awaiting_save" : batch.status,
+            ...(batch.status === "pending" ? { pre_save_state: "preview_only" } : {}),
+          };
+          const visibleResult = withoutInternalContextFields(result);
+          const fileSummary = result.files
+            .map(
+              (file, index) =>
+                `${index + 1}. ${file.name} — ${file.declared_media_type || "type verified after transfer"}, ${file.declared_byte_size === null ? "size verified after transfer" : `${file.declared_byte_size} bytes`}, from ${result.source_host}, to ${result.destination.project_name}; authorization ${file.status}, ${file.transfer ? `transfer ${file.transfer.status}` : "transfer not started"}.${result.status === "awaiting_save" ? ` Authenticated fallback: ${file.confirmation_url}` : ""}`,
+            )
+            .join("\n");
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  result.status === "awaiting_save"
+                    ? `No attachment bytes were copied. Present the one alice. Save all card so the user can review this complete exact list personally:\n${fileSummary}\nIf the host cannot render the card, use each authenticated per-file fallback URL returned with the list; each fallback requires its own exact Save decision.`
+                    : `Multi-file save status for ${result.destination.project_name}:\n${fileSummary}\nA file is saved only when its own transfer status is completed after both security scans.`,
+              },
+            ],
+            structuredContent: visibleResult,
+            ...(authorityToken
+              ? {
+                  _meta: {
+                    "alice/saveAuthority": {
+                      kind: "host_attachments",
+                      preview_id: result.preview_version,
+                      token: authorityToken,
+                    },
+                  },
+                }
+              : {
+                  _meta: {
+                    "alice/saveState": {
+                      kind: "host_attachments",
+                      preview_id: result.preview_version,
+                      status: result.status,
+                    },
+                  },
+                }),
+          };
+        } catch (error) {
+          if (error instanceof HostFileSaveOfferUserError) {
+            return { content: [{ type: "text", text: error.message }], isError: true };
+          }
+          throw error;
+        }
+      },
+    );
+
+    server.registerTool(
       "alice_confirm_host_file_save",
       {
         title: "Save the exact host attachment",
@@ -948,11 +1039,51 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     );
 
     server.registerTool(
+      "alice_confirm_host_files_save",
+      {
+        title: "Save all exact host attachments",
+        description:
+          "App-only human Save all action. Atomically authorizes transfer for every file in the complete exact preview and does not itself receive or store attachment bytes.",
+        inputSchema: commitAliceHostFilesSaveSchema,
+        _meta: oauthAppToolMeta("mcp:write", ["app"], SAVE_APP_URI),
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        },
+      },
+      async (input, context) => {
+        if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
+          return {
+            content: [{ type: "text", text: "The connection does not grant mcp:write." }],
+            isError: true,
+          };
+        }
+        try {
+          const result = await decideHostFileSaveOffers(database, {
+            userId: authenticatedUserId(context),
+            offers: input.offers,
+            previewVersion: input.preview_version,
+            authorityToken: input.authority_token,
+            publicUrl,
+          });
+          return { content: [], structuredContent: withoutInternalContextFields(result) };
+        } catch (error) {
+          if (error instanceof HostFileSaveOfferUserError) {
+            return { content: [{ type: "text", text: error.message }], isError: true };
+          }
+          throw error;
+        }
+      },
+    );
+
+    server.registerTool(
       "begin_host_file_transfer",
       {
         title: "Begin one confirmed host attachment transfer",
         description:
-          "Use only after offer_host_file_save returned an offer and the user personally chose Save to the named project on alice., and only when this exact host surface can securely expose the original attachment bytes and perform an HTTPS PUT using exact required headers. Starts one immutable, short-lived, exact-file transfer to that confirmed project. Never include attachment bytes, host URLs, cookies, credentials, prompt text, or conversation history in this call. If the provider lacks this capability, send the user to the offer's alice.-controlled pre-targeted upload page instead.",
+          "Use only after offer_host_file_save or offer_host_files_save returned an offer and the user personally chose Save or Save all to the named project on alice., and only when this exact host surface can securely expose the original attachment bytes and perform an HTTPS PUT using exact required headers. Starts one immutable, short-lived, exact-file transfer to that confirmed project. In a batch, call this independently for each offer and report every result; one failure does not undo a completed sibling. Never include attachment bytes, host URLs, cookies, credentials, prompt text, or conversation history in this call. If the provider lacks this capability, send the user to each offer's alice.-controlled pre-targeted upload page instead.",
         inputSchema: beginHostFileTransferSchema,
         ...oauthToolSecurity("mcp:write"),
         annotations: {

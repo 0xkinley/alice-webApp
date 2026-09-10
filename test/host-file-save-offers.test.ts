@@ -228,6 +228,210 @@ test("the MCP contract previews an exact save to the named project", async () =>
   );
 });
 
+test("one Save all preview atomically authorizes an exact multi-file manifest", async () => {
+  const listed = await callMcp(mcpBaseUrl, accessToken, "tools/list");
+  const offerTool = listed.payload.result.tools.find(
+    ({ name }) => name === "offer_host_files_save",
+  );
+  const confirmTool = listed.payload.result.tools.find(
+    ({ name }) => name === "alice_confirm_host_files_save",
+  );
+  assert.equal(offerTool.inputSchema.properties.files.minItems, 2);
+  assert.equal(offerTool.inputSchema.properties.files.maxItems, 10);
+  assert.deepEqual(offerTool._meta.ui.visibility, ["model"]);
+  assert.deepEqual(confirmTool._meta.ui.visibility, ["app"]);
+
+  const before = database
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM host_file_save_offers) AS offers,
+        (SELECT COUNT(*) FROM host_file_save_decisions) AS decisions,
+        (SELECT COUNT(*) FROM file_objects) AS objects,
+        (SELECT COUNT(*) FROM file_context_references) AS file_references,
+        (SELECT COUNT(*) FROM accepted_project_state) AS accepted,
+        (SELECT COUNT(*) FROM audit_events) AS audit`,
+    )
+    .get();
+  const batchArguments = {
+    project_id: "Private project",
+    files: [
+      {
+        file_name: "launch-notes.md",
+        declared_media_type: "text/markdown",
+        declared_byte_size: 321,
+        declared_sha256: "b".repeat(64),
+      },
+      {
+        file_name: "launch-board.png",
+        declared_media_type: "image/png",
+        declared_byte_size: 654,
+        declared_sha256: "c".repeat(64),
+      },
+    ],
+    conversation_reference: "conversation.batch-001",
+    idempotency_key: "host-file-batch-001",
+  };
+  const created = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "offer_host_files_save",
+    arguments: batchArguments,
+  });
+  assert.equal(created.payload.result.isError, undefined);
+  const card = created.payload.result.structuredContent;
+  assert.equal(card.card_type, "host_attachments");
+  assert.equal(card.status, "awaiting_save");
+  assert.equal(card.destination.project_name, "Private project");
+  assert.equal(card.destination.project_id, undefined);
+  assert.deepEqual(
+    card.files.map((file) => ({
+      name: file.name,
+      type: file.declared_media_type,
+      size: file.declared_byte_size,
+      source: file.source_host,
+      status: file.status,
+    })),
+    [
+      {
+        name: "launch-notes.md",
+        type: "text/markdown",
+        size: 321,
+        source: "chatgpt",
+        status: "pending",
+      },
+      {
+        name: "launch-board.png",
+        type: "image/png",
+        size: 654,
+        source: "chatgpt",
+        status: "pending",
+      },
+    ],
+  );
+  assert.match(created.payload.result.content[0].text, /Save all/i);
+  assert.match(created.payload.result.content[0].text, /launch-notes\.md.*321 bytes/i);
+  assert.match(created.payload.result.content[0].text, /launch-board\.png.*654 bytes/i);
+  assert.match(created.payload.result.content[0].text, /Private project/);
+  assert.equal(card.bytes_received, false);
+  assert.equal(card.trusted_state_changed, false);
+  assert.ok(card.files.every((file) => /file-save-offers/.test(file.confirmation_url)));
+  const authorityToken = created.payload.result._meta["alice/saveAuthority"].token;
+  assert.match(authorityToken, /^alice_file_save_/);
+  assert.deepEqual(
+    {
+      ...database
+        .prepare(
+          `SELECT COUNT(*) AS offers,
+                  COUNT(DISTINCT token_hash) AS tokens
+           FROM host_file_save_offer_authorities
+           WHERE offer_id IN (?, ?)`,
+        )
+        .get(card.files[0].offer_id, card.files[1].offer_id),
+    },
+    { offers: 2, tokens: 1 },
+  );
+  assert.deepEqual(
+    {
+      ...database
+        .prepare(
+          `SELECT
+            (SELECT COUNT(*) FROM host_file_save_decisions) AS decisions,
+          (SELECT COUNT(*) FROM file_objects) AS objects,
+          (SELECT COUNT(*) FROM file_context_references) AS file_references,
+          (SELECT COUNT(*) FROM accepted_project_state) AS accepted,
+          (SELECT COUNT(*) FROM audit_events) AS audit`,
+        )
+        .get(),
+    },
+    {
+      decisions: before.decisions,
+      objects: before.objects,
+      file_references: before.file_references,
+      accepted: before.accepted,
+      audit: before.audit,
+    },
+  );
+
+  const exactOffers = card.files.map((file) => ({
+    offer_id: file.offer_id,
+    preview_version: file.preview_version,
+  }));
+  const tampered = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "alice_confirm_host_files_save",
+    arguments: {
+      offers: [exactOffers[0], { ...exactOffers[1], preview_version: "0".repeat(64) }],
+      preview_version: card.preview_version,
+      authority_token: authorityToken,
+    },
+  });
+  assert.equal(tampered.payload.result.isError, true);
+  assert.match(tampered.payload.result.content[0].text, /preview changed/i);
+  assert.equal(
+    database
+      .prepare("SELECT COUNT(*) AS count FROM host_file_save_decisions WHERE offer_id IN (?, ?)")
+      .get(card.files[0].offer_id, card.files[1].offer_id).count,
+    0,
+  );
+
+  const confirmed = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "alice_confirm_host_files_save",
+    arguments: {
+      offers: exactOffers,
+      preview_version: card.preview_version,
+      authority_token: authorityToken,
+    },
+  });
+  assert.equal(confirmed.payload.result.isError, undefined);
+  assert.equal(confirmed.payload.result.structuredContent.status, "save_file_only");
+  assert.deepEqual(
+    confirmed.payload.result.structuredContent.files.map((file) => file.status),
+    ["save_file_only", "save_file_only"],
+  );
+  assert.equal(
+    database
+      .prepare("SELECT COUNT(*) AS count FROM host_file_save_decisions WHERE offer_id IN (?, ?)")
+      .get(card.files[0].offer_id, card.files[1].offer_id).count,
+    2,
+  );
+  assert.equal(fileStore.putCount, 0);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM file_objects").get().count, 0);
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
+    before.accepted,
+  );
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count,
+    before.audit + 2,
+  );
+
+  const retried = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "offer_host_files_save",
+    arguments: batchArguments,
+  });
+  assert.deepEqual(
+    retried.payload.result.structuredContent.files.map((file) => file.offer_id),
+    card.files.map((file) => file.offer_id),
+  );
+  assert.equal(retried.payload.result.structuredContent.status, "save_file_only");
+  assert.equal(retried.payload.result._meta["alice/saveAuthority"], undefined);
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM host_file_save_offers").get().count,
+    before.offers + 2,
+  );
+
+  const changedManifest = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "offer_host_files_save",
+    arguments: {
+      ...batchArguments,
+      files: [batchArguments.files[0], { ...batchArguments.files[1], file_name: "changed.png" }],
+    },
+  });
+  assert.equal(changedManifest.payload.result.isError, true);
+  assert.match(changedManifest.payload.result.content[0].text, /different file save offer/i);
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM host_file_save_offers").get().count,
+    before.offers + 2,
+  );
+});
+
 test("only the authenticated owner can choose the single Save action", async () => {
   const receipt = (await offerFile("host-file-offer-002")).payload.result.structuredContent;
   const unauthenticated = await fetch(receipt.confirmation_url, { redirect: "manual" });
@@ -302,7 +506,9 @@ test("only the authenticated owner can choose the single Save action", async () 
   assert.equal(replay.status, 409);
   assert.match(await replay.text(), /already decided/i);
   assert.equal(
-    database.prepare("SELECT COUNT(*) AS count FROM host_file_save_decisions").get().count,
+    database
+      .prepare("SELECT COUNT(*) AS count FROM host_file_save_decisions WHERE offer_id = ?")
+      .get(receipt.offer_id).count,
     1,
   );
   assert.throws(
@@ -468,6 +674,26 @@ test("a collaborator offer keeps connection and project workspaces distinct", as
   assert.equal(stored.workspace_id, identity.workspace_id);
   assert.equal(stored.connection_workspace_id, foreignIdentity.workspace_id);
   assert.notEqual(stored.workspace_id, stored.connection_workspace_id);
+
+  const batch = await callMcp(mcpBaseUrl, collaboratorToken, "tools/call", {
+    name: "offer_host_files_save",
+    arguments: {
+      project_id: identity.project_id,
+      files: [{ file_name: "claude-one.txt" }, { file_name: "claude-two.pdf" }],
+      idempotency_key: "host-file-claude-batch-001",
+    },
+  });
+  assert.equal(batch.payload.result.isError, undefined);
+  assert.equal(batch.payload.result.structuredContent.source_host, "claude");
+  assert.deepEqual(
+    batch.payload.result.structuredContent.files.map((file) => [file.name, file.source_host]),
+    [
+      ["claude-one.txt", "claude"],
+      ["claude-two.pdf", "claude"],
+    ],
+  );
+  assert.match(batch.payload.result.content[0].text, /claude-one\.txt/);
+  assert.match(batch.payload.result.content[0].text, /claude-two\.pdf/);
 });
 
 test("a tampered preview fails while legacy target changes do not redirect it", async () => {

@@ -21,6 +21,7 @@ import {
   commitArtifactSavePreview,
   createArtifactSavePreview,
   createHostFileSaveOffer,
+  createHostFileSaveOffers,
   createCaptureSavePreview,
   createProject,
   createWorkContext,
@@ -55,6 +56,7 @@ import {
   setContextProviderAvailability,
   restoreProject,
   decideHostFileSaveOffer,
+  decideHostFileSaveOffers,
   supersedeAcceptedState,
   uploadProjectFile,
   updateProjectMemberRole,
@@ -972,6 +974,83 @@ test("PostgreSQL persists one exact host-file offer and one human decision immut
       .prepare("DELETE FROM host_file_save_decisions WHERE offer_id = ?")
       .run(receipt.offer_id),
     /permission denied|immutable/i,
+  );
+});
+
+test("PostgreSQL atomically authorizes one exact multi-file manifest", async () => {
+  const batch = await createHostFileSaveOffers(database, {
+    userId: owner.id,
+    connectionId,
+    publicUrl: "https://app.alice.example",
+    payload: {
+      project_id: owner.project_id,
+      files: [
+        {
+          file_name: "postgres-batch-one.md",
+          declared_media_type: "text/markdown",
+          declared_byte_size: 101,
+          declared_sha256: "c".repeat(64),
+        },
+        {
+          file_name: "postgres-batch-two.pdf",
+          declared_media_type: "application/pdf",
+          declared_byte_size: 202,
+          declared_sha256: "d".repeat(64),
+        },
+      ],
+      conversation_reference: "postgres.batch-001",
+      idempotency_key: "postgres-host-file-batch-001",
+    },
+  });
+  assert.match(batch.authorityToken, /^alice_file_save_/);
+  const offers = batch.files.map((file) => ({
+    offer_id: file.offer_id,
+    preview_version: file.preview_version,
+  }));
+  await assert.rejects(
+    decideHostFileSaveOffers(database, {
+      userId: owner.id,
+      offers: [offers[0], { ...offers[1], preview_version: "0".repeat(64) }],
+      previewVersion: batch.preview_version,
+      authorityToken: batch.authorityToken,
+      publicUrl: "https://app.alice.example",
+    }),
+    /preview changed/i,
+  );
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM host_file_save_decisions WHERE offer_id IN (?, ?)")
+        .get(offers[0].offer_id, offers[1].offer_id)
+    ).count,
+    0,
+  );
+
+  const attempts = await Promise.allSettled([
+    decideHostFileSaveOffers(database, {
+      userId: owner.id,
+      offers,
+      previewVersion: batch.preview_version,
+      authorityToken: batch.authorityToken,
+      publicUrl: "https://app.alice.example",
+    }),
+    decideHostFileSaveOffers(database, {
+      userId: owner.id,
+      offers,
+      previewVersion: batch.preview_version,
+      authorityToken: batch.authorityToken,
+      publicUrl: "https://app.alice.example",
+    }),
+  ]);
+  assert.equal(attempts.filter(({ status }) => status === "fulfilled").length, 1);
+  assert.equal(attempts.filter(({ status }) => status === "rejected").length, 1);
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM host_file_save_decisions WHERE offer_id IN (?, ?)")
+        .get(offers[0].offer_id, offers[1].offer_id)
+    ).count,
+    2,
   );
 });
 

@@ -82,6 +82,8 @@ There is no user-selected active target in alice. The 2026-09-10 resolver amendm
 
 Every capture, attachment offer, file transfer, and file-backed suggestion must identify one exact accessible project. Internally, new capture and file operations resolve that project to its hidden default while retaining the authorization and provenance of legacy records. A tool call may create only an exact, short-lived preview or transfer authority; trusted project information still changes only after the authenticated human chooses `Save` on the alice.-controlled preview. Connecting another provider, naming a project, or reading a project never changes trusted state.
 
+An explicit request covering two to ten attachments may use one complete `Save all` card. Every member remains an immutable per-file offer, while one shared app-only authority digest binds the exact ordered manifest. The human click atomically authorizes every member or none; it still receives no bytes and changes no trusted project information. Exact-byte transfer, idempotency, both scan gates, availability, and failure reporting remain independent per file. The browser fallback intentionally keeps one exact filename per pre-targeted page and requires separate Save decisions if the embedded batch authority is unavailable.
+
 ## Human-readable rendering contract
 
 One shared rendering contract maps internal structured values into bounded, escaped user-facing content for the web application and both MCP Apps.

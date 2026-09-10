@@ -89,8 +89,10 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   });
   assert.equal(saveResource.payload.result.contents[0].mimeType, "text/html;profile=mcp-app");
   assert.match(saveResource.payload.result.contents[0].text, /alice_commit_capture_save/);
+  assert.match(saveResource.payload.result.contents[0].text, /alice_confirm_host_files_save/);
   assert.match(saveResource.payload.result.contents[0].text, /<button id=.?save/);
-  assert.match(saveResource.payload.result.contents[0].text, />Save<\/button>/);
+  assert.match(saveResource.payload.result.contents[0].text, /Save all/);
+  assert.match(saveResource.payload.result.contents[0].text, /Save these files/);
   assert.match(saveResource.payload.result.contents[0].text, /timeZoneName:.?short/);
   assert.doesNotMatch(saveResource.payload.result.contents[0].text, /dateStyle|timeStyle/);
   assert.doesNotMatch(saveResource.payload.result.contents[0].text, />Cancel</);

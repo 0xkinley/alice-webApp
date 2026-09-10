@@ -384,6 +384,140 @@ test("a confirmed native transfer preserves provenance and completes only after 
   assert.equal(store.putCount, 1);
 });
 
+test("batch transfers report each file independently and preserve a successful sibling", async () => {
+  const firstBytes = Buffer.from("# Batch first\nThis exact file should complete.\n");
+  const secondBytes = Buffer.from(
+    "# Batch second\nThis exact file should fail its first attempt.\n",
+  );
+  const firstHash = createHash("sha256").update(firstBytes).digest("hex");
+  const secondHash = createHash("sha256").update(secondBytes).digest("hex");
+  const batchArguments = {
+    project_id: "Private project",
+    files: [
+      {
+        file_name: "batch-first.md",
+        declared_media_type: "text/markdown",
+        declared_byte_size: firstBytes.length,
+        declared_sha256: firstHash,
+      },
+      {
+        file_name: "batch-second.md",
+        declared_media_type: "text/markdown",
+        declared_byte_size: secondBytes.length,
+        declared_sha256: secondHash,
+      },
+    ],
+    conversation_reference: "conversation.batch-transfer",
+    idempotency_key: "batch-transfer-offer-001",
+  };
+  const offered = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "offer_host_files_save",
+    arguments: batchArguments,
+  });
+  const card = offered.payload.result.structuredContent;
+  const confirmed = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "alice_confirm_host_files_save",
+    arguments: {
+      offers: card.files.map((file) => ({
+        offer_id: file.offer_id,
+        preview_version: file.preview_version,
+      })),
+      preview_version: card.preview_version,
+      authority_token: offered.payload.result._meta["alice/saveAuthority"].token,
+    },
+  });
+  assert.equal(confirmed.payload.result.structuredContent.status, "save_file_only");
+  assert.equal(
+    database
+      .prepare("SELECT COUNT(*) AS count FROM host_file_save_decisions WHERE offer_id IN (?, ?)")
+      .get(card.files[0].offer_id, card.files[1].offer_id).count,
+    2,
+  );
+
+  for (const file of card.files) {
+    const fallback = await fetch(file.confirmation_url, { headers: { cookie } });
+    assert.equal(fallback.status, 200);
+    const html = await fallback.text();
+    assert.match(html, new RegExp(file.name.replace(".", "\\.")));
+    assert.match(html, /Exact confirmed file/);
+    assert.match(html, /destination is locked/i);
+  }
+
+  const referencesBefore = database
+    .prepare("SELECT COUNT(*) AS count FROM file_context_references")
+    .get().count;
+  const started = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "begin_host_file_transfer",
+    arguments: {
+      offer_id: card.files[0].offer_id,
+      transfer_capability: "exact_signed_put_v1",
+      file_name: "batch-first.md",
+      claimed_media_type: "text/markdown",
+      byte_size: firstBytes.length,
+      sha256: firstHash,
+      idempotency_key: "batch-first-transfer-001",
+    },
+  });
+  const intent = started.payload.result.structuredContent;
+  const versionId = store.stage(firstBytes, "batch-first-staging-version");
+  store.stagingScan = "clean";
+  store.finalScan = "clean";
+  const completed = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "finalize_host_file_transfer",
+    arguments: {
+      offer_id: card.files[0].offer_id,
+      intent_id: intent.intent_id,
+      storage_version_id: versionId,
+    },
+  });
+  assert.equal(completed.payload.result.structuredContent.status, "completed");
+
+  const failedSibling = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "begin_host_file_transfer",
+    arguments: {
+      offer_id: card.files[1].offer_id,
+      transfer_capability: "exact_signed_put_v1",
+      file_name: "batch-second.md",
+      claimed_media_type: "text/markdown",
+      byte_size: secondBytes.length,
+      sha256: "0".repeat(64),
+      idempotency_key: "batch-second-transfer-001",
+    },
+  });
+  assert.equal(failedSibling.payload.result.isError, true);
+  assert.match(failedSibling.payload.result.content[0].text, /hash does not match/i);
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM file_context_references").get().count,
+    referencesBefore + 1,
+  );
+  assert.equal(
+    database
+      .prepare(
+        "SELECT COUNT(*) AS count FROM host_file_save_transfer_completions WHERE offer_id = ?",
+      )
+      .get(card.files[0].offer_id).count,
+    1,
+  );
+  assert.equal(
+    database
+      .prepare(
+        "SELECT COUNT(*) AS count FROM host_file_save_transfer_completions WHERE offer_id = ?",
+      )
+      .get(card.files[1].offer_id).count,
+    0,
+  );
+
+  const status = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "offer_host_files_save",
+    arguments: batchArguments,
+  });
+  assert.equal(status.payload.result.structuredContent.status, "save_file_only");
+  assert.equal(status.payload.result.structuredContent.files[0].transfer.status, "completed");
+  assert.equal(status.payload.result.structuredContent.files[1].transfer, null);
+  assert.match(status.payload.result.content[0].text, /batch-first\.md.*transfer completed/i);
+  assert.match(status.payload.result.content[0].text, /saved only when.*completed/i);
+});
+
 test("the alice.-controlled fallback is exact-origin, pre-targeted, and scan-gated", async () => {
   const bytes = Buffer.from("# Browser fallback\nProvider attachment transfer is unavailable.\n");
   const { receipt, sha256 } = await createOffer(bytes, "browser-fallback", "save_file_only");

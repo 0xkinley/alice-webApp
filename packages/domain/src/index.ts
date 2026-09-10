@@ -95,7 +95,9 @@ export { getProjectAccessOverview } from "./project-access.ts";
 export {
   beginHostFileSaveTransfer,
   createHostFileSaveOffer,
+  createHostFileSaveOffers,
   decideHostFileSaveOffer,
+  decideHostFileSaveOffers,
   finalizeHostFileSaveTransfer,
   getHostFileSaveOfferPreview,
   HOST_FILE_SAVE_OFFER_LIFETIME_MS,

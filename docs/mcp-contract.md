@@ -59,6 +59,16 @@ Every MCP project context, artifact search/retrieval/save/version, project-infor
 
 Legacy opaque identifiers remain accepted for compatibility but are no longer returned by `list_projects` or project objects in model-visible structured results. The app-only workspace snapshot may retain them for exact internal navigation. ChatGPT and Claude use the same resolver and authorization path.
 
+### `offer_host_file_save` and `offer_host_files_save`
+
+These `mcp:write` tools are registered only when private storage is configured and may be called only after an explicit request to save the named ChatGPT or Claude attachment or attachments. Both use the shared project resolver. The single-file form accepts one metadata declaration. The batch form accepts one ordered list of two to ten filename/type/size/SHA-256 declarations under a common optional opaque conversation reference and idempotency key. Neither schema accepts bytes, a host URL, a credential, a cookie, prompt or message text, an internal destination, or any confirmation claim.
+
+The result is a short-lived exact metadata preview. For every file, both model-readable text and structured content name the sanitized file, host-declared type and size when known, recorded source host, exact destination project name, authorization state, transfer state, and authenticated fallback URL. Opaque project/context identifiers remain server-side. Before human action these tools create no transfer decision, upload intent, file object/reference, evidence, candidate, accepted state, or audit event.
+
+For a complete batch, one app-only `Save all` token is bound to every immutable member offer. The app-only decision call must submit the exact complete token-bound set in the shown order with every member preview version and the aggregate preview version. alice. reauthorizes every member and inserts all per-file transfer decisions and audit rows atomically. A missing, extra, duplicated, reordered, changed, expired, inaccessible, foreign, or already-decided member fails the whole decision. The raw token is never model-visible and the confirmation still receives no bytes. When the embedded app is unavailable, each returned authenticated web fallback retains its single exact Save action; raw app authority is not placed in a URL to simulate browser-level Save all.
+
+After authorization, `begin_host_file_transfer` and `finalize_host_file_transfer` operate independently and idempotently on each member offer. Results are always per-file. A completed member survives a sibling's failed or retried transfer, and the batch is never described as wholly saved while any member is pending, failed, or not started. Only an individual `completed` result after both security gates creates that file's available untrusted project reference.
+
 ### `read_project_file_text`
 
 This tool is registered only when the MCP deployment has the private object-store capability configured. It reads one exact current, clean UTF-8 plain-text, Markdown, CSV, TSV, or JSON reference that the authenticated user can currently access. Its strict version `1.0` input contains:

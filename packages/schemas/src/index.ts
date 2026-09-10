@@ -137,6 +137,39 @@ export const commitAliceHostFileSaveSchema = z
   })
   .strict();
 
+const hostFileBatchItemDecisionSchema = z
+  .object({
+    offer_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
+    preview_version: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[0-9a-f]{64}$/),
+  })
+  .strict();
+
+export const commitAliceHostFilesSaveSchema = z
+  .object({
+    offers: z.array(hostFileBatchItemDecisionSchema).min(2).max(10),
+    preview_version: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[0-9a-f]{64}$/),
+    authority_token: saveAuthorityTokenSchema,
+  })
+  .strict()
+  .superRefine((payload, context) => {
+    const offerIds = new Set(payload.offers.map((offer) => offer.offer_id));
+    if (offerIds.size !== payload.offers.length) {
+      context.addIssue({
+        code: "custom",
+        message: "Each batch offer_id may appear only once.",
+        path: ["offers"],
+      });
+    }
+  });
+
 export const candidateClaimSchema = z
   .object({
     state_key: z
@@ -613,6 +646,50 @@ export const hostFileSaveOfferSchema = z
       .toLowerCase()
       .regex(/^[0-9a-f]{64}$/)
       .optional(),
+    conversation_reference: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .regex(boundedIdentifierPattern)
+      .describe("Optional opaque conversation identifier; never include prompt or message text")
+      .optional(),
+    idempotency_key: z
+      .string()
+      .trim()
+      .min(8)
+      .max(captureValidationLimits.idempotencyKeyCharacters)
+      .regex(boundedIdentifierPattern),
+  })
+  .strict();
+
+const hostFileSaveBatchItemSchema = z
+  .object({
+    file_name: z.string().min(1).max(180),
+    declared_media_type: z.enum(projectFileMediaTypes).optional(),
+    declared_byte_size: z
+      .number()
+      .int()
+      .min(1)
+      .max(25 * 1_024 * 1_024)
+      .optional(),
+    declared_sha256: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
+  })
+  .strict();
+
+export const hostFilesSaveOfferSchema = z
+  .object({
+    project_id: mcpProjectReferenceSchema
+      .describe(
+        "Exact unique project name from list_projects; optional when only one is accessible",
+      )
+      .optional(),
+    files: z.array(hostFileSaveBatchItemSchema).min(2).max(10),
     conversation_reference: z
       .string()
       .trim()
