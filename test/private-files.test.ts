@@ -13,6 +13,9 @@ test("S3 direct uploads bind checksum, metadata, encryption, and expiry", async 
       bucket: "alice-private-files-test",
       region: "eu-central-1",
     });
+    assert.deepEqual(store.uploadOrigins, [
+      "https://alice-private-files-test.s3.eu-central-1.amazonaws.com",
+    ]);
     assert.ok(store.createSignedUpload);
     const sha256 = createHash("sha256").update("signed upload fixture").digest("hex");
     const signed = await store.createSignedUpload({

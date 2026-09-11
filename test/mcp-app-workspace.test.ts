@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
 import { createApp } from "../apps/mcp/src/app.ts";
@@ -10,9 +11,40 @@ let created;
 let identity;
 let server;
 
+const uploadedFixture = Buffer.from("alice workspace upload fixture");
+
+class WorkspacePrivateFileStore {
+  uploadOrigins = ["https://alice-private-files.example"];
+
+  async createSignedUpload() {
+    return {
+      url: "https://alice-private-files.example/staging-upload?signature=component-only",
+      headers: { "x-alice-test": "component-only" },
+      expiresInSeconds: 600,
+    };
+  }
+
+  async getScanResult() {
+    return "clean";
+  }
+
+  async getObject() {
+    return uploadedFixture;
+  }
+
+  async putObject() {
+    return { versionId: "verified-object-version", etag: "fixture-etag" };
+  }
+
+  async createSignedDownload() {
+    return "https://alice-private-files.example/download";
+  }
+}
+
 before(async () => {
   created = await createApp({
     database: openSqliteTestDatabase(),
+    fileStore: new WorkspacePrivateFileStore(),
     publicUrl: "http://127.0.0.1",
   });
   identity = await createTestIdentity(created.database, {
@@ -42,11 +74,11 @@ after(async () => {
 test("advertises portable workspace and Save resources and keeps mutations app-only", async () => {
   const { payload } = await callMcp(baseUrl, accessToken, "tools/list");
   const byName = Object.fromEntries(payload.result.tools.map((tool) => [tool.name, tool]));
-  assert.equal(byName.open_alice_workspace._meta.ui.resourceUri, "ui://alice/workspace/v1.html");
+  assert.equal(byName.open_alice_workspace._meta.ui.resourceUri, "ui://alice/workspace/v2.html");
   assert.deepEqual(byName.open_alice_workspace._meta.ui.visibility, ["model"]);
   assert.equal(
     byName.open_alice_workspace._meta["openai/outputTemplate"],
-    "ui://alice/workspace/v1.html",
+    "ui://alice/workspace/v2.html",
   );
   for (const name of [
     "alice_workspace_snapshot",
@@ -54,6 +86,9 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
     "alice_commit_capture_save",
     "alice_commit_artifact_save",
     "alice_get_save_status",
+    "alice_begin_workspace_file_upload",
+    "alice_finalize_workspace_file_upload",
+    "alice_workspace_file_status",
   ]) {
     assert.deepEqual(byName[name]._meta.ui.visibility, ["app"]);
   }
@@ -67,7 +102,7 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   }
 
   const resource = await callMcp(baseUrl, accessToken, "resources/read", {
-    uri: "ui://alice/workspace/v1.html",
+    uri: "ui://alice/workspace/v2.html",
   });
   assert.equal(resource.payload.result.contents[0].mimeType, "text/html;profile=mcp-app");
   assert.match(resource.payload.result.contents[0].text, /alice\. workspace/);
@@ -75,15 +110,45 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   assert.match(resource.payload.result.contents[0].text, /Welcome to alice\./);
   assert.match(resource.payload.result.contents[0].text, /<select id=.?project-select/);
   assert.match(resource.payload.result.contents[0].text, /Now you.*working in/);
+  assert.match(resource.payload.result.contents[0].text, /data-view=.files/);
+  assert.match(resource.payload.result.contents[0].text, /type=.file. multiple/);
+  assert.match(
+    resource.payload.result.contents[0].text,
+    /cannot automatically pass an already-attached file/,
+  );
+  assert.match(resource.payload.result.contents[0].text, /Bytes reached Alice staging storage/);
+  assert.match(resource.payload.result.contents[0].text, /Retry this file/);
+  assert.match(resource.payload.result.contents[0].text, /alice\/privateUpload/);
+  assert.match(resource.payload.result.contents[0].text, /Open Alice website fallback/);
   assert.match(resource.payload.result.contents[0].text, /updateModelContext/);
+  assert.doesNotMatch(resource.payload.result.contents[0].text, /selected_project:\s*\{\s*id:/);
   assert.doesNotMatch(resource.payload.result.contents[0].text, /class=.?project-card/);
+  assert.equal(resource.payload.result.contents[0]._meta.ui.domain, "http://127.0.0.1");
+  assert.deepEqual(resource.payload.result.contents[0]._meta.ui.csp.connectDomains, [
+    "https://alice-private-files.example",
+  ]);
+  assert.deepEqual(resource.payload.result.contents[0]._meta["openai/widgetCSP"], {
+    connect_domains: ["https://alice-private-files.example"],
+    resource_domains: [],
+    redirect_domains: ["http://127.0.0.1"],
+  });
 
   const opened = await callMcp(baseUrl, accessToken, "tools/call", {
     name: "open_alice_workspace",
     arguments: {},
   });
-  assert.equal(opened.payload.result.structuredContent.contract_version, "alice_workspace_app_v3");
+  assert.equal(opened.payload.result.structuredContent.contract_version, "alice_workspace_app_v4");
   assert.match(opened.payload.result.content[0].text, /Welcome to alice\./);
+
+  const openedFiles = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "open_alice_workspace",
+    arguments: { view: "files" },
+  });
+  assert.equal(openedFiles.payload.result.structuredContent.initial_view, "files");
+  assert.deepEqual(openedFiles.payload.result.structuredContent.selected_project, {
+    name: "Private project",
+  });
+  assert.match(openedFiles.payload.result.content[0].text, /select the exact file there/);
 
   const saveResource = await callMcp(baseUrl, accessToken, "resources/read", {
     uri: "ui://alice/save/v1.html",
@@ -111,6 +176,84 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   assert.doesNotMatch(saveResource.payload.result.contents[0].text, /dateStyle|timeStyle/);
   assert.doesNotMatch(saveResource.payload.result.contents[0].text, />Cancel</);
   assert.doesNotMatch(saveResource.payload.result.contents[0].text, /<pre/i);
+});
+
+test("the App uploads exact bytes privately and exposes files only after clean scans", async () => {
+  const digest = createHash("sha256").update(uploadedFixture).digest("hex");
+  const begun = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "alice_begin_workspace_file_upload",
+    arguments: {
+      project_id: identity.project_id,
+      file_name: "workspace-note.txt",
+      claimed_media_type: "text/plain",
+      byte_size: uploadedFixture.length,
+      sha256: digest,
+    },
+  });
+  assert.equal(begun.payload.result.isError, undefined);
+  assert.deepEqual(begun.payload.result.content, []);
+  assert.equal(begun.payload.result.structuredContent.status, "ready");
+  assert.equal(begun.payload.result.structuredContent.project.name, "Private project");
+  assert.equal(
+    JSON.stringify(begun.payload.result.structuredContent).includes("signature=component-only"),
+    false,
+  );
+  assert.equal(
+    begun.payload.result._meta["alice/privateUpload"].upload_url,
+    "https://alice-private-files.example/staging-upload?signature=component-only",
+  );
+
+  const finalized = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "alice_finalize_workspace_file_upload",
+    arguments: {
+      project_id: identity.project_id,
+      intent_id: begun.payload.result._meta["alice/privateUpload"].intent_id,
+      storage_version_id: "staging-version-1",
+    },
+  });
+  assert.equal(finalized.payload.result.structuredContent.status, "completed");
+  assert.equal(finalized.payload.result.structuredContent.scan_status, "scanning");
+
+  const status = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "alice_workspace_file_status",
+    arguments: {
+      project_id: identity.project_id,
+      file_reference_id: finalized.payload.result.structuredContent.file_reference_id,
+    },
+  });
+  assert.equal(status.payload.result.structuredContent.status, "available");
+
+  const context = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "get_project_context",
+    arguments: {
+      project_id: "Private project",
+      task: "List the uploaded files",
+      context_budget: 4_000,
+    },
+  });
+  assert.equal(context.payload.result.structuredContent.file_artifacts.length, 1);
+  assert.equal(
+    context.payload.result.structuredContent.file_artifacts[0].display_name,
+    "workspace-note.txt",
+  );
+  assert.equal(
+    context.payload.result.structuredContent.file_artifacts[0].source_host,
+    "alice_mcp_app",
+  );
+
+  const denied = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "alice_begin_workspace_file_upload",
+    arguments: {
+      project_id: "project_not_accessible",
+      file_name: "guessed.txt",
+      claimed_media_type: "text/plain",
+      byte_size: uploadedFixture.length,
+      sha256: digest,
+    },
+  });
+  assert.equal(denied.payload.result.isError, true);
+  assert.equal(denied.payload.result.content[0].text, "The upload destination is unavailable.");
+  assert.equal(JSON.stringify(denied.payload.result).includes("Private project"), false);
 });
 
 test("project discovery is governed by Alice permissions, not provider toggles", async () => {
@@ -166,7 +309,7 @@ test("project discovery is governed by Alice permissions, not provider toggles",
   assert.equal(snapshot.payload.result.structuredContent.projects[0].id, identity.project_id);
   assert.equal(
     snapshot.payload.result.structuredContent.contract_version,
-    "alice_workspace_app_v3",
+    "alice_workspace_app_v4",
   );
   assert.equal(
     snapshot.payload.result.structuredContent.projects[0].project_url,
@@ -261,5 +404,26 @@ test("the app creates a name-only project that is immediately discoverable", asy
     discovery.payload.result.structuredContent.projects.some(
       ({ name }) => name === "MCP App Project",
     ),
+  );
+
+  const projectRequired = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "open_alice_workspace",
+    arguments: { view: "files" },
+  });
+  assert.equal(projectRequired.payload.result.structuredContent.initial_view, "files");
+  assert.deepEqual(projectRequired.payload.result.structuredContent.project_required, [
+    "MCP App Project",
+    "Private project",
+  ]);
+  assert.equal(projectRequired.payload.result.structuredContent.selected_project, null);
+
+  const unknownProject = await callMcp(baseUrl, accessToken, "tools/call", {
+    name: "open_alice_workspace",
+    arguments: { view: "files", project_id: "Not a real project" },
+  });
+  assert.equal(unknownProject.payload.result.isError, true);
+  assert.equal(
+    unknownProject.payload.result.content[0].text,
+    "The named alice. project is unavailable.",
   );
 });

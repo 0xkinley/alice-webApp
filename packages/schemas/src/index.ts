@@ -98,7 +98,21 @@ export const createWorkContextSchema = z
   })
   .strict();
 
-export const openAliceWorkspaceSchema = z.object({}).strict();
+export const openAliceWorkspaceSchema = z
+  .object({
+    view: z
+      .enum(["projects", "files"])
+      .describe(
+        "Use files when the user asks to upload an attachment; Alice will ask the human to select the exact local file.",
+      )
+      .optional(),
+    project_id: mcpProjectReferenceSchema
+      .describe(
+        "Exact unique project name from list_projects; optional when only one is accessible",
+      )
+      .optional(),
+  })
+  .strict();
 
 export const createAliceWorkspaceProjectSchema = z
   .object({
@@ -642,6 +656,44 @@ export const projectFileMediaTypes = [
   "text/plain",
   "text/tab-separated-values",
 ] as const;
+
+export const beginAliceWorkspaceFileUploadSchema = z
+  .object({
+    project_id: projectIdSchema.describe("Opaque project identifier supplied by the Alice App"),
+    file_name: z.string().min(1).max(180),
+    claimed_media_type: z.enum(projectFileMediaTypes),
+    byte_size: z
+      .number()
+      .int()
+      .min(1)
+      .max(25 * 1_024 * 1_024),
+    sha256: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[0-9a-f]{64}$/),
+  })
+  .strict();
+
+export const finalizeAliceWorkspaceFileUploadSchema = z
+  .object({
+    project_id: projectIdSchema.describe("Opaque project identifier supplied by the Alice App"),
+    intent_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
+    storage_version_id: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1_024)
+      .regex(/^[A-Za-z0-9._~+/=-]+$/),
+  })
+  .strict();
+
+export const getAliceWorkspaceFileStatusSchema = z
+  .object({
+    project_id: projectIdSchema.describe("Opaque project identifier supplied by the Alice App"),
+    file_reference_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
+  })
+  .strict();
 
 export const hostFileSaveOfferSchema = z
   .object({

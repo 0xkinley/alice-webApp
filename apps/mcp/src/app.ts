@@ -20,6 +20,7 @@ import {
   commitArtifactSavePreview,
   commitCaptureSavePreview,
   ContextBudgetError,
+  createProjectFileUploadIntent,
   createArtifactSavePreview,
   createProject,
   createHostFileSaveOffer,
@@ -28,6 +29,7 @@ import {
   decideHostFileSaveOffer,
   decideHostFileSaveOffers,
   finalizeHostFileSaveTransfer,
+  finalizeProjectFileUpload,
   getAliceArtifact,
   getSaveConfirmationReceipt,
   getProjectContext,
@@ -39,6 +41,7 @@ import {
   readProjectFileText,
   recordContextReadFailure,
   recordContextReadSuccess,
+  refreshProjectFileScan,
   resolveProjectReferenceForConnection,
   searchAliceArtifacts,
   suggestProjectUpdatesFromFile,
@@ -46,6 +49,7 @@ import {
 } from "@alice/domain";
 import type { PrivateFileStore } from "@alice/domain";
 import {
+  beginAliceWorkspaceFileUploadSchema,
   beginHostFileTransferSchema,
   commitAliceArtifactSaveSchema,
   consumptionContractVersion,
@@ -54,9 +58,11 @@ import {
   commitAliceHostFilesSaveSchema,
   createAliceWorkspaceProjectSchema,
   finalizeHostFileTransferSchema,
+  finalizeAliceWorkspaceFileUploadSchema,
   getActiveContextSchema,
   getArtifactSchema,
   getAliceSaveStatusSchema,
+  getAliceWorkspaceFileStatusSchema,
   getProjectContextOutputSchema,
   getProjectContextSchema,
   hostFileSaveOfferSchema,
@@ -91,7 +97,7 @@ function oauthToolSecurity(scope) {
   };
 }
 
-const WORKSPACE_APP_URI = "ui://alice/workspace/v1.html";
+const WORKSPACE_APP_URI = "ui://alice/workspace/v2.html";
 const SAVE_APP_URI = "ui://alice/save/v1.html";
 
 function oauthAppToolMeta(
@@ -123,13 +129,23 @@ async function inChatWorkspaceSnapshot(database, { userId, connectionId, publicU
   if (!connection || !connection.provider) return undefined;
   const projects = await listProjects(database, userId);
   return {
-    contract_version: "alice_workspace_app_v3",
+    contract_version: "alice_workspace_app_v4",
     provider: connection.provider,
-    projects: projects.map((project) => ({
-      ...project,
-      project_url: new URL(`/projects/${encodeURIComponent(project.id)}`, publicUrl).href,
-      files_url: new URL(`/projects/${encodeURIComponent(project.id)}/files`, publicUrl).href,
-    })),
+    projects: await Promise.all(
+      projects.map(async (project) => ({
+        ...project,
+        can_upload: Boolean(
+          await projectDestinationForConnection(database, {
+            userId,
+            connectionId,
+            projectId: project.id,
+            capability: "write",
+          }),
+        ),
+        project_url: new URL(`/projects/${encodeURIComponent(project.id)}`, publicUrl).href,
+        files_url: new URL(`/projects/${encodeURIComponent(project.id)}/files`, publicUrl).href,
+      })),
+    ),
   };
 }
 
@@ -327,8 +343,48 @@ function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes 
   };
 }
 
-function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore | undefined) {
-  const server = new McpServer({ name: "alice-mcp", version: "0.8.0" });
+function appResourceMeta({
+  fileStore,
+  mcpPublicUrl,
+  reviewUrl,
+}: {
+  fileStore: PrivateFileStore | undefined;
+  mcpPublicUrl: string;
+  reviewUrl: string;
+}) {
+  const connectDomains = [...(fileStore?.uploadOrigins || [])];
+  const domain = new URL(mcpPublicUrl).origin;
+  const redirectDomains = [new URL(reviewUrl).origin];
+  return {
+    ui: {
+      prefersBorder: true,
+      domain,
+      csp: { connectDomains },
+    },
+    "openai/widgetDomain": domain,
+    "openai/widgetCSP": {
+      connect_domains: connectDomains,
+      resource_domains: [],
+      redirect_domains: redirectDomains,
+    },
+  };
+}
+
+function createProtocolServer(
+  database,
+  {
+    fileStore,
+    mcpPublicUrl,
+    reviewUrl,
+  }: {
+    fileStore: PrivateFileStore | undefined;
+    mcpPublicUrl: string;
+    reviewUrl: string;
+  },
+) {
+  const server = new McpServer({ name: "alice-mcp", version: "0.9.0" });
+  const resourceMeta = appResourceMeta({ fileStore, mcpPublicUrl, reviewUrl });
+  const publicUrl = reviewUrl;
 
   registerAppResource(
     server as unknown as Parameters<typeof registerAppResource>[0],
@@ -337,7 +393,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     {
       title: "alice. workspace",
       description: "Portable authenticated project, provider, and file controls.",
-      _meta: { ui: { prefersBorder: true } },
+      _meta: resourceMeta,
     },
     async () => ({
       contents: [
@@ -345,7 +401,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           uri: WORKSPACE_APP_URI,
           mimeType: RESOURCE_MIME_TYPE,
           text: await appHtml("workspace-app", "alice. workspace"),
-          _meta: { ui: { prefersBorder: true } },
+          _meta: resourceMeta,
         },
       ],
     }),
@@ -358,7 +414,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     {
       title: "alice. Save",
       description: "One exact authenticated Save action for project information and attachments.",
-      _meta: { ui: { prefersBorder: true } },
+      _meta: resourceMeta,
     },
     async () => ({
       contents: [
@@ -366,7 +422,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           uri: SAVE_APP_URI,
           mimeType: RESOURCE_MIME_TYPE,
           text: await appHtml("save-app", "alice. Save"),
-          _meta: { ui: { prefersBorder: true } },
+          _meta: resourceMeta,
         },
       ],
     }),
@@ -377,12 +433,12 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     {
       title: "Open alice. workspace",
       description:
-        "Open the authenticated alice. project workspace. Every project the user can access is available through this connected AI platform; this opening call changes nothing.",
+        "Open the authenticated alice. workspace. When the user asks to upload a ChatGPT or Claude attachment, call this with view=files and the exact project name; the Alice App will explain the host boundary and let the human select the exact local files for direct private upload. Use the ordinary projects view for project selection or creation. This opening call changes nothing.",
       inputSchema: openAliceWorkspaceSchema,
       _meta: oauthAppToolMeta("mcp:read", ["model"]),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
-    async (_input, context) => {
+    async (input, context) => {
       const userId = authenticatedUserId(context);
       const connectionId = authenticatedConnectionId(context);
       const connection = await tenantScopeForConnection(database, { userId, connectionId });
@@ -394,15 +450,41 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           isError: true,
         };
       }
+      let selectedProject: { name: string } | null = null;
+      let projectRequiredNames: string[] = [];
+      if (input.project_id || input.view === "files") {
+        const resolution = await resolveToolProject(
+          database,
+          context,
+          input.project_id,
+          input.view === "files" ? "write" : "read",
+        );
+        if (resolution.status === "ok") {
+          selectedProject = { name: resolution.projectName };
+        } else if (resolution.status === "project_required") {
+          projectRequiredNames = resolution.projectNames;
+        } else {
+          return projectResolutionError(resolution);
+        }
+      }
+      const initialView = input.view || "projects";
       const output = {
-        contract_version: "alice_workspace_app_v3",
+        contract_version: "alice_workspace_app_v4",
         provider: connection.provider,
+        initial_view: initialView,
+        selected_project: selectedProject,
+        ...(projectRequiredNames.length ? { project_required: projectRequiredNames } : {}),
       };
       return {
         content: [
           {
             type: "text",
-            text: 'Welcome to alice. Choose a project or create one to get started. To save something from this chat, say "Save this to Alice."',
+            text:
+              initialView === "files"
+                ? selectedProject
+                  ? `Alice cannot automatically receive an attachment's original bytes from this chat. The Files tab is open for ${selectedProject.name}; ask the user to select the exact file there and upload it directly to Alice.`
+                  : `Alice cannot automatically receive an attachment's original bytes from this chat. The Files tab is open; ask the user to choose one of these writable projects and select the exact file there: ${projectRequiredNames.join(", ")}.`
+                : 'Welcome to alice. Choose a project or create one to get started. To save something from this chat, say "Save this to Alice."',
           },
         ],
         structuredContent: output,
@@ -464,6 +546,197 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           upload_url: fileStore
             ? new URL(`/projects/${encodeURIComponent(project.id)}/files`, publicUrl).href
             : null,
+        },
+      };
+    },
+  );
+
+  server.registerTool(
+    "alice_begin_workspace_file_upload",
+    {
+      title: "Prepare exact Alice file upload",
+      description:
+        "Create a short-lived exact-byte upload intent after the human selects files inside the Alice App.",
+      inputSchema: beginAliceWorkspaceFileUploadSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["app"]),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write") || !fileStore) {
+        return {
+          content: [{ type: "text", text: "Private upload is unavailable." }],
+          isError: true,
+        };
+      }
+      const userId = authenticatedUserId(context);
+      const connectionId = authenticatedConnectionId(context);
+      const destination = await projectDestinationForConnection(database, {
+        userId,
+        connectionId,
+        projectId: input.project_id,
+        capability: "write",
+      });
+      if (!destination) {
+        return {
+          content: [{ type: "text", text: "The upload destination is unavailable." }],
+          isError: true,
+        };
+      }
+      try {
+        const intent = await createProjectFileUploadIntent(database, fileStore, {
+          userId,
+          connectionId,
+          projectId: destination.projectId,
+          contextId: destination.contextId,
+          fileName: input.file_name,
+          claimedMediaType: input.claimed_media_type,
+          byteSize: input.byte_size,
+          sha256: input.sha256,
+        });
+        if (!intent) {
+          return {
+            content: [{ type: "text", text: "The upload destination is unavailable." }],
+            isError: true,
+          };
+        }
+        return {
+          content: [],
+          structuredContent: {
+            status: "ready",
+            project: { name: destination.projectName },
+            file: {
+              name: input.file_name,
+              media_type: input.claimed_media_type,
+              byte_size: input.byte_size,
+            },
+          },
+          _meta: {
+            "alice/privateUpload": {
+              intent_id: intent.intent_id,
+              upload_url: intent.upload_url,
+              upload_headers: intent.upload_headers,
+              upload_expires_in_seconds: intent.upload_expires_in_seconds,
+            },
+          },
+        };
+      } catch (error) {
+        if (error instanceof ProjectFileUserError) {
+          return { content: [{ type: "text", text: error.message }], isError: true };
+        }
+        throw error;
+      }
+    },
+  );
+
+  server.registerTool(
+    "alice_finalize_workspace_file_upload",
+    {
+      title: "Verify exact Alice file upload",
+      description:
+        "Finalize only the exact staged object selected and uploaded by the human in the Alice App.",
+      inputSchema: finalizeAliceWorkspaceFileUploadSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["app"]),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write") || !fileStore) {
+        return {
+          content: [{ type: "text", text: "Private upload is unavailable." }],
+          isError: true,
+        };
+      }
+      const userId = authenticatedUserId(context);
+      const connectionId = authenticatedConnectionId(context);
+      const destination = await projectDestinationForConnection(database, {
+        userId,
+        connectionId,
+        projectId: input.project_id,
+        capability: "write",
+      });
+      if (!destination) {
+        return {
+          content: [{ type: "text", text: "The upload destination is unavailable." }],
+          isError: true,
+        };
+      }
+      try {
+        const result = await finalizeProjectFileUpload(database, fileStore, {
+          userId,
+          connectionId,
+          projectId: destination.projectId,
+          intentId: input.intent_id,
+          storageVersionId: input.storage_version_id,
+          sourceHost: "alice_mcp_app",
+        });
+        if (!result) {
+          return { content: [{ type: "text", text: "The upload is unavailable." }], isError: true };
+        }
+        return { content: [], structuredContent: result };
+      } catch (error) {
+        if (error instanceof ProjectFileUserError) {
+          return { content: [{ type: "text", text: error.message }], isError: true };
+        }
+        throw error;
+      }
+    },
+  );
+
+  server.registerTool(
+    "alice_workspace_file_status",
+    {
+      title: "Check Alice file scan",
+      description:
+        "Check one exact App-uploaded file and expose it only after its final scan is clean.",
+      inputSchema: getAliceWorkspaceFileStatusSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["app"]),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write") || !fileStore) {
+        return {
+          content: [{ type: "text", text: "Private upload is unavailable." }],
+          isError: true,
+        };
+      }
+      const userId = authenticatedUserId(context);
+      const connectionId = authenticatedConnectionId(context);
+      const destination = await projectDestinationForConnection(database, {
+        userId,
+        connectionId,
+        projectId: input.project_id,
+        capability: "write",
+      });
+      if (!destination) {
+        return { content: [{ type: "text", text: "The file is unavailable." }], isError: true };
+      }
+      const file = await refreshProjectFileScan(database, fileStore, {
+        userId,
+        projectId: destination.projectId,
+        referenceId: input.file_reference_id,
+      });
+      if (!file) {
+        return { content: [{ type: "text", text: "The file is unavailable." }], isError: true };
+      }
+      return {
+        content: [],
+        structuredContent: {
+          status: file.scan_status === "clean" ? "available" : file.scan_status,
+          scan_status: file.scan_status,
         },
       };
     },
@@ -869,7 +1142,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
       {
         title: "Prepare one requested host attachment save",
         description:
-          "Use only after the user explicitly asks to save one specific ChatGPT or Claude attachment to alice. Identify the destination by its exact unique project name; when only one project is accessible it may be omitted. Creates only a short-lived metadata preview for an alice. Save card. It accepts no bytes, host URL, credential, cookie, prompt text, or model-generated confirmation. Only the user's Save action can authorize a later exact-byte transfer; closing or ignoring the card does nothing. This tool never queues project suggestions, stores the attachment, creates a file reference, or changes trusted project state.",
+          "Use only when the host has an explicit secure capability to transfer the original attachment bytes after authorization, and identify the destination by its exact unique project name. Ordinary ChatGPT and Claude attachment requests do not have that capability: call open_alice_workspace with view=files instead so the human can select the exact local file inside Alice. This metadata preview accepts no bytes, host URL, credential, cookie, prompt text, or model-generated confirmation; it never stores the attachment or changes trusted project state. Only the user's Save action can authorize this exact legacy host transfer.",
         inputSchema: hostFileSaveOfferSchema,
         _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
         annotations: {
@@ -953,7 +1226,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
       {
         title: "Prepare one requested multi-attachment save",
         description:
-          "Use only after the user explicitly asks to save two to ten specific ChatGPT or Claude attachments to alice. Identify the destination by its exact unique project name; when only one project is accessible it may be omitted. Creates one immutable, complete metadata preview for an alice. Save all card. It accepts no bytes, host URLs, credentials, cookies, prompt text, or model-generated confirmation. Only the user's single Save all action can atomically authorize later per-file exact-byte transfers; closing or ignoring the card does nothing. Each transfer and security result remains independent so a failed file cannot erase or misreport a successful file.",
+          "Use only when the host has an explicit secure capability to transfer every original attachment byte stream after authorization, and identify the destination by its exact unique project name. Ordinary ChatGPT and Claude attachment requests do not have that capability: call open_alice_workspace with view=files instead so the human can select the exact local files inside Alice. This immutable metadata preview accepts no bytes, host URLs, credentials, cookies, prompt text, or model-generated confirmation; it never stores the attachments or changes trusted project state. Only the user's Save action can authorize this exact legacy host transfer.",
         inputSchema: hostFilesSaveOfferSchema,
         _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
         annotations: {
@@ -1802,7 +2075,11 @@ export async function createApp({
   });
 
   app.all("/mcp", authenticate, async (request, response) => {
-    const protocolServer = createProtocolServer(database, reviewUrl, fileStore);
+    const protocolServer = createProtocolServer(database, {
+      fileStore,
+      mcpPublicUrl: publicUrl,
+      reviewUrl,
+    });
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     response.on("close", () => {
       void transport.close();

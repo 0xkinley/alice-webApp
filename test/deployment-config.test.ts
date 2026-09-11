@@ -104,7 +104,7 @@ test("private-file infrastructure is retained, blocked public, scanned, and cred
   assert.equal(resources.MalwareProtectionPlan.Properties.Actions.Tagging.Status, "ENABLED");
   const cors = bucket.Properties.CorsConfiguration["Fn::If"][1].CorsRules[0];
   assert.deepEqual(cors.AllowedMethods, ["PUT"]);
-  assert.deepEqual(cors.AllowedOrigins, [{ Ref: "WebPublicUrl" }]);
+  assert.deepEqual(cors.AllowedOrigins, [{ Ref: "WebPublicUrl" }, { Ref: "McpPublicUrl" }]);
   assert.deepEqual(cors.ExposedHeaders, ["ETag", "x-amz-version-id"]);
   const lifecycle = bucket.Properties.LifecycleConfiguration.Rules;
   assert.ok(lifecycle.every(({ Prefix }) => Prefix === "staging/"));
@@ -132,7 +132,7 @@ test("private-file infrastructure is retained, blocked public, scanned, and cred
   );
 });
 
-test("Lambda storage roles are credential-free and MCP remains exact-version read-only", async () => {
+test("Lambda storage roles are credential-free and MCP writes only exact upload prefixes", async () => {
   const template = JSON.parse(await readFile(templatePath, "utf8"));
   const resources = template.Resources;
   const actionsFor = (resource) =>
@@ -141,13 +141,18 @@ test("Lambda storage roles are credential-free and MCP remains exact-version rea
     );
   const mcpActions = actionsFor(resources.McpExecutionRole);
   const webActions = actionsFor(resources.WebExecutionRole);
+  const mcpStatements = resources.McpExecutionRole.Properties.Policies[0].PolicyDocument.Statement;
   assert.equal(
     resources.McpExecutionRole.Properties.AssumeRolePolicyDocument.Statement[0].Principal.Service,
     "lambda.amazonaws.com",
   );
-  assert.equal(
-    mcpActions.some((action) => action.startsWith("s3:Put")),
-    false,
+  assert.equal(mcpActions.includes("s3:PutObject"), true);
+  assert.deepEqual(
+    mcpStatements.find(({ Sid }) => Sid === "UploadAppStagingAndVerifiedObjects").Resource,
+    [
+      { "Fn::Sub": "${PrivateFilesBucket.Arn}/staging/*" },
+      { "Fn::Sub": "${PrivateFilesBucket.Arn}/objects/*" },
+    ],
   );
   assert.ok(webActions.includes("s3:PutObject"));
   for (const actions of [mcpActions, webActions]) {

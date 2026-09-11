@@ -393,7 +393,7 @@
                     "x-amz-server-side-encryption"
                   ],
                   "AllowedMethods": ["PUT"],
-                  "AllowedOrigins": [{ "Ref": "WebPublicUrl" }],
+                  "AllowedOrigins": [{ "Ref": "WebPublicUrl" }, { "Ref": "McpPublicUrl" }],
                   "ExposedHeaders": ["ETag", "x-amz-version-id"],
                   "MaxAge": 600
                 }
@@ -1079,21 +1079,30 @@
         ],
         "Policies": [
           {
-            "PolicyName": "mcp-exact-version-read-only",
+            "PolicyName": "mcp-exact-version-file-access",
             "PolicyDocument": {
               "Version": "2012-10-17",
               "Statement": [
                 {
+                  "Sid": "UploadAppStagingAndVerifiedObjects",
+                  "Effect": "Allow",
+                  "Action": "s3:PutObject",
+                  "Resource": [
+                    { "Fn::Sub": "${PrivateFilesBucket.Arn}/staging/*" },
+                    { "Fn::Sub": "${PrivateFilesBucket.Arn}/objects/*" }
+                  ]
+                },
+                {
                   "Sid": "ObserveExactScanTag",
                   "Effect": "Allow",
                   "Action": ["s3:GetObjectTagging", "s3:GetObjectVersionTagging"],
-                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/objects/*" }
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
                 },
                 {
                   "Sid": "ReadExactCleanVersions",
                   "Effect": "Allow",
                   "Action": ["s3:GetObject", "s3:GetObjectVersion"],
-                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/objects/*" }
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
                 }
               ]
             }

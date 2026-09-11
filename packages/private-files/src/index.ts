@@ -144,6 +144,7 @@ export function createS3PrivateFileStore({
 }): PrivateFileStore {
   const client = new S3Client({ region });
   return {
+    uploadOrigins: [`https://${bucket}.s3.${region}.amazonaws.com`],
     async createSignedUpload({ key, mediaType, sha256, expiresInSeconds }) {
       const checksum = Buffer.from(sha256, "hex").toString("base64");
       const headers = {

@@ -46,6 +46,8 @@ export type FileScanStatus =
 export type ProviderScanResult = "pending" | "clean" | "threats_found" | "unsupported" | "failed";
 
 export interface PrivateFileStore {
+  /** Exact browser origins accepted by signed uploads; used only for MCP App CSP. */
+  uploadOrigins?: readonly string[];
   putObject(input: {
     key: string;
     bytes: Buffer;
@@ -582,6 +584,7 @@ export async function finalizeProjectFileUpload(
     intentId: string;
     storageVersionId: string;
     hostFileSaveOfferId?: string;
+    sourceHost?: string;
   },
 ) {
   const project = await projectScopeForUser(database, {
@@ -663,7 +666,7 @@ export async function finalizeProjectFileUpload(
     fileName: intent.display_name,
     claimedMediaType: intent.claimed_media_type,
     bytes: verified.bytes,
-    sourceHost: intent.host_file_source_host || "alice_web_direct",
+    sourceHost: intent.host_file_source_host || input.sourceHost || "alice_web_direct",
     ...(intent.replaces_reference_id ? { replacesReferenceId: intent.replaces_reference_id } : {}),
   });
   if (!uploaded) return undefined;
