@@ -925,6 +925,26 @@ function createSchema(database: DatabaseSync) {
 
     CREATE INDEX artifact_save_previews_expiry ON artifact_save_previews (expires_at);
 
+    CREATE TABLE save_confirmation_receipts (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      connection_workspace_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      save_kind TEXT NOT NULL CHECK (save_kind IN ('artifact', 'project_information')),
+      receipt_json TEXT NOT NULL CHECK (length(receipt_json) BETWEEN 2 AND 65536),
+      saved_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      FOREIGN KEY (connection_workspace_id, user_id, connection_id, client_id)
+        REFERENCES integration_connections(workspace_id, user_id, id, client_id),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX save_confirmation_receipts_checkpoint
+      ON save_confirmation_receipts (connection_id, project_id, saved_at DESC, id DESC);
+
     CREATE TABLE host_file_save_offer_authorities (
       id TEXT PRIMARY KEY,
       offer_id TEXT NOT NULL REFERENCES host_file_save_offers(id),
@@ -1566,6 +1586,18 @@ function createSchema(database: DatabaseSync) {
     BEFORE UPDATE ON artifact_save_previews
     BEGIN
       SELECT RAISE(ABORT, 'artifact save previews are immutable');
+    END;
+
+    CREATE TRIGGER save_confirmation_receipts_no_update
+    BEFORE UPDATE ON save_confirmation_receipts
+    BEGIN
+      SELECT RAISE(ABORT, 'save confirmation receipts are immutable');
+    END;
+
+    CREATE TRIGGER save_confirmation_receipts_no_delete
+    BEFORE DELETE ON save_confirmation_receipts
+    BEGIN
+      SELECT RAISE(ABORT, 'save confirmation receipts are immutable');
     END;
 
     CREATE TRIGGER host_file_save_offer_authorities_no_update

@@ -53,6 +53,7 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
     "alice_create_workspace_project",
     "alice_commit_capture_save",
     "alice_commit_artifact_save",
+    "alice_get_save_status",
   ]) {
     assert.deepEqual(byName[name]._meta.ui.visibility, ["app"]);
   }
@@ -89,6 +90,11 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   });
   assert.equal(saveResource.payload.result.contents[0].mimeType, "text/html;profile=mcp-app");
   assert.match(saveResource.payload.result.contents[0].text, /alice_commit_capture_save/);
+  assert.match(saveResource.payload.result.contents[0].text, /alice_get_save_status/);
+  assert.match(saveResource.payload.result.contents[0].text, /Choose what to save/);
+  assert.match(saveResource.payload.result.contents[0].text, /Save selected/);
+  assert.match(saveResource.payload.result.contents[0].text, /data-claim-index/);
+  assert.match(saveResource.payload.result.contents[0].text, /Confirmed receipt/);
   assert.match(saveResource.payload.result.contents[0].text, /alice_confirm_host_files_save/);
   assert.match(saveResource.payload.result.contents[0].text, /<button id=.?save/);
   assert.match(saveResource.payload.result.contents[0].text, /Save all/);
@@ -104,7 +110,7 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   assert.match(saveResource.payload.result.contents[0].text, /timeZoneName:.?short/);
   assert.doesNotMatch(saveResource.payload.result.contents[0].text, /dateStyle|timeStyle/);
   assert.doesNotMatch(saveResource.payload.result.contents[0].text, />Cancel</);
-  assert.doesNotMatch(saveResource.payload.result.contents[0].text, /state_key|<pre/i);
+  assert.doesNotMatch(saveResource.payload.result.contents[0].text, /<pre/i);
 });
 
 test("project discovery is governed by Alice permissions, not provider toggles", async () => {

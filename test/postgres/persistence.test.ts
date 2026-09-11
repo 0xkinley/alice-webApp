@@ -326,12 +326,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 22, filename: "022_project_default_contexts.sql" },
     { version: 23, filename: "023_oauth_consent_transactions.sql" },
     { version: 24, filename: "024_artifact_handoffs.sql" },
+    { version: 25, filename: "025_save_confirmation_receipts.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    24,
+    25,
   );
   await reopened.close();
 });
@@ -378,6 +379,26 @@ test("PostgreSQL preserves an exact artifact handoff and immutable version linea
     userId: owner.id,
   });
   assert.equal(saved.version, 1);
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM save_confirmation_receipts WHERE id = ?")
+        .get(first.preview.preview_id)
+    ).count,
+    1,
+  );
+  await assert.rejects(
+    database
+      .prepare("UPDATE save_confirmation_receipts SET receipt_json = ? WHERE id = ?")
+      .run("{}", first.preview.preview_id),
+    /immutable|permission denied/i,
+  );
+  await assert.rejects(
+    database
+      .prepare("DELETE FROM save_confirmation_receipts WHERE id = ?")
+      .run(first.preview.preview_id),
+    /immutable|permission denied/i,
+  );
 
   const found = await searchAliceArtifacts(database, {
     userId: owner.id,

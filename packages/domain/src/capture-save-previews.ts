@@ -2,6 +2,10 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { contextScopeForConnection, tenantScopeForConnection } from "./authorization.ts";
 import { saveCandidateUpdate } from "./candidate-updates.ts";
 import { projectDestinationForConnection } from "./project-routing.ts";
+import {
+  getLatestSaveCheckpoint,
+  recordSaveConfirmationReceipt,
+} from "./save-confirmation-receipts.ts";
 import { confirmCapturedUpdate, getCapturePreview } from "./trusted-state.ts";
 
 export const CAPTURE_SAVE_PREVIEW_LIFETIME_MS = 30 * 60 * 1_000;
@@ -105,6 +109,11 @@ export async function createCaptureSavePreview(
     target.contextId,
     exactPayload.candidate_claims,
   );
+  const lastSaved = await getLatestSaveCheckpoint(database, {
+    workspaceId: access.projectWorkspaceId,
+    projectId: target.projectId,
+    connectionId: input.connectionId,
+  });
   const previewId = `capture_save_preview_${randomUUID()}`;
   const authorityToken = `alice_save_${randomBytes(32).toString("base64url")}`;
   const now = input.now || new Date();
@@ -141,6 +150,7 @@ export async function createCaptureSavePreview(
     status: "awaiting_save",
     pre_save_state: "preview_only",
     trusted_state_changed: false,
+    last_saved: lastSaved || null,
     fallback_url: new URL(`/save-previews/${encodeURIComponent(previewId)}`, input.publicUrl).href,
   };
   const previewVersion = sha256(JSON.stringify(previewBase));
@@ -231,6 +241,31 @@ async function acceptedReceipt(database, capture, deduplicated: boolean) {
   };
 }
 
+async function persistCaptureReceipt(database, row, receipt, payload) {
+  return await recordSaveConfirmationReceipt(database, {
+    previewId: row.id,
+    workspaceId: row.workspace_id,
+    projectId: row.project_id,
+    userId: row.user_id,
+    connectionWorkspaceId: row.connection_workspace_id,
+    connectionId: row.connection_id,
+    clientId: row.client_id,
+    saveKind: "project_information",
+    savedAt: receipt.saved_at,
+    receipt: {
+      evidence_id: receipt.evidence_id,
+      accepted: receipt.accepted,
+      deduplicated: receipt.deduplicated,
+      selected_count: payload.candidate_claims.length,
+      selected_items: payload.candidate_claims.map((claim) => ({
+        state_key: claim.state_key,
+        summary: claim.summary,
+      })),
+      trusted_state_changed: true,
+    },
+  });
+}
+
 export async function commitCaptureSavePreview(
   database,
   input: {
@@ -239,6 +274,7 @@ export async function commitCaptureSavePreview(
     userId: string;
     authority: "mcp_app" | "web_session";
     authorityToken?: string;
+    selectedClaimIndices?: number[];
     publicUrl: string;
     now?: Date;
   },
@@ -276,7 +312,35 @@ export async function commitCaptureSavePreview(
           "The project access changed. Review a new exact Save card.",
         );
       }
-      const payload = JSON.parse(row.exact_payload_json);
+      const completePayload = JSON.parse(row.exact_payload_json);
+      const selectedClaimIndices =
+        input.selectedClaimIndices || completePayload.candidate_claims.map((_, index) => index);
+      if (
+        selectedClaimIndices.length === 0 ||
+        new Set(selectedClaimIndices).size !== selectedClaimIndices.length ||
+        selectedClaimIndices.some(
+          (index) => !Number.isInteger(index) || !completePayload.candidate_claims[index],
+        )
+      ) {
+        throw new CaptureSavePreviewUserError(
+          "The selected project items no longer match this exact Save card.",
+        );
+      }
+      const isPartial = selectedClaimIndices.length !== completePayload.candidate_claims.length;
+      const payload = {
+        ...completePayload,
+        summary: isPartial
+          ? `${selectedClaimIndices.length} selected project ${selectedClaimIndices.length === 1 ? "item" : "items"}`
+          : completePayload.summary,
+        candidate_claims: selectedClaimIndices.map(
+          (index) => completePayload.candidate_claims[index],
+        ),
+        ...(isPartial ? { source_note: undefined, source_context: undefined } : {}),
+      };
+      if (isPartial) {
+        delete payload.source_note;
+        delete payload.source_context;
+      }
       const currentReplacements = await replacementSnapshot(
         database,
         row.workspace_id,
@@ -284,7 +348,10 @@ export async function commitCaptureSavePreview(
         row.context_id,
         payload.candidate_claims,
       );
-      if (JSON.stringify(currentReplacements) !== row.replacement_snapshot_json) {
+      const expectedReplacements = JSON.parse(row.replacement_snapshot_json).filter((_, index) =>
+        selectedClaimIndices.includes(index),
+      );
+      if (JSON.stringify(currentReplacements) !== JSON.stringify(expectedReplacements)) {
         throw new CaptureSavePreviewUserError(
           "Saved context changed after this preview. Review a new exact Save card.",
         );
@@ -310,8 +377,10 @@ export async function commitCaptureSavePreview(
       };
       const statuses = captured.candidate_statuses.map(({ status }) => status);
       if (statuses.every((status) => status === "accepted")) {
+        const accepted = await acceptedReceipt(database, receiptInput, true);
+        const receipt = await persistCaptureReceipt(database, row, accepted, payload);
         await database.prepare("DELETE FROM capture_save_previews WHERE id = ?").run(row.id);
-        return acceptedReceipt(database, receiptInput, true);
+        return { ...accepted, ...receipt };
       }
       if (!statuses.every((status) => status === "pending")) {
         throw new CaptureSavePreviewUserError(
@@ -335,8 +404,14 @@ export async function commitCaptureSavePreview(
           "Saved context changed before confirmation. Review a new exact Save card.",
         );
       }
+      const accepted = await acceptedReceipt(
+        database,
+        receiptInput,
+        Boolean(captured.deduplicated),
+      );
+      const receipt = await persistCaptureReceipt(database, row, accepted, payload);
       await database.prepare("DELETE FROM capture_save_previews WHERE id = ?").run(row.id);
-      return acceptedReceipt(database, receiptInput, Boolean(captured.deduplicated));
+      return { ...accepted, ...receipt };
     },
     { isolation: "READ COMMITTED" },
   );

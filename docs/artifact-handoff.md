@@ -1,7 +1,7 @@
 # Artifact Handoff Contract
 
-Status: Accepted for Milestone 06  
-Decision date: 2026-09-10
+Status: Accepted for Milestone 06; compact selector/receipt amendment implemented in source
+Decision date: 2026-09-11
 
 ## Product boundary
 
@@ -46,7 +46,11 @@ ChatGPT and Claude receive the same available-project catalog for the same Alice
 
 Legacy project-context tools remain temporarily available for backwards compatibility while the private-alpha artifact loop is validated. New host examples and evaluation coverage use the four-tool artifact interface.
 
-The two Save tools only create short-lived preview records. They cannot create an artifact, version, accepted context, or trusted state. Only the authenticated human's exact `Save` action—through the embedded app or authenticated web fallback—commits the preview. Closing, ignoring, tampering with, or allowing a preview to expire saves nothing.
+The two Save tools only create short-lived preview records. They cannot create an artifact, version, accepted context, or trusted state. In the embedded MCP App, only the authenticated human's exact `Save selected` action commits the preview; the existing authenticated web fallback retains its exact `Save` action. Closing, ignoring, tampering with, deselecting the artifact in the app, or allowing a preview to expire saves nothing.
+
+The compact embedded Save surface presents a complete artifact as one selectable item with its exact content and handoff collapsed for optional inspection. `Save selected` still commits the entire immutable snapshot; it never selects individual paragraphs or silently converts an artifact into conversation summaries. Successful commits create an immutable, project-scoped durable receipt in the same transaction. Reopening the embedded app reauthorizes current access and restores the saved version, destination name, time, and exact artifact link instead of showing the deleted preview as expired. The receipt contains no second artifact body. A foreign, guessed, inaccessible, or conflicting-connection receipt reference discloses nothing. This amendment does not alter the website Change log or web Save fallback.
+
+Project-information selection is intentionally separate: one preview may contain multiple bounded candidate claims and commit only the human-selected subset. File attachment confirmation and byte transfer also remain separate. The host may choose the appropriate contract, but Alice does not claim that host classification is verified or that the host supplied a complete conversation history.
 
 ## Artifact and version model
 

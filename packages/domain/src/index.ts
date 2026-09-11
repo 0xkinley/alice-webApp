@@ -18,6 +18,12 @@ export {
   createCaptureSavePreview,
   getCaptureSavePreview,
 } from "./capture-save-previews.ts";
+export {
+  getLatestSaveCheckpoint,
+  getSaveConfirmationReceipt,
+  recordSaveConfirmationReceipt,
+} from "./save-confirmation-receipts.ts";
+export type { SaveConfirmationKind } from "./save-confirmation-receipts.ts";
 export { suggestProjectUpdatesFromFile } from "./file-candidate-suggestions.ts";
 export {
   activeTargetForConnection,

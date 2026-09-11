@@ -122,6 +122,24 @@ export const commitAliceCaptureSaveSchema = z
       .toLowerCase()
       .regex(/^[0-9a-f]{64}$/),
     authority_token: saveAuthorityTokenSchema,
+    selected_claim_indices: z
+      .array(
+        z
+          .number()
+          .int()
+          .min(0)
+          .max(captureValidationLimits.candidateClaims - 1),
+      )
+      .min(1)
+      .max(captureValidationLimits.candidateClaims)
+      .refine((values) => new Set(values).size === values.length, "Selections must be unique.")
+      .optional(),
+  })
+  .strict();
+
+export const getAliceSaveStatusSchema = z
+  .object({
+    preview_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
   })
   .strict();
 

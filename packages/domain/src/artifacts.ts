@@ -2,6 +2,10 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import { appendAuditEvent } from "./audit.ts";
 import { projectScopeForConnection, projectScopeForUser } from "./authorization.ts";
 import { listProjects } from "./project-context.ts";
+import {
+  getLatestSaveCheckpoint,
+  recordSaveConfirmationReceipt,
+} from "./save-confirmation-receipts.ts";
 
 export const ARTIFACT_SAVE_PREVIEW_LIFETIME_MS = 30 * 60 * 1_000;
 
@@ -199,6 +203,11 @@ export async function createArtifactSavePreview(
   const now = input.now || new Date();
   const createdAt = now.toISOString();
   const expiresAt = now.getTime() + ARTIFACT_SAVE_PREVIEW_LIFETIME_MS;
+  const lastSaved = await getLatestSaveCheckpoint(database, {
+    workspaceId: access.projectWorkspaceId,
+    projectId: access.projectId,
+    connectionId: input.connectionId,
+  });
   const previewBase = {
     contract_version: "alice_save_card_v1",
     card_type: "artifact",
@@ -222,6 +231,7 @@ export async function createArtifactSavePreview(
     status: "awaiting_save",
     pre_save_state: "preview_only",
     trusted_state_changed: false,
+    last_saved: lastSaved || null,
     fallback_url: new URL(
       `/artifact-save-previews/${encodeURIComponent(previewId)}`,
       input.publicUrl,
@@ -309,6 +319,29 @@ function artifactReceipt(
   };
 }
 
+async function persistArtifactReceipt(database, row, receipt, title: string) {
+  return await recordSaveConfirmationReceipt(database, {
+    previewId: row.id,
+    workspaceId: row.workspace_id,
+    projectId: row.project_id,
+    userId: row.user_id,
+    connectionWorkspaceId: row.connection_workspace_id,
+    connectionId: row.connection_id,
+    clientId: row.client_id,
+    saveKind: "artifact",
+    savedAt: receipt.saved_at,
+    receipt: {
+      artifact_id: receipt.artifact_id,
+      version_id: receipt.version_id,
+      version: receipt.version,
+      title,
+      source: receipt.source,
+      selected_count: 1,
+      trusted_state_changed: true,
+    },
+  });
+}
+
 export async function commitArtifactSavePreview(
   database,
   input: {
@@ -368,14 +401,16 @@ export async function commitArtifactSavePreview(
           "That artifact retry key was already used for different content.",
         );
       }
-      await database.prepare("DELETE FROM artifact_save_previews WHERE id = ?").run(row.id);
-      return artifactReceipt(
+      const duplicateReceipt = artifactReceipt(
         row,
         duplicate.artifact_id,
         duplicate.version_id,
         Number(duplicate.version),
         duplicate.saved_at,
       );
+      const receipt = await persistArtifactReceipt(database, row, duplicateReceipt, payload.title);
+      await database.prepare("DELETE FROM artifact_save_previews WHERE id = ?").run(row.id);
+      return { ...duplicateReceipt, ...receipt };
     }
 
     const current = row.artifact_id
@@ -463,8 +498,10 @@ export async function commitArtifactSavePreview(
         source_provider: row.source_provider,
       },
     });
+    const artifactSaveReceipt = artifactReceipt(row, artifactId, versionId, version, savedAt);
+    const receipt = await persistArtifactReceipt(database, row, artifactSaveReceipt, payload.title);
     await database.prepare("DELETE FROM artifact_save_previews WHERE id = ?").run(row.id);
-    return artifactReceipt(row, artifactId, versionId, version, savedAt);
+    return { ...artifactSaveReceipt, ...receipt };
   });
 }
 

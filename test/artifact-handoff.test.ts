@@ -140,6 +140,18 @@ test("ChatGPT saves once and Claude retrieves, revises, and returns the current 
   assert.equal(created.payload.result.structuredContent.status, "saved");
   assert.equal(created.payload.result.structuredContent.version, 1);
   const artifactId = created.payload.result.structuredContent.artifact_id;
+  assert.equal(
+    created.payload.result.structuredContent.contract_version,
+    "alice_save_confirmation_receipt_v1",
+  );
+
+  const restored = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "alice_get_save_status",
+    arguments: { preview_id: preview.preview_id },
+  });
+  assert.equal(restored.payload.result.structuredContent.status, "saved");
+  assert.equal(restored.payload.result.structuredContent.artifact_id, artifactId);
+  assert.match(restored.payload.result.structuredContent.view_url, /\/artifacts\//);
 
   const search = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
     name: "search_alice",

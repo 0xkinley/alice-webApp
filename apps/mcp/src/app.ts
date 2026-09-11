@@ -29,6 +29,7 @@ import {
   decideHostFileSaveOffers,
   finalizeHostFileSaveTransfer,
   getAliceArtifact,
+  getSaveConfirmationReceipt,
   getProjectContext,
   HostFileSaveOfferUserError,
   listProjects,
@@ -55,6 +56,7 @@ import {
   finalizeHostFileTransferSchema,
   getActiveContextSchema,
   getArtifactSchema,
+  getAliceSaveStatusSchema,
   getProjectContextOutputSchema,
   getProjectContextSchema,
   hostFileSaveOfferSchema,
@@ -613,7 +615,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     {
       title: "Save work to alice.",
       description:
-        "Use only when the user explicitly asks to save work to an exact alice. project. Choose save_type=artifact when another AI needs the complete work product; preserve the full artifact and supply its current handoff state rather than a conversation summary. Choose project_information for a decision, memory, preference, or project update that is not an artifact. ChatGPT and Claude may select only the predefined category and tag values in the schema. This call creates only an exact short-lived alice. Save card; nothing becomes saved or trusted until the authenticated human chooses Save.",
+        "Use only when the user explicitly asks to save work to an exact alice. project. Choose save_type=artifact when another AI needs the complete work product; preserve the full artifact and supply its current handoff state rather than a conversation summary. Choose project_information for decisions, memories, preferences, or project updates that are not an artifact. Group related conversation material into a small bounded set of independently selectable candidate claims instead of creating one item per message. ChatGPT and Claude may select only the predefined category and tag values in the schema. This call creates only an exact short-lived Alice selector; nothing becomes saved or trusted until the authenticated human chooses Save selected.",
       inputSchema: saveToAliceSchema,
       _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
       annotations: {
@@ -665,7 +667,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           content: [
             {
               type: "text",
-              text: `Nothing has been saved. Present the exact alice. Save card for the user to decide personally. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
+              text: `Nothing has been saved. Present Alice's compact selector with ${result.preview.payload.candidate_claims.length} host-presented project item${result.preview.payload.candidate_claims.length === 1 ? "" : "s"}; the user can choose the exact items and commit them once with Save selected. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
             },
           ],
           structuredContent: withoutInternalContextFields(result.preview),
@@ -694,7 +696,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         content: [
           {
             type: "text",
-            text: `Nothing has been saved. Present the exact alice. artifact Save card for the user to decide personally. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
+            text: `Nothing has been saved. Present Alice's compact selector for this complete artifact; one Save selected action creates the immutable artifact version without changing its artifact or handoff content. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
           },
         ],
         structuredContent: withoutInternalContextFields(result.preview),
@@ -760,7 +762,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         content: [
           {
             type: "text",
-            text: `Nothing has been saved. Present the exact alice. version Save card for the user to decide personally. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
+            text: `Nothing has been saved. Present Alice's compact selector for this complete artifact version; one Save selected action creates the immutable version without changing its artifact or handoff content. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
           },
         ],
         structuredContent: withoutInternalContextFields(result.preview),
@@ -808,13 +810,56 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         if (!result) {
           return { content: [{ type: "text", text: "Save preview unavailable." }], isError: true };
         }
-        return { content: [], structuredContent: result };
+        const receipt = await getSaveConfirmationReceipt(database, {
+          previewId: input.preview_id,
+          userId: authenticatedUserId(context),
+          connectionId: authenticatedConnectionId(context),
+          publicUrl,
+        });
+        return { content: [], structuredContent: withoutInternalContextFields(receipt || result) };
       } catch (error) {
         if (error instanceof ArtifactSaveUserError) {
           return { content: [{ type: "text", text: error.message }], isError: true };
         }
         throw error;
       }
+    },
+  );
+
+  server.registerTool(
+    "alice_get_save_status",
+    {
+      title: "Restore an alice. save receipt",
+      description:
+        "App-only receipt lookup used to restore the durable saved state of an exact Alice Save card.",
+      inputSchema: getAliceSaveStatusSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["app"], SAVE_APP_URI),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
+        return {
+          content: [{ type: "text", text: "The connection does not grant mcp:write." }],
+          isError: true,
+        };
+      }
+      const receipt = await getSaveConfirmationReceipt(database, {
+        previewId: input.preview_id,
+        userId: authenticatedUserId(context),
+        connectionId: authenticatedConnectionId(context),
+        publicUrl,
+      });
+      return {
+        content: [],
+        structuredContent: receipt
+          ? withoutInternalContextFields(receipt)
+          : { contract_version: "alice_save_confirmation_status_v1", status: "not_saved" },
+      };
     },
   );
 
@@ -1635,7 +1680,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
         content: [
           {
             type: "text",
-            text: `Nothing has been saved. Present the exact alice. Save card for the user to decide personally. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
+            text: `Nothing has been saved. Present Alice's compact selector with ${result.preview.payload.candidate_claims.length} host-presented project item${result.preview.payload.candidate_claims.length === 1 ? "" : "s"}; the user can choose the exact items and commit them once with Save selected. If the host cannot render it, use the authenticated fallback: ${result.preview.fallback_url}`,
           },
         ],
         structuredContent: withoutInternalContextFields(result.preview),
@@ -1655,7 +1700,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
     {
       title: "Save the exact project preview",
       description:
-        "App-only authenticated human Save action. Atomically creates evidence and accepted project information for the exact unexpired preview.",
+        "App-only authenticated human Save selected action. Atomically creates evidence and accepted project information for only the selected exact items in the unexpired preview.",
       inputSchema: commitAliceCaptureSaveSchema,
       _meta: oauthAppToolMeta("mcp:write", ["app"], SAVE_APP_URI),
       annotations: {
@@ -1678,13 +1723,25 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           previewVersion: input.preview_version,
           authorityToken: input.authority_token,
           authority: "mcp_app",
+          ...(input.selected_claim_indices
+            ? { selectedClaimIndices: input.selected_claim_indices }
+            : {}),
           publicUrl,
           userId: authenticatedUserId(context),
         });
         if (!result) {
           return { content: [{ type: "text", text: "Save preview unavailable." }], isError: true };
         }
-        return { content: [], structuredContent: withoutInternalContextFields(result) };
+        const receipt = await getSaveConfirmationReceipt(database, {
+          previewId: input.preview_id,
+          userId: authenticatedUserId(context),
+          connectionId: authenticatedConnectionId(context),
+          publicUrl,
+        });
+        return {
+          content: [],
+          structuredContent: withoutInternalContextFields(receipt || result),
+        };
       } catch (error) {
         if (error instanceof CaptureSavePreviewUserError) {
           return { content: [{ type: "text", text: error.message }], isError: true };
