@@ -375,7 +375,7 @@ function createProtocolServer(
     reviewUrl: string;
   },
 ) {
-  const server = new McpServer({ name: "alice-mcp", version: "0.9.1" });
+  const server = new McpServer({ name: "alice-mcp", version: "0.9.2" });
   const resourceMeta = appResourceMeta({ fileStore, reviewUrl });
   const publicUrl = reviewUrl;
 
@@ -881,7 +881,7 @@ function createProtocolServer(
     {
       title: "Save work to alice.",
       description:
-        "Use only when the user explicitly asks to save work to an exact alice. project. Choose save_type=artifact when another AI needs the complete work product; preserve the full artifact and supply its current handoff state rather than a conversation summary. Choose project_information for decisions, memories, preferences, or project updates that are not an artifact. Group related conversation material into a small bounded set of independently selectable candidate claims instead of creating one item per message. ChatGPT and Claude may select only the predefined category and tag values in the schema. This call creates only an exact short-lived Alice selector; nothing becomes saved or trusted until the authenticated human chooses Save selected.",
+        "Use only when the user explicitly asks to save work to an exact alice. project. Choose save_type=artifact when another AI needs the complete work product; preserve the full artifact and supply its current handoff state rather than a conversation summary. Never retry an artifact as project_information after an artifact validation error or silently downgrade the requested save type. Choose project_information only for decisions, memories, preferences, or project updates that are not an artifact. Group related conversation material into a small bounded set of independently selectable candidate claims instead of creating one item per message. ChatGPT and Claude may select only the predefined category and tag values in the schema. If a host serializes nested tool values as strings, tags may be the exact JSON-encoded canonical array and handoff may be the exact JSON-encoded complete object; Alice parses and strictly validates those compatibility forms. This call creates only an exact short-lived Alice selector; nothing becomes saved or trusted until the authenticated human chooses Save selected.",
       inputSchema: saveToAliceSchema,
       _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
       annotations: {
@@ -982,7 +982,7 @@ function createProtocolServer(
     {
       title: "Save a new alice. artifact version",
       description:
-        "Use only when the user explicitly asks to save a revised version of an exact alice. artifact. Supply the complete new artifact and a complete current handoff snapshot; do not send only a diff or replay old history. Category and tags must come from alice.'s predefined schema values. This call creates only an exact Save card. The new current version exists only after the authenticated human chooses Save.",
+        "Use only when the user explicitly asks to save a revised version of an exact alice. artifact. Supply the complete new artifact and a complete current handoff snapshot; do not send only a diff or replay old history, and never fall back to project information after a validation error. Category and tags must come from alice.'s predefined schema values. If a host serializes nested tool values as strings, tags may be the exact JSON-encoded canonical array and handoff may be the exact JSON-encoded complete object; Alice parses and strictly validates those compatibility forms. This call creates only an exact Save card. The new current version exists only after the authenticated human chooses Save.",
       inputSchema: saveArtifactVersionSchema,
       _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
       annotations: {

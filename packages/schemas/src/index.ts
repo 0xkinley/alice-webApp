@@ -377,7 +377,33 @@ const handoffItemSchema = z
   .min(1)
   .max(artifactValidationLimits.handoffItemCharacters);
 
-export const artifactHandoffSchema = z
+function boundedJsonCompatibilityString(label: string, maximumBytes: number) {
+  return z
+    .string()
+    .trim()
+    .min(2)
+    .max(maximumBytes)
+    .refine(
+      (value) => Buffer.byteLength(value, "utf8") <= maximumBytes,
+      `${label} JSON exceeds ${maximumBytes} UTF-8 bytes.`,
+    )
+    .describe(
+      `Compatibility form for hosts that serialize nested tool arguments as strings: an exact JSON-encoded ${label}.`,
+    )
+    .transform((value, context) => {
+      try {
+        return JSON.parse(value);
+      } catch {
+        context.addIssue({
+          code: "custom",
+          message: `${label} must be valid JSON when supplied as a string.`,
+        });
+        return z.NEVER;
+      }
+    });
+}
+
+const artifactHandoffObjectSchema = z
   .object({
     goal: z.string().trim().min(1).max(2_000),
     summary: z.string().trim().min(1).max(2_000).optional(),
@@ -406,6 +432,18 @@ export const artifactHandoffSchema = z
   })
   .strict();
 
+export const artifactHandoffSchema = z
+  .union([
+    artifactHandoffObjectSchema,
+    boundedJsonCompatibilityString(
+      "artifact handoff object",
+      artifactValidationLimits.payloadBytes,
+    ).pipe(artifactHandoffObjectSchema),
+  ])
+  .describe(
+    "Complete current handoff object. A host that cannot preserve nested tool values may send the exact object as a JSON-encoded string.",
+  );
+
 const artifactContentSchema = z
   .string()
   .min(1)
@@ -418,15 +456,26 @@ function uniqueCanonicalTags(tags: readonly string[]): boolean {
   return new Set(tags).size === tags.length;
 }
 
+const canonicalArtifactTagsSchema = z
+  .array(z.enum(aliceCanonicalTags))
+  .max(12)
+  .refine(uniqueCanonicalTags, "Artifact tags must be unique canonical Alice tags.");
+
+const artifactTagsSchema = z
+  .union([
+    canonicalArtifactTagsSchema,
+    boundedJsonCompatibilityString("artifact tag array", 4_096).pipe(canonicalArtifactTagsSchema),
+  ])
+  .describe(
+    "Alice canonical tags. A host that cannot preserve nested tool values may send the exact array as a JSON-encoded string.",
+  );
+
 const artifactSnapshotSchema = z
   .object({
     title: z.string().trim().min(1).max(200),
     artifact_type: z.enum(aliceArtifactTypes),
     category: z.enum(aliceArtifactCategories),
-    tags: z
-      .array(z.enum(aliceCanonicalTags))
-      .max(12)
-      .refine(uniqueCanonicalTags, "Artifact tags must be unique canonical Alice tags."),
+    tags: artifactTagsSchema,
     content: artifactContentSchema,
     handoff: artifactHandoffSchema,
   })

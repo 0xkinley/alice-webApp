@@ -225,6 +225,105 @@ test("ChatGPT saves once and Claude retrieves, revises, and returns the current 
   assert.doesNotMatch(changeHtml, /content_sha256|tags_json|<pre/i);
 });
 
+test("Claude JSON-encoded nested artifact fields normalize before the same strict save validation", async () => {
+  const original = snapshot({
+    content: "A complete script preserved through Claude's nested-string compatibility path.",
+    idempotencyKey: "claude-json-artifact-001",
+    title: "Claude compatibility artifact",
+  });
+  const prepared = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_to_alice",
+    arguments: {
+      ...original,
+      save_type: "artifact",
+      tags: JSON.stringify(original.tags),
+      handoff: JSON.stringify(original.handoff),
+    },
+  });
+  assert.equal(prepared.payload.error, undefined);
+  assert.equal(prepared.payload.result.structuredContent.status, "awaiting_save");
+  assert.deepEqual(prepared.payload.result.structuredContent.artifact.tags, original.tags);
+  assert.deepEqual(prepared.payload.result.structuredContent.artifact.handoff, original.handoff);
+  assert.equal(prepared.payload.result.structuredContent.source_host, "claude");
+
+  const created = await commit(claudeToken, prepared);
+  assert.equal(created.payload.result.structuredContent.status, "saved");
+  const artifactId = created.payload.result.structuredContent.artifact_id;
+
+  const revision = snapshot({
+    content: `${original.content} The revised version remains complete.`,
+    idempotencyKey: "claude-json-artifact-002",
+    title: original.title,
+  });
+  const preparedRevision = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: artifactId,
+      ...revision,
+      tags: JSON.stringify(revision.tags),
+      handoff: JSON.stringify(revision.handoff),
+    },
+  });
+  assert.equal(preparedRevision.payload.error, undefined);
+  assert.equal(preparedRevision.payload.result.structuredContent.artifact.version, 2);
+  assert.deepEqual(preparedRevision.payload.result.structuredContent.artifact.tags, revision.tags);
+  assert.deepEqual(
+    preparedRevision.payload.result.structuredContent.artifact.handoff,
+    revision.handoff,
+  );
+  const savedRevision = await commit(claudeToken, preparedRevision);
+  assert.equal(savedRevision.payload.result.structuredContent.status, "saved");
+  assert.equal(savedRevision.payload.result.structuredContent.version, 2);
+
+  const previewsBeforeInvalidCompatibilityInput = database
+    .prepare("SELECT COUNT(*) AS count FROM artifact_save_previews")
+    .get().count;
+
+  const invalidTag = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_to_alice",
+    arguments: {
+      ...original,
+      idempotency_key: "claude-json-invalid-tag",
+      save_type: "artifact",
+      tags: JSON.stringify(["host-invented-tag"]),
+      handoff: JSON.stringify(original.handoff),
+    },
+  });
+  assert.ok(invalidTag.payload.error || invalidTag.payload.result.isError);
+
+  const malformedHandoff = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_to_alice",
+    arguments: {
+      ...original,
+      idempotency_key: "claude-json-invalid-handoff",
+      save_type: "artifact",
+      tags: JSON.stringify(original.tags),
+      handoff: JSON.stringify({ ...original.handoff, unapproved_field: "must fail closed" }),
+    },
+  });
+  assert.ok(malformedHandoff.payload.error || malformedHandoff.payload.result.isError);
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM artifact_save_previews").get().count,
+    previewsBeforeInvalidCompatibilityInput,
+  );
+});
+
+test("artifact tool schemas advertise the bounded nested-string compatibility path without downgrade", async () => {
+  const listed = await callMcp(mcpBaseUrl, claudeToken, "tools/list");
+  for (const name of ["save_to_alice", "save_artifact_version"]) {
+    const tool = listed.payload.result.tools.find((candidate) => candidate.name === name);
+    assert.ok(tool);
+    assert.match(tool.description, /never (?:retry|fall back)/i);
+    const inputSchema = JSON.stringify(tool.inputSchema);
+    assert.match(inputSchema, /Compatibility form for hosts/);
+    assert.match(inputSchema, /JSON-encoded artifact tag array/);
+    assert.match(inputSchema, /JSON-encoded artifact handoff object/);
+    assert.match(inputSchema, /"type":"array"/);
+    assert.match(inputSchema, /"type":"object"/);
+    assert.match(inputSchema, /"type":"string"/);
+  }
+});
+
 test("canonical tags and exact project routing prevent host-invented taxonomy or broad retrieval", async () => {
   const invented = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
     name: "save_to_alice",
