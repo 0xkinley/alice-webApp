@@ -385,6 +385,10 @@ test("one Save all preview atomically authorizes an exact multi-file manifest", 
     confirmed.payload.result.structuredContent.files.map((file) => file.status),
     ["save_file_only", "save_file_only"],
   );
+  assert.deepEqual(
+    confirmed.payload.result.structuredContent.files.map((file) => file.confirmation_url),
+    card.files.map((file) => file.confirmation_url),
+  );
   assert.equal(
     database
       .prepare("SELECT COUNT(*) AS count FROM host_file_save_decisions WHERE offer_id IN (?, ?)")
@@ -412,6 +416,10 @@ test("one Save all preview atomically authorizes an exact multi-file manifest", 
   );
   assert.equal(retried.payload.result.structuredContent.status, "save_file_only");
   assert.equal(retried.payload.result._meta["alice/saveAuthority"], undefined);
+  assert.match(retried.payload.result.content[0].text, /Alice file page:/);
+  for (const file of card.files) {
+    assert.match(retried.payload.result.content[0].text, new RegExp(file.confirmation_url));
+  }
   assert.equal(
     database.prepare("SELECT COUNT(*) AS count FROM host_file_save_offers").get().count,
     before.offers + 2,

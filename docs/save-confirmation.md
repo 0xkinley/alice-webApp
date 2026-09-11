@@ -30,7 +30,7 @@ The embedded card formats `created_at` and `expires_at` with the host browser's 
 
 ## Attachment transfer states
 
-An attachment preview distinguishes human confirmation from byte transfer. Before the click it says `Waiting for confirmation`; after `Save` it says `Transfer authorized` and `Waiting for transfer`, never `Saved`. The host may transfer the exact bytes through its supported capability. When it cannot, the same exact preview offers an alice.-controlled browser fallback with the destination project locked and the expected filename visible.
+An attachment preview distinguishes human confirmation from byte transfer. Before the click it says `Waiting for confirmation`; after `Save` it says `Transfer authorized` and `Waiting for transfer`, never `Saved`. The host may transfer the exact bytes through its supported capability. When it cannot, the confirmed embedded card exposes one clearly named Alice upload action per exact file. Each action opens the existing authenticated, pre-targeted browser fallback with the destination project locked and the expected filename visible; the user selects that exact file before scanning begins.
 
 User-facing transfer progress uses only truthful states: `Waiting for transfer`, `Uploading`, `Scanning`, `Available`, `Transfer unavailable`, and `Scan failed`. `Available` appears only after exact name/type/size/hash validation, immutable storage, both clean private-file security results, authorization revalidation, and project-reference creation. The file remains an untrusted reference and does not become accepted project information merely because it became available.
 

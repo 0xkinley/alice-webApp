@@ -93,6 +93,14 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   assert.match(saveResource.payload.result.contents[0].text, /<button id=.?save/);
   assert.match(saveResource.payload.result.contents[0].text, /Save all/);
   assert.match(saveResource.payload.result.contents[0].text, /Save these files/);
+  assert.match(saveResource.payload.result.contents[0].text, /Continue the exact file transfer/);
+  assert.match(saveResource.payload.result.contents[0].text, /data-file-url/);
+  assert.match(saveResource.payload.result.contents[0].text, /openLink/);
+  assert.match(saveResource.payload.result.contents[0].text, /Authorization alone does not copy/);
+  assert.match(
+    saveResource.payload.result.contents[0].text,
+    /authorized\. Each file becomes available/,
+  );
   assert.match(saveResource.payload.result.contents[0].text, /timeZoneName:.?short/);
   assert.doesNotMatch(saveResource.payload.result.contents[0].text, /dateStyle|timeStyle/);
   assert.doesNotMatch(saveResource.payload.result.contents[0].text, />Cancel</);

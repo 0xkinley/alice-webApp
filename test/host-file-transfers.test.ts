@@ -518,6 +518,116 @@ test("batch transfers report each file independently and preserve a successful s
   assert.match(status.payload.result.content[0].text, /saved only when.*completed/i);
 });
 
+test("a confirmed PNG batch completes through every exact browser fallback", async () => {
+  const pngFixture = (marker: number) => {
+    const bytes = Buffer.alloc(24);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes);
+    Buffer.from("IHDR").copy(bytes, 12);
+    bytes[23] = marker;
+    return bytes;
+  };
+  const fixtures = [
+    { name: "claude-first.png", bytes: pngFixture(1) },
+    { name: "claude-second.png", bytes: pngFixture(2) },
+  ].map((fixture) => ({
+    ...fixture,
+    sha256: createHash("sha256").update(fixture.bytes).digest("hex"),
+  }));
+  const batchArguments = {
+    project_id: "Private project",
+    files: fixtures.map((fixture) => ({
+      file_name: fixture.name,
+      declared_media_type: "image/png",
+      declared_byte_size: fixture.bytes.length,
+      declared_sha256: fixture.sha256,
+    })),
+    conversation_reference: "conversation.claude-png-browser-batch",
+    idempotency_key: "claude-png-browser-batch-001",
+  };
+  const offered = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "offer_host_files_save",
+    arguments: batchArguments,
+  });
+  const card = offered.payload.result.structuredContent;
+  const confirmed = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "alice_confirm_host_files_save",
+    arguments: {
+      offers: card.files.map((file) => ({
+        offer_id: file.offer_id,
+        preview_version: file.preview_version,
+      })),
+      preview_version: card.preview_version,
+      authority_token: offered.payload.result._meta["alice/saveAuthority"].token,
+    },
+  });
+  assert.equal(confirmed.payload.result.structuredContent.status, "save_file_only");
+
+  store.stagingScan = "clean";
+  store.finalScan = "clean";
+  for (const [index, fixture] of fixtures.entries()) {
+    const offer = confirmed.payload.result.structuredContent.files[index];
+    const started = await fetch(`${offer.confirmation_url}/direct/intents`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json", origin: publicUrl },
+      body: JSON.stringify({
+        file_name: fixture.name,
+        claimed_media_type: "image/png",
+        byte_size: fixture.bytes.length,
+        sha256: fixture.sha256,
+        idempotency_key: `claude-png-browser-transfer-${index + 1}`,
+      }),
+    });
+    assert.equal(started.status, 201, await started.clone().text());
+    const intent = await started.json();
+    assert.equal(intent.transfer_path, "browser_fallback");
+    const versionId = store.stage(fixture.bytes, `claude-png-staging-version-${index + 1}`);
+    const finalized = await fetch(
+      `${offer.confirmation_url}/direct/intents/${intent.intent_id}/finalize`,
+      {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json", origin: publicUrl },
+        body: JSON.stringify({ storage_version_id: versionId }),
+      },
+    );
+    assert.equal(finalized.status, 201, await finalized.clone().text());
+    assert.equal((await finalized.json()).status, "completed");
+
+    const completedPage = await fetch(offer.confirmation_url, { headers: { cookie } });
+    const completedHtml = await completedPage.text();
+    assert.match(completedHtml, /<h2>Available<\/h2>/);
+    assert.match(completedHtml, /Both security scans passed/);
+  }
+
+  const status = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "offer_host_files_save",
+    arguments: batchArguments,
+  });
+  assert.deepEqual(
+    status.payload.result.structuredContent.files.map((file) => file.transfer.status),
+    ["completed", "completed"],
+  );
+  const context = await callMcp(mcpBaseUrl, accessToken, "tools/call", {
+    name: "get_project_context",
+    arguments: {
+      project_id: "Private project",
+      task: "Verify both confirmed PNG files are available",
+      context_budget: 8_000,
+    },
+  });
+  const names = context.payload.result.structuredContent.file_artifacts.map(
+    (file) => file.display_name,
+  );
+  assert.ok(names.includes("claude-first.png"));
+  assert.ok(names.includes("claude-second.png"));
+
+  const filesPage = await fetch(`${webBaseUrl}/projects/${identity.project_id}/files`, {
+    headers: { cookie },
+  });
+  const filesHtml = await filesPage.text();
+  assert.match(filesHtml, /claude-first\.png/);
+  assert.match(filesHtml, /claude-second\.png/);
+});
+
 test("the alice.-controlled fallback is exact-origin, pre-targeted, and scan-gated", async () => {
   const bytes = Buffer.from("# Browser fallback\nProvider attachment transfer is unavailable.\n");
   const { receipt, sha256 } = await createOffer(bytes, "browser-fallback", "save_file_only");

@@ -947,7 +947,7 @@ function createProtocolServer(database, publicUrl, fileStore: PrivateFileStore |
           const fileSummary = result.files
             .map(
               (file, index) =>
-                `${index + 1}. ${file.name} — ${file.declared_media_type || "type verified after transfer"}, ${file.declared_byte_size === null ? "size verified after transfer" : `${file.declared_byte_size} bytes`}, from ${result.source_host}, to ${result.destination.project_name}; authorization ${file.status}, ${file.transfer ? `transfer ${file.transfer.status}` : "transfer not started"}.${result.status === "awaiting_save" ? ` Authenticated fallback: ${file.confirmation_url}` : ""}`,
+                `${index + 1}. ${file.name} — ${file.declared_media_type || "type verified after transfer"}, ${file.declared_byte_size === null ? "size verified after transfer" : `${file.declared_byte_size} bytes`}, from ${result.source_host}, to ${result.destination.project_name}; authorization ${file.status}, ${file.transfer ? `transfer ${file.transfer.status}` : "transfer not started"}. Alice file page: ${file.confirmation_url}`,
             )
             .join("\n");
           return {
