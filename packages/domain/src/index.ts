@@ -5,9 +5,11 @@ export {
   commitArtifactSavePreview,
   createArtifactSavePreview,
   getAliceArtifact,
+  getProjectArtifact,
   getArtifactSavePreview,
   listProjectArtifactActivity,
   searchAliceArtifacts,
+  searchProjectArtifacts,
 } from "./artifacts.ts";
 export {
   CAPTURE_SAVE_PREVIEW_LIFETIME_MS,

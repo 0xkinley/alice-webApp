@@ -70,7 +70,13 @@ The alpha vocabulary is intentionally small. It can be revised from observed use
 
 Search uses exact project permission scope plus normal deterministic matching across title, summary, goal, category, type, and canonical tags. Filters for timeline, category, tag, source, artifact type, and result limit combine. No semantic inference, embedding lookup, or hidden model call occurs.
 
-Custom date ranges and unified search over legacy memories/decisions are follow-on search refinements. The first private-alpha handoff proves complete artifact portability before broadening search UX.
+The authenticated website exposes the same boundary as a separate project `Artifacts` tab. Its compact browser provides search plus four controlled filters: category, tag, source AI, and time period. Artifact type remains visible on results and available to the MCP search contract, but is intentionally not another website control. Website search queries only current-version metadata and does not load or render full artifact bodies. Each result links to one artifact detail route; that separate request loads the complete selected snapshot and its lightweight immutable history. The current snapshot is the default, and an explicit positive version query selects one exact older snapshot.
+
+Website list, search, current detail, and older-version reads independently reauthorize the signed-in user's current project membership. An archived project, ended membership, foreign artifact, unknown artifact, guessed project/artifact pair, or unavailable version returns the same content-free unavailable page. No title, count, source, version, timestamp, or project name is disclosed on denial.
+
+Artifact content is rendered only after HTML escaping, preserving its text without interpreting stored markup or instructions. Handoff fields use the shared human-readable renderer. The page states that the source AI generated the material and that an authenticated human saved the exact snapshot; this preserves provenance without claiming that alice. verified the content or its assertions. Uploaded Files retain their own tab, object-storage, scan, preview, download, and lifecycle controls and never appear as artifacts merely because they were uploaded.
+
+Artifact-body search, custom date ranges, pagination beyond the first 100 current artifacts, and unified search over legacy memories/decisions are explicit follow-on refinements. The first private-alpha browser proves complete artifact portability before broadening search UX.
 
 ## Project names and text-only hosts
 

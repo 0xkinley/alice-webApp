@@ -54,6 +54,25 @@ function currentArtifactRevisionQuery(extraWhere = "") {
             )`;
 }
 
+function currentArtifactSearchQuery() {
+  return `SELECT artifact.id AS artifact_id, revision.version, revision.title,
+                 revision.artifact_type, revision.category, revision.tags_json,
+                 revision.goal, revision.summary, revision.source_provider, revision.saved_at
+          FROM artifacts artifact
+          JOIN artifact_versions revision
+            ON revision.workspace_id = artifact.workspace_id
+           AND revision.project_id = artifact.project_id
+           AND revision.artifact_id = artifact.id
+          WHERE artifact.workspace_id = ? AND artifact.project_id = ?
+            AND NOT EXISTS (
+              SELECT 1 FROM artifact_versions newer
+              WHERE newer.workspace_id = revision.workspace_id
+                AND newer.project_id = revision.project_id
+                AND newer.artifact_id = revision.artifact_id
+                AND newer.version > revision.version
+            )`;
+}
+
 function handoffFromRow(row) {
   return {
     goal: row.goal,
@@ -459,6 +478,95 @@ function timelineStart(timeline: string, now: Date): number | undefined {
   return days ? now.getTime() - days * 24 * 60 * 60 * 1_000 : undefined;
 }
 
+function filteredArtifactRows(
+  rows,
+  input: {
+    query?: string;
+    categories: string[];
+    tags: string[];
+    sources: string[];
+    artifact_types: string[];
+    timeline: string;
+    limit: number;
+    now?: Date;
+  },
+) {
+  const query = input.query?.toLocaleLowerCase();
+  const start = timelineStart(input.timeline, input.now || new Date());
+  return rows
+    .filter((row) => {
+      const tags = parsedArray(row.tags_json);
+      if (input.categories.length > 0 && !input.categories.includes(row.category)) return false;
+      if (input.tags.length > 0 && !input.tags.every((tag) => tags.includes(tag))) return false;
+      if (input.sources.length > 0 && !input.sources.includes(row.source_provider)) return false;
+      if (input.artifact_types.length > 0 && !input.artifact_types.includes(row.artifact_type)) {
+        return false;
+      }
+      if (start && new Date(row.saved_at).getTime() < start) return false;
+      if (
+        query &&
+        ![row.title, row.summary, row.goal, row.category, row.artifact_type, ...tags]
+          .filter(Boolean)
+          .some((value) => String(value).toLocaleLowerCase().includes(query))
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .sort(
+      (left, right) =>
+        new Date(right.saved_at).getTime() - new Date(left.saved_at).getTime() ||
+        String(left.artifact_id).localeCompare(String(right.artifact_id)),
+    )
+    .slice(0, input.limit)
+    .map((row) => ({
+      artifact_id: row.artifact_id,
+      title: row.title,
+      current_version: Number(row.version),
+      artifact_type: row.artifact_type,
+      category: row.category,
+      tags: parsedArray(row.tags_json),
+      summary: row.summary,
+      goal: row.goal,
+      source: row.source_provider,
+      saved_at: row.saved_at,
+    }));
+}
+
+export async function searchProjectArtifacts(
+  database,
+  input: {
+    userId: string;
+    projectId: string;
+    query?: string;
+    categories: string[];
+    tags: string[];
+    sources: string[];
+    artifact_types: string[];
+    timeline: string;
+    limit: number;
+    now?: Date;
+  },
+) {
+  const access = await projectScopeForUser(database, {
+    userId: input.userId,
+    projectId: input.projectId,
+    capability: "read",
+  });
+  if (!access) return undefined;
+  const project = await database
+    .prepare("SELECT id, name FROM projects WHERE workspace_id = ? AND id = ?")
+    .get(access.projectWorkspaceId, access.projectId);
+  if (!project) return undefined;
+  const rows = await database
+    .prepare(currentArtifactSearchQuery())
+    .all(access.projectWorkspaceId, access.projectId);
+  return {
+    project,
+    results: filteredArtifactRows(rows, input),
+  };
+}
+
 export async function searchAliceArtifacts(
   database,
   input: {
@@ -515,48 +623,9 @@ export async function searchAliceArtifacts(
     };
   }
   const rows = await database
-    .prepare(currentArtifactRevisionQuery())
+    .prepare(currentArtifactSearchQuery())
     .all(access.projectWorkspaceId, project.id);
-  const query = input.query?.toLocaleLowerCase();
-  const start = timelineStart(input.timeline, input.now || new Date());
-  const results = rows
-    .filter((row) => {
-      const tags = parsedArray(row.tags_json);
-      if (input.categories.length > 0 && !input.categories.includes(row.category)) return false;
-      if (input.tags.length > 0 && !input.tags.every((tag) => tags.includes(tag))) return false;
-      if (input.sources.length > 0 && !input.sources.includes(row.source_provider)) return false;
-      if (input.artifact_types.length > 0 && !input.artifact_types.includes(row.artifact_type)) {
-        return false;
-      }
-      if (start && new Date(row.saved_at).getTime() < start) return false;
-      if (
-        query &&
-        ![row.title, row.summary, row.goal, row.category, row.artifact_type, ...tags]
-          .filter(Boolean)
-          .some((value) => String(value).toLocaleLowerCase().includes(query))
-      ) {
-        return false;
-      }
-      return true;
-    })
-    .sort(
-      (left, right) =>
-        new Date(right.saved_at).getTime() - new Date(left.saved_at).getTime() ||
-        String(left.artifact_id).localeCompare(String(right.artifact_id)),
-    )
-    .slice(0, input.limit)
-    .map((row) => ({
-      artifact_id: row.artifact_id,
-      title: row.title,
-      current_version: Number(row.version),
-      artifact_type: row.artifact_type,
-      category: row.category,
-      tags: parsedArray(row.tags_json),
-      summary: row.summary,
-      goal: row.goal,
-      source: row.source_provider,
-      saved_at: row.saved_at,
-    }));
+  const results = filteredArtifactRows(rows, input);
   return {
     contract_version: "alice_search_v1",
     status: "ok",
@@ -565,24 +634,16 @@ export async function searchAliceArtifacts(
   };
 }
 
-export async function getAliceArtifact(
+async function getArtifactForScope(
   database,
+  access,
   input: {
-    userId: string;
-    connectionId: string;
     projectId: string;
     artifactId: string;
     version?: number;
     includeHistory?: boolean;
   },
 ) {
-  const access = await projectScopeForConnection(database, {
-    userId: input.userId,
-    connectionId: input.connectionId,
-    projectId: input.projectId,
-    capability: "read",
-  });
-  if (!access) return undefined;
   const project = await database
     .prepare("SELECT id, name FROM projects WHERE workspace_id = ? AND id = ?")
     .get(access.projectWorkspaceId, input.projectId);
@@ -615,4 +676,44 @@ export async function getAliceArtifact(
     history = history.map((item) => ({ ...item, version: Number(item.version) }));
   }
   return artifactResult(selected, project, history);
+}
+
+export async function getProjectArtifact(
+  database,
+  input: {
+    userId: string;
+    projectId: string;
+    artifactId: string;
+    version?: number;
+    includeHistory?: boolean;
+  },
+) {
+  const access = await projectScopeForUser(database, {
+    userId: input.userId,
+    projectId: input.projectId,
+    capability: "read",
+  });
+  if (!access) return undefined;
+  return await getArtifactForScope(database, access, input);
+}
+
+export async function getAliceArtifact(
+  database,
+  input: {
+    userId: string;
+    connectionId: string;
+    projectId: string;
+    artifactId: string;
+    version?: number;
+    includeHistory?: boolean;
+  },
+) {
+  const access = await projectScopeForConnection(database, {
+    userId: input.userId,
+    connectionId: input.connectionId,
+    projectId: input.projectId,
+    capability: "read",
+  });
+  if (!access) return undefined;
+  return await getArtifactForScope(database, access, input);
 }
