@@ -1,6 +1,6 @@
 # Planned ChatGPT and Claude Host Experience
 
-Status: Project-first workspace, compact Alice-controlled Save selector, and in-widget file upload implemented in source; import remains unimplemented; the 2026-09-11 widget amendments are not deployed
+Status: Project-first workspace, compact Alice-controlled Save selector, and in-widget file upload deployed from source `f81d344` on 2026-09-11; live ChatGPT/Claude verification and import remain unimplemented
 
 Decision date: 2026-09-06
 
