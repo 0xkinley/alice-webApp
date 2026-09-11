@@ -74,11 +74,11 @@ after(async () => {
 test("advertises portable workspace and Save resources and keeps mutations app-only", async () => {
   const { payload } = await callMcp(baseUrl, accessToken, "tools/list");
   const byName = Object.fromEntries(payload.result.tools.map((tool) => [tool.name, tool]));
-  assert.equal(byName.open_alice_workspace._meta.ui.resourceUri, "ui://alice/workspace/v2.html");
+  assert.equal(byName.open_alice_workspace._meta.ui.resourceUri, "ui://alice/workspace/v3.html");
   assert.deepEqual(byName.open_alice_workspace._meta.ui.visibility, ["model"]);
   assert.equal(
     byName.open_alice_workspace._meta["openai/outputTemplate"],
-    "ui://alice/workspace/v2.html",
+    "ui://alice/workspace/v3.html",
   );
   for (const name of [
     "alice_workspace_snapshot",
@@ -102,7 +102,7 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   }
 
   const resource = await callMcp(baseUrl, accessToken, "resources/read", {
-    uri: "ui://alice/workspace/v2.html",
+    uri: "ui://alice/workspace/v3.html",
   });
   assert.equal(resource.payload.result.contents[0].mimeType, "text/html;profile=mcp-app");
   assert.match(resource.payload.result.contents[0].text, /alice\. workspace/);
@@ -123,7 +123,8 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   assert.match(resource.payload.result.contents[0].text, /updateModelContext/);
   assert.doesNotMatch(resource.payload.result.contents[0].text, /selected_project:\s*\{\s*id:/);
   assert.doesNotMatch(resource.payload.result.contents[0].text, /class=.?project-card/);
-  assert.equal(resource.payload.result.contents[0]._meta.ui.domain, "http://127.0.0.1");
+  assert.equal(resource.payload.result.contents[0]._meta.ui.domain, undefined);
+  assert.equal(resource.payload.result.contents[0]._meta["openai/widgetDomain"], undefined);
   assert.deepEqual(resource.payload.result.contents[0]._meta.ui.csp.connectDomains, [
     "https://alice-private-files.example",
   ]);
@@ -137,7 +138,7 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
     name: "open_alice_workspace",
     arguments: {},
   });
-  assert.equal(opened.payload.result.structuredContent.contract_version, "alice_workspace_app_v4");
+  assert.equal(opened.payload.result.structuredContent.contract_version, "alice_workspace_app_v5");
   assert.match(opened.payload.result.content[0].text, /Welcome to alice\./);
 
   const openedFiles = await callMcp(baseUrl, accessToken, "tools/call", {
@@ -151,7 +152,7 @@ test("advertises portable workspace and Save resources and keeps mutations app-o
   assert.match(openedFiles.payload.result.content[0].text, /select the exact file there/);
 
   const saveResource = await callMcp(baseUrl, accessToken, "resources/read", {
-    uri: "ui://alice/save/v1.html",
+    uri: "ui://alice/save/v2.html",
   });
   assert.equal(saveResource.payload.result.contents[0].mimeType, "text/html;profile=mcp-app");
   assert.match(saveResource.payload.result.contents[0].text, /alice_commit_capture_save/);
@@ -309,7 +310,7 @@ test("project discovery is governed by Alice permissions, not provider toggles",
   assert.equal(snapshot.payload.result.structuredContent.projects[0].id, identity.project_id);
   assert.equal(
     snapshot.payload.result.structuredContent.contract_version,
-    "alice_workspace_app_v4",
+    "alice_workspace_app_v5",
   );
   assert.equal(
     snapshot.payload.result.structuredContent.projects[0].project_url,

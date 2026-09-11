@@ -393,7 +393,12 @@
                     "x-amz-server-side-encryption"
                   ],
                   "AllowedMethods": ["PUT"],
-                  "AllowedOrigins": [{ "Ref": "WebPublicUrl" }, { "Ref": "McpPublicUrl" }],
+                  "AllowedOrigins": [
+                    { "Ref": "WebPublicUrl" },
+                    "https://web-sandbox.oaiusercontent.com",
+                    "https://*.web-sandbox.oaiusercontent.com",
+                    "https://*.claudemcpcontent.com"
+                  ],
                   "ExposedHeaders": ["ETag", "x-amz-version-id"],
                   "MaxAge": 600
                 }

@@ -150,7 +150,7 @@ test("the MCP contract previews an exact save to the named project", async () =>
   assert.match(tool.description, /exact unique project name/i);
   assert.equal(tool.inputSchema.required.includes("project_id"), false);
   assert.match(tool.description, /Only the user's Save action can authorize/i);
-  assert.equal(tool._meta.ui.resourceUri, "ui://alice/save/v1.html");
+  assert.equal(tool._meta.ui.resourceUri, "ui://alice/save/v2.html");
 
   const before = database
     .prepare(

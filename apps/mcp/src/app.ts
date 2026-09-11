@@ -97,8 +97,8 @@ function oauthToolSecurity(scope) {
   };
 }
 
-const WORKSPACE_APP_URI = "ui://alice/workspace/v2.html";
-const SAVE_APP_URI = "ui://alice/save/v1.html";
+const WORKSPACE_APP_URI = "ui://alice/workspace/v3.html";
+const SAVE_APP_URI = "ui://alice/save/v2.html";
 
 function oauthAppToolMeta(
   scope,
@@ -129,7 +129,7 @@ async function inChatWorkspaceSnapshot(database, { userId, connectionId, publicU
   if (!connection || !connection.provider) return undefined;
   const projects = await listProjects(database, userId);
   return {
-    contract_version: "alice_workspace_app_v4",
+    contract_version: "alice_workspace_app_v5",
     provider: connection.provider,
     projects: await Promise.all(
       projects.map(async (project) => ({
@@ -345,23 +345,18 @@ function requireMcpBearerAuth({ verifier, resourceMetadataUrl, advertisedScopes 
 
 function appResourceMeta({
   fileStore,
-  mcpPublicUrl,
   reviewUrl,
 }: {
   fileStore: PrivateFileStore | undefined;
-  mcpPublicUrl: string;
   reviewUrl: string;
 }) {
   const connectDomains = [...(fileStore?.uploadOrigins || [])];
-  const domain = new URL(mcpPublicUrl).origin;
   const redirectDomains = [new URL(reviewUrl).origin];
   return {
     ui: {
       prefersBorder: true,
-      domain,
       csp: { connectDomains },
     },
-    "openai/widgetDomain": domain,
     "openai/widgetCSP": {
       connect_domains: connectDomains,
       resource_domains: [],
@@ -374,16 +369,14 @@ function createProtocolServer(
   database,
   {
     fileStore,
-    mcpPublicUrl,
     reviewUrl,
   }: {
     fileStore: PrivateFileStore | undefined;
-    mcpPublicUrl: string;
     reviewUrl: string;
   },
 ) {
-  const server = new McpServer({ name: "alice-mcp", version: "0.9.0" });
-  const resourceMeta = appResourceMeta({ fileStore, mcpPublicUrl, reviewUrl });
+  const server = new McpServer({ name: "alice-mcp", version: "0.9.1" });
+  const resourceMeta = appResourceMeta({ fileStore, reviewUrl });
   const publicUrl = reviewUrl;
 
   registerAppResource(
@@ -469,7 +462,7 @@ function createProtocolServer(
       }
       const initialView = input.view || "projects";
       const output = {
-        contract_version: "alice_workspace_app_v4",
+        contract_version: "alice_workspace_app_v5",
         provider: connection.provider,
         initial_view: initialView,
         selected_project: selectedProject,
@@ -2077,7 +2070,6 @@ export async function createApp({
   app.all("/mcp", authenticate, async (request, response) => {
     const protocolServer = createProtocolServer(database, {
       fileStore,
-      mcpPublicUrl: publicUrl,
       reviewUrl,
     });
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });

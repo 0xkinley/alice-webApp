@@ -104,7 +104,44 @@ test("private-file infrastructure is retained, blocked public, scanned, and cred
   assert.equal(resources.MalwareProtectionPlan.Properties.Actions.Tagging.Status, "ENABLED");
   const cors = bucket.Properties.CorsConfiguration["Fn::If"][1].CorsRules[0];
   assert.deepEqual(cors.AllowedMethods, ["PUT"]);
-  assert.deepEqual(cors.AllowedOrigins, [{ Ref: "WebPublicUrl" }, { Ref: "McpPublicUrl" }]);
+  assert.deepEqual(cors.AllowedOrigins, [
+    { Ref: "WebPublicUrl" },
+    "https://web-sandbox.oaiusercontent.com",
+    "https://*.web-sandbox.oaiusercontent.com",
+    "https://*.claudemcpcontent.com",
+  ]);
+  const originMatches = (pattern: string, origin: string) => {
+    const expression = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace("*", "[^.]+");
+    return new RegExp(`^${expression}$`).test(origin);
+  };
+  const stringOrigins = cors.AllowedOrigins.filter((origin: unknown) => typeof origin === "string");
+  assert.equal(
+    stringOrigins.some((pattern: string) =>
+      originMatches(
+        pattern,
+        "https://asdk_app_6aa31b4f3b8881919d8fe14a7e52d557.web-sandbox.oaiusercontent.com",
+      ),
+    ),
+    true,
+  );
+  assert.equal(
+    stringOrigins.some((pattern: string) =>
+      originMatches(pattern, "https://0123456789abcdef0123456789abcdef.claudemcpcontent.com"),
+    ),
+    true,
+  );
+  for (const deniedOrigin of [
+    "https://chatgpt.com",
+    "https://claude.ai",
+    "https://evil.example",
+    "https://web-sandbox.oaiusercontent.com.evil.example",
+  ]) {
+    assert.equal(
+      stringOrigins.some((pattern: string) => originMatches(pattern, deniedOrigin)),
+      false,
+    );
+  }
+  assert.equal(stringOrigins.includes("*"), false);
   assert.deepEqual(cors.ExposedHeaders, ["ETag", "x-amz-version-id"]);
   const lifecycle = bucket.Properties.LifecycleConfiguration.Rules;
   assert.ok(lifecycle.every(({ Prefix }) => Prefix === "staging/"));

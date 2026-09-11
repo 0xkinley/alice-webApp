@@ -1,7 +1,7 @@
 import { App, applyDocumentTheme } from "@modelcontextprotocol/ext-apps/app-with-deps";
 
 const root = document.querySelector<HTMLElement>("#app")!;
-const app = new App({ name: "alice-workspace", version: "4.0.0" }, {}, { autoResize: true });
+const app = new App({ name: "alice-workspace", version: "5.0.0" }, {}, { autoResize: true });
 let snapshot: any;
 let addFilesAfterCreate = false;
 let selectedProjectId = "";

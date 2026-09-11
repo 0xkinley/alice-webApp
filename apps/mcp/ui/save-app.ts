@@ -8,7 +8,7 @@ import {
 } from "@alice/presentation";
 
 const root = document.querySelector<HTMLElement>("#app")!;
-const app = new App({ name: "alice-save", version: "1.0.0" }, {}, { autoResize: true });
+const app = new App({ name: "alice-save", version: "2.0.0" }, {}, { autoResize: true });
 let card: any;
 let authority: any;
 let receipt: any;
