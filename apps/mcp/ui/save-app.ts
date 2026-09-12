@@ -89,9 +89,18 @@ function artifactPayload() {
           )
           .join("")}</ul></section>`
       : "";
+  const decisionRecords =
+    Array.isArray(handoff.decision_records) && handoff.decision_records.length
+      ? `<section><p class="eyebrow">Structured decision records</p><dl>${handoff.decision_records
+          .map(
+            (item: any) =>
+              `<dt>${escapeHtml(item.decision_key)}</dt><dd><div class="readable-value">${renderReadableValue(item.value)}</div></dd>`,
+          )
+          .join("")}</dl></section>`
+      : "";
   const identity = artifact.identity;
   const identityDetails = `<aside class="replace"><strong>Artifact identity and Alice version</strong><dl>${identity.existing_artifact ? `<dt>Existing artifact</dt><dd>${escapeHtml(identity.existing_artifact)}</dd><dt>Current Alice version</dt><dd>${identity.authoritative_current_alice_version}</dd>` : ""}<dt>Proposed next Alice version</dt><dd>${identity.proposed_next_alice_version}</dd><dt>Proposed title</dt><dd>${escapeHtml(identity.proposed_title)}</dd><dt>Conflict</dt><dd>${identity.conflict ? `Yes — ${escapeHtml(identity.conflict_reason)}` : "None detected"}</dd></dl></aside>`;
-  return `<section><p class="eyebrow">Complete artifact · Alice version ${Number(artifact.version)}</p>${identityDetails}<label class="select-row"><input type="checkbox" data-artifact-selection checked ${card.can_save ? "" : "disabled"}><span><strong>${escapeHtml(artifact.title)}</strong><small>${escapeHtml(readableLabel(artifact.artifact_type))} · ${escapeHtml(readableLabel(artifact.category))}</small></span></label><p>${artifact.tags.map((tag: string) => `<span class="tag">${escapeHtml(readableLabel(tag))}</span>`).join(" ")}</p><details><summary>Review exact artifact and handoff</summary><div class="artifact-content">${escapeHtml(artifact.content)}</div><section><p class="eyebrow">Goal</p><p>${escapeHtml(readableText(handoff.goal))}</p>${handoff.summary ? `<p class="muted">${escapeHtml(readableText(handoff.summary))}</p>` : ""}</section>${list("Decisions", handoff.decisions)}${list("Constraints", handoff.constraints)}${rejected}${list("Open questions", handoff.open_questions)}${list("Next steps", handoff.next_steps)}${list("Relevant context", handoff.relevant_context)}</details></section>`;
+  return `<section><p class="eyebrow">Complete artifact · Alice version ${Number(artifact.version)}</p>${identityDetails}<label class="select-row"><input type="checkbox" data-artifact-selection checked ${card.can_save ? "" : "disabled"}><span><strong>${escapeHtml(artifact.title)}</strong><small>${escapeHtml(readableLabel(artifact.artifact_type))} · ${escapeHtml(readableLabel(artifact.category))}</small></span></label><p>${artifact.tags.map((tag: string) => `<span class="tag">${escapeHtml(readableLabel(tag))}</span>`).join(" ")}</p><details><summary>Review exact artifact and handoff</summary><div class="artifact-content">${escapeHtml(artifact.content)}</div><section><p class="eyebrow">Goal</p><p>${escapeHtml(readableText(handoff.goal))}</p>${handoff.summary ? `<p class="muted">${escapeHtml(readableText(handoff.summary))}</p>` : ""}</section>${list("Decisions", handoff.decisions)}${decisionRecords}${list("Constraints", handoff.constraints)}${rejected}${list("Open questions", handoff.open_questions)}${list("Next steps", handoff.next_steps)}${list("Relevant context", handoff.relevant_context)}</details></section>`;
 }
 
 function checkpoint() {

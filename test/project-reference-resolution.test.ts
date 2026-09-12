@@ -286,6 +286,8 @@ test("artifact creation, retrieval, and version saves resolve exact project name
     arguments: {
       project_id: projectName,
       artifact_id: artifactId,
+      retrieval_receipt:
+        retrieved.payload.result.structuredContent.artifact.retrieval_receipt.token,
       ...artifactSnapshot(
         "Complete resume assessment revised by Claude.",
         "name-resolved-artifact-v2",

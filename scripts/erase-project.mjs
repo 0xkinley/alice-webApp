@@ -18,6 +18,7 @@ const DELETE_TRIGGER_TABLES = [
   "artifact_read_receipts",
   "artifact_read_receipt_uses",
   "artifact_lifecycle_events",
+  "artifact_decision_resolutions",
   "artifact_versions",
   "artifacts",
   "audit_events",
@@ -324,6 +325,10 @@ async function deleteProjectRows(database, input, plan) {
   );
   await remove(
     "DELETE FROM artifact_lifecycle_events WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove(
+    "DELETE FROM artifact_decision_resolutions WHERE workspace_id = ? AND project_id = ?",
     ...scoped,
   );
   await remove(

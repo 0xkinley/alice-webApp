@@ -12,6 +12,7 @@ export const ARTIFACT_READ_RECEIPT_LIFETIME_MS = 10 * 60 * 1_000;
 
 export class ArtifactSaveUserError extends Error {}
 export class ArtifactLifecycleUserError extends Error {}
+export class ArtifactDecisionConflictUserError extends Error {}
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -86,7 +87,8 @@ function artifactRevisionQuery(extraWhere = "") {
                  revision.content_storage_kind, revision.content_text, revision.storage_key,
                  revision.storage_version_id, revision.media_type, revision.content_sha256,
                  revision.content_utf8_bytes, revision.goal, revision.summary,
-                 revision.decisions_json, revision.constraints_json,
+                 revision.decisions_json, revision.decision_records_json,
+                 revision.constraints_json,
                  revision.rejected_directions_json, revision.open_questions_json,
                  revision.next_steps_json, revision.relevant_context_json,
                  revision.source_provider, revision.saved_at,
@@ -135,6 +137,7 @@ function handoffFromRow(row) {
     goal: row.goal,
     ...(row.summary ? { summary: row.summary } : {}),
     decisions: parsedArray(row.decisions_json),
+    decision_records: parsedArray(row.decision_records_json),
     constraints: parsedArray(row.constraints_json),
     rejected_directions: parsedArray(row.rejected_directions_json),
     open_questions: parsedArray(row.open_questions_json),
@@ -639,12 +642,12 @@ export async function commitArtifactSavePreview(
           (id, workspace_id, project_id, artifact_id, version, parent_version_id,
            title, artifact_type, category, tags_json, content_storage_kind, content_text,
            storage_key, storage_version_id, media_type, content_sha256, content_utf8_bytes,
-           goal, summary, decisions_json, constraints_json, rejected_directions_json,
-           open_questions_json, next_steps_json, relevant_context_json,
+           goal, summary, decisions_json, decision_records_json, constraints_json,
+           rejected_directions_json, open_questions_json, next_steps_json, relevant_context_json,
            source_connection_workspace_id, source_connection_id, source_client_id,
            source_provider, saved_by_user_id, idempotency_key, payload_sha256, saved_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'inline_text', ?, NULL, NULL,
-                 'text/plain; charset=utf-8', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 'text/plain; charset=utf-8', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         versionId,
@@ -663,6 +666,7 @@ export async function commitArtifactSavePreview(
         payload.handoff.goal,
         payload.handoff.summary || null,
         JSON.stringify(payload.handoff.decisions),
+        JSON.stringify(payload.handoff.decision_records || []),
         JSON.stringify(payload.handoff.constraints),
         JSON.stringify(payload.handoff.rejected_directions),
         JSON.stringify(payload.handoff.open_questions),
@@ -852,6 +856,113 @@ function searchTokens(value: string): string[] {
   return [...new Set(value.split(" ").filter(Boolean))];
 }
 
+function canonicalDecisionValue(value: unknown): string {
+  const normalize = (item: any): any => {
+    if (Array.isArray(item)) return item.map(normalize);
+    if (item && typeof item === "object") {
+      return Object.fromEntries(
+        Object.keys(item)
+          .sort()
+          .map((key) => [key, normalize(item[key])]),
+      );
+    }
+    return item;
+  };
+  return JSON.stringify(normalize(value));
+}
+
+async function artifactDecisionConflictsForAccess(database, access) {
+  const rows = await database
+    .prepare(currentArtifactRevisionQuery())
+    .all(access.projectWorkspaceId, access.projectId);
+  const grouped = new Map<string, any[]>();
+  for (const row of rows) {
+    if (row.lifecycle_state !== "active") continue;
+    for (const record of parsedArray(row.decision_records_json)) {
+      const entry = {
+        decision_key: record.decision_key,
+        value: record.value,
+        canonical_value: canonicalDecisionValue(record.value),
+        artifact_id: row.artifact_id,
+        title: artifactTitlePresentation(row.title, Number(row.version)).title,
+        version_id: row.version_id,
+        alice_version: Number(row.version),
+        source: row.source_provider,
+        saved_at: row.saved_at,
+      };
+      const existing = grouped.get(entry.decision_key) || [];
+      existing.push(entry);
+      grouped.set(entry.decision_key, existing);
+    }
+  }
+  const candidates: any[] = [];
+  for (const [decisionKey, records] of grouped) {
+    if (new Set(records.map((record) => record.canonical_value)).size < 2) continue;
+    records.sort(
+      (left, right) =>
+        left.artifact_id.localeCompare(right.artifact_id) ||
+        left.version_id.localeCompare(right.version_id),
+    );
+    const fingerprint = sha256(
+      JSON.stringify({
+        project_id: access.projectId,
+        decision_key: decisionKey,
+        records: records.map((record) => ({
+          artifact_id: record.artifact_id,
+          version_id: record.version_id,
+          canonical_value: record.canonical_value,
+        })),
+      }),
+    );
+    candidates.push({ decision_key: decisionKey, fingerprint, records });
+  }
+  const resolutions = await database
+    .prepare(
+      `SELECT conflict_fingerprint, selected_artifact_id, selected_version_id,
+              selected_value_json, resolved_at
+       FROM artifact_decision_resolutions
+       WHERE workspace_id = ? AND project_id = ?`,
+    )
+    .all(access.projectWorkspaceId, access.projectId);
+  const byFingerprint = new Map<string, any>(
+    resolutions.map((row) => [row.conflict_fingerprint, row]),
+  );
+  return candidates
+    .sort((left, right) => left.decision_key.localeCompare(right.decision_key))
+    .map((candidate) => {
+      const resolution = byFingerprint.get(candidate.fingerprint);
+      return {
+        decision_key: candidate.decision_key,
+        conflict_fingerprint: candidate.fingerprint,
+        status: resolution ? "human_resolved" : "unresolved",
+        records: candidate.records.map((record) => ({
+          decision_key: record.decision_key,
+          value: record.value,
+          artifact_id: record.artifact_id,
+          title: record.title,
+          version_id: record.version_id,
+          alice_version: record.alice_version,
+          source: record.source,
+          saved_at: record.saved_at,
+        })),
+        ...(resolution
+          ? {
+              resolution: {
+                selected_artifact_id: resolution.selected_artifact_id,
+                selected_version_id: resolution.selected_version_id,
+                selected_value: JSON.parse(resolution.selected_value_json),
+                resolved_at: resolution.resolved_at,
+                notice:
+                  "An authenticated human selected this current record. The source artifacts remain immutable, and Alice does not verify which value is correct.",
+              },
+            }
+          : {}),
+        limitation:
+          "Detected only because current active artifacts supplied the same explicit decision_key with different structured values; free-form semantic contradictions are not inferred.",
+      };
+    });
+}
+
 export async function searchProjectArtifacts(
   database,
   input: {
@@ -885,6 +996,7 @@ export async function searchProjectArtifacts(
   return {
     project,
     ...filteredArtifactRows(rows, input),
+    decision_conflicts: await artifactDecisionConflictsForAccess(database, access),
   };
 }
 
@@ -955,6 +1067,7 @@ export async function searchAliceArtifacts(
     status: "ok" as const,
     project: { id: project.id, name: project.name },
     ...page,
+    decision_conflicts: await artifactDecisionConflictsForAccess(database, access),
   };
 }
 
@@ -1018,7 +1131,12 @@ async function getArtifactForScope(
       return { ...item, ...artifactTitlePresentation(item.title, version), version };
     });
   }
-  return artifactResult(selected, project, history);
+  const result: any = artifactResult(selected, project, history);
+  const conflicts = await artifactDecisionConflictsForAccess(database, access);
+  result.artifact.decision_conflicts = conflicts.filter((conflict) =>
+    conflict.records.some((record) => record.artifact_id === input.artifactId),
+  );
+  return result;
 }
 
 export async function getProjectArtifact(
@@ -1142,6 +1260,132 @@ export async function getArtifactLifecycleControl(
     version: Number(current.lifecycle_version || 0),
     replacement_artifact_id: current.replacement_artifact_id || null,
   };
+}
+
+export async function getArtifactDecisionConflictControl(
+  database,
+  input: { userId: string; projectId: string },
+) {
+  const access = await projectScopeForUser(database, {
+    userId: input.userId,
+    projectId: input.projectId,
+    capability: "write",
+  });
+  if (!access) return undefined;
+  return {
+    decision_conflicts: await artifactDecisionConflictsForAccess(database, access),
+  };
+}
+
+export async function resolveArtifactDecisionConflict(
+  database,
+  input: {
+    userId: string;
+    projectId: string;
+    conflictFingerprint: string;
+    selectedVersionId: string;
+  },
+) {
+  if (!/^[0-9a-f]{64}$/.test(input.conflictFingerprint)) return undefined;
+  return await database.transaction(
+    async () => {
+      const access = await projectScopeForUser(database, {
+        userId: input.userId,
+        projectId: input.projectId,
+        capability: "write",
+      });
+      if (!access) return undefined;
+      await database
+        .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
+        .get(
+          `artifact-decision-conflict:${access.projectWorkspaceId}:${access.projectId}:${input.conflictFingerprint}`,
+        );
+      const conflicts = await artifactDecisionConflictsForAccess(database, access);
+      const conflict = conflicts.find(
+        (candidate) => candidate.conflict_fingerprint === input.conflictFingerprint,
+      );
+      if (!conflict) {
+        throw new ArtifactDecisionConflictUserError(
+          "The decision conflict changed. Review the current exact records before resolving it.",
+        );
+      }
+      const selected = conflict.records.find(
+        (record) => record.version_id === input.selectedVersionId,
+      );
+      if (!selected) {
+        throw new ArtifactDecisionConflictUserError(
+          "Choose one exact current record shown in this decision conflict.",
+        );
+      }
+      const existing = await database
+        .prepare(
+          `SELECT id, selected_artifact_id, selected_version_id, selected_value_json, resolved_at
+         FROM artifact_decision_resolutions
+         WHERE workspace_id = ? AND project_id = ? AND conflict_fingerprint = ?`,
+        )
+        .get(access.projectWorkspaceId, access.projectId, input.conflictFingerprint);
+      if (existing) {
+        if (existing.selected_version_id !== selected.version_id) {
+          throw new ArtifactDecisionConflictUserError(
+            "This exact decision conflict already has a human resolution. Its immutable selection was not changed.",
+          );
+        }
+        return {
+          decision_key: conflict.decision_key,
+          conflict_fingerprint: input.conflictFingerprint,
+          selected_artifact_id: existing.selected_artifact_id,
+          selected_version_id: existing.selected_version_id,
+          selected_value: JSON.parse(existing.selected_value_json),
+          resolved_at: existing.resolved_at,
+        };
+      }
+      const resolvedAt = new Date().toISOString();
+      const resolutionId = `artifact_decision_resolution_${randomUUID()}`;
+      await database
+        .prepare(
+          `INSERT INTO artifact_decision_resolutions
+          (id, workspace_id, project_id, decision_key, conflict_fingerprint,
+           selected_artifact_id, selected_version_id, selected_value_json,
+           resolved_by_user_id, resolved_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          resolutionId,
+          access.projectWorkspaceId,
+          access.projectId,
+          conflict.decision_key,
+          input.conflictFingerprint,
+          selected.artifact_id,
+          selected.version_id,
+          canonicalDecisionValue(selected.value),
+          input.userId,
+          resolvedAt,
+        );
+      await appendAuditEvent(database, {
+        workspaceId: access.projectWorkspaceId,
+        projectId: access.projectId,
+        action: "artifact_decision_conflict_resolved",
+        actorType: "human_user",
+        actorId: input.userId,
+        correlationId: resolutionId,
+        metadata: {
+          decision_key: conflict.decision_key,
+          conflict_fingerprint: input.conflictFingerprint,
+          selected_artifact_id: selected.artifact_id,
+          selected_version_id: selected.version_id,
+        },
+      });
+      return {
+        decision_key: conflict.decision_key,
+        conflict_fingerprint: input.conflictFingerprint,
+        selected_artifact_id: selected.artifact_id,
+        selected_version_id: selected.version_id,
+        selected_value: selected.value,
+        resolved_at: resolvedAt,
+      };
+    },
+    { isolation: "READ COMMITTED" },
+  );
 }
 
 export async function listArtifactLifecycleReplacements(

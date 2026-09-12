@@ -377,6 +377,16 @@ const handoffItemSchema = z
   .min(1)
   .max(artifactValidationLimits.handoffItemCharacters);
 
+const artifactDecisionRecordSchema = z
+  .object({
+    decision_key: z.string().trim().min(1).max(200).regex(stateKeyPattern),
+    value: z.json().refine((value) => {
+      const inspected = inspectJsonValue(value);
+      return inspected.bytes <= 8_192 && inspected.depth <= 8 && inspected.nodes <= 256;
+    }, "Decision value exceeds the deterministic JSON limits."),
+  })
+  .strict();
+
 function boundedJsonCompatibilityString(label: string, maximumBytes: number) {
   return z
     .string()
@@ -408,6 +418,10 @@ const artifactHandoffObjectSchema = z
     goal: z.string().trim().min(1).max(2_000),
     summary: z.string().trim().min(1).max(2_000).optional(),
     decisions: z.array(handoffItemSchema).max(artifactValidationLimits.handoffItems).default([]),
+    decision_records: z
+      .array(artifactDecisionRecordSchema)
+      .max(artifactValidationLimits.handoffItems)
+      .default([]),
     constraints: z.array(handoffItemSchema).max(artifactValidationLimits.handoffItems).default([]),
     rejected_directions: z
       .array(
@@ -430,7 +444,20 @@ const artifactHandoffObjectSchema = z
       .max(artifactValidationLimits.handoffItems)
       .default([]),
   })
-  .strict();
+  .strict()
+  .superRefine((handoff, context) => {
+    const keys = new Set<string>();
+    handoff.decision_records.forEach((record, index) => {
+      if (keys.has(record.decision_key)) {
+        context.addIssue({
+          code: "custom",
+          message: "Each explicit artifact decision_key may appear only once per snapshot.",
+          path: ["decision_records", index, "decision_key"],
+        });
+      }
+      keys.add(record.decision_key);
+    });
+  });
 
 export const artifactHandoffSchema = z
   .union([

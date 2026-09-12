@@ -74,6 +74,14 @@ Every artifact with no lifecycle event is canonical and active. Lifecycle change
 
 Search defaults to active artifacts. An explicit `superseded`, `archived`, or `all` lifecycle filter makes authorized history discoverable. Retrieval of a superseded artifact names the exact authorized replacement, its current Alice version, and current lifecycle. Archived and superseded artifacts do not issue version-write receipts, and preview plus commit paths independently reject new versions until a human restores the lineage. Existing production artifacts need no backfill and remain active by default; implementation does not classify or clean up any live Thursday artifact.
 
+## Explicit decision records and deterministic conflicts
+
+An artifact handoff may include up to twenty `decision_records`, each containing one validated stable `decision_key` and one bounded JSON value. Keys use the same lowercase segmented identifier grammar as project state. A snapshot cannot repeat a key. The exact records appear in the embedded and web Save previews before the human saves the immutable version.
+
+Alice compares only records on the current versions of active artifacts in the same authorized project. JSON objects are canonicalized by recursively sorting keys; array order remains significant. Two or more distinct canonical values under the same explicit key create a deterministic conflict. Search and retrieval show the key, every current source artifact and version, source AI, saved time, exact value, status, and limitation in both structured and text output. Free-form `decisions`, artifact bodies, and semantically similar keys are never interpreted for contradiction.
+
+Resolution is a separate authenticated Alice web action for an Owner or Editor. The human selects one exact current record under a fingerprint bound to the complete current conflict set. The resolution appends an immutable row and content-free audit metadata; it does not rewrite either source, promote a value into trusted project state, or claim Alice verified correctness. A changed source version changes the fingerprint and returns the conflict to unresolved review. Viewers and AI connections cannot resolve conflicts, and no MCP resolution tool exists.
+
 ## Controlled taxonomy
 
 Categories are a bounded 20-value enumeration. Tags are a bounded 30-value canonical enumeration exposed in the Save schemas. ChatGPT and Claude may select only those values; they cannot create, normalize, alias, or extend tags during alpha. Duplicate tags, unknown tags, unknown categories, unknown artifact types, oversized payloads, and unsafe extra fields fail schema validation before a preview exists.
@@ -98,7 +106,7 @@ Artifact-body search, custom date ranges, pagination beyond the first 100 curren
 
 Every artifact tool resolves an exact unique accessible project name server-side and accepts omission only for a sole accessible project. Legacy opaque project IDs remain compatible inputs but are absent from the model-visible catalog and project results. Missing multi-project selection returns only accessible names; ambiguous, conflicting, archived, unknown, and inaccessible references fail before artifact lookup or preview creation.
 
-`search_alice` includes each usable artifact reference in both structured output and model-visible text. `get_artifact` includes the complete selected artifact and current handoff state in model-visible text as well as structured output. This keeps the ChatGPT/Claude handoff usable when a host consumes only MCP text content.
+`search_alice` includes each usable artifact reference and every current explicit-key conflict in both structured output and model-visible text. `get_artifact` includes the complete selected artifact, current handoff state, and conflicts involving that artifact in model-visible text as well as structured output. This keeps the ChatGPT/Claude handoff usable when a host consumes only MCP text content.
 
 ## Verification standard
 

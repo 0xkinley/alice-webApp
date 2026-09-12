@@ -51,6 +51,7 @@ import {
   endContextAccess,
   refreshProjectFileScan,
   requestProjectDeletion,
+  resolveArtifactDecisionConflict,
   searchAliceArtifacts,
   saveCandidateUpdate,
   setActiveConnectionTarget,
@@ -330,12 +331,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 25, filename: "025_save_confirmation_receipts.sql" },
     { version: 26, filename: "026_artifact_read_receipts.sql" },
     { version: 27, filename: "027_artifact_lifecycle.sql" },
+    { version: 28, filename: "028_artifact_decision_conflicts.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    27,
+    28,
   );
   await reopened.close();
 });
@@ -561,6 +563,114 @@ test("PostgreSQL serializes human artifact lifecycle and denies non-active versi
         "UPDATE artifact_lifecycle_events SET lifecycle_state = 'active' WHERE artifact_id = ?",
       )
       .run(duplicate.artifact_id),
+    /immutable|permission denied/i,
+  );
+});
+
+test("PostgreSQL constrains exact decision conflicts and human resolutions under the application role", async () => {
+  const save = async (title, value, key) => {
+    const prepared = await createArtifactSavePreview(database, {
+      userId: owner.id,
+      connectionId,
+      clientId,
+      publicUrl: "https://app.alice.example",
+      payload: {
+        project_id: owner.project_id,
+        title,
+        artifact_type: "plan",
+        category: "strategy",
+        tags: ["decision"],
+        content: `${title} exact body.`,
+        handoff: {
+          goal: "Verify deterministic decision collision persistence.",
+          decisions: [],
+          decision_records: [{ decision_key: "release.channel", value }],
+          constraints: [],
+          rejected_directions: [],
+          open_questions: [],
+          next_steps: [],
+          relevant_context: [],
+        },
+        idempotency_key: key,
+      },
+    });
+    assert.ok(!("error" in prepared));
+    return await commitArtifactSavePreview(database, {
+      previewId: prepared.preview.preview_id,
+      previewVersion: prepared.preview.preview_version,
+      authorityToken: prepared.authorityToken,
+      authority: "mcp_app",
+      userId: owner.id,
+    });
+  };
+  const email = await save(
+    "PostgreSQL email release",
+    { channel: "email", wave: 1 },
+    "postgres-decision-email",
+  );
+  await save(
+    "PostgreSQL webinar release",
+    { wave: 1, channel: "webinar" },
+    "postgres-decision-webinar",
+  );
+  const searched = await searchAliceArtifacts(database, {
+    userId: owner.id,
+    connectionId,
+    project_id: owner.project_id,
+    query: "PostgreSQL release",
+    categories: [],
+    tags: [],
+    sources: [],
+    artifact_types: [],
+    timeline: "all_time",
+    limit: 20,
+  });
+  assert.equal(searched.decision_conflicts.length, 1);
+  const conflict = searched.decision_conflicts[0];
+  const selected = conflict.records.find((record) => record.artifact_id === email.artifact_id);
+  const resolutions = await Promise.all(
+    Array.from({ length: 2 }, () =>
+      resolveArtifactDecisionConflict(database, {
+        userId: owner.id,
+        projectId: owner.project_id,
+        conflictFingerprint: conflict.conflict_fingerprint,
+        selectedVersionId: selected.version_id,
+      }),
+    ),
+  );
+  assert.equal(resolutions[0].selected_version_id, selected.version_id);
+  assert.equal(resolutions[1].selected_version_id, selected.version_id);
+  assert.equal(
+    (
+      await database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM artifact_decision_resolutions WHERE conflict_fingerprint = ?",
+        )
+        .get(conflict.conflict_fingerprint)
+    ).count,
+    1,
+  );
+  assert.equal(
+    await resolveArtifactDecisionConflict(database, {
+      userId: other.id,
+      projectId: owner.project_id,
+      conflictFingerprint: conflict.conflict_fingerprint,
+      selectedVersionId: selected.version_id,
+    }),
+    undefined,
+  );
+  await assert.rejects(
+    database
+      .prepare(
+        "UPDATE artifact_decision_resolutions SET decision_key = ? WHERE conflict_fingerprint = ?",
+      )
+      .run("changed", conflict.conflict_fingerprint),
+    /immutable|permission denied/i,
+  );
+  await assert.rejects(
+    database
+      .prepare("DELETE FROM artifact_decision_resolutions WHERE conflict_fingerprint = ?")
+      .run(conflict.conflict_fingerprint),
     /immutable|permission denied/i,
   );
 });

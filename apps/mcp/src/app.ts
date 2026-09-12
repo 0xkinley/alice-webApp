@@ -237,16 +237,46 @@ function readableProjectPackage(projectPackage) {
 }
 
 function readableArtifactSearch(result) {
-  return result.results.length === 0
-    ? `No matching saved artifacts were found in ${result.project.name}. A zero-result metadata search does not prove the artifact is absent. Do not overwrite or version a nearby artifact. Try a safe broader search with fewer query words or no query while keeping the same exact project and filters. Result count: 0; applied limit: ${result.applied_limit}; truncated: false.`
-    : `Matching saved artifacts in ${result.project.name} (${result.returned_count} of ${result.result_count}; applied limit ${result.applied_limit}; truncated: ${result.truncated ? "yes" : "no"}):\n${result.results
+  const search =
+    result.results.length === 0
+      ? `No matching saved artifacts were found in ${result.project.name}. A zero-result metadata search does not prove the artifact is absent. Do not overwrite or version a nearby artifact. Try a safe broader search with fewer query words or no query while keeping the same exact project and filters. Result count: 0; applied limit: ${result.applied_limit}; truncated: false.`
+      : `Matching saved artifacts in ${result.project.name} (${result.returned_count} of ${result.result_count}; applied limit ${result.applied_limit}; truncated: ${result.truncated ? "yes" : "no"}):\n${result.results
+          .map(
+            (artifact) =>
+              `- ${artifact.title} — artifact reference ${artifact.artifact_id}; Alice version ${artifact.current_version}, ${artifact.artifact_type}, ${artifact.lifecycle.state}, from ${artifact.source}; match ${artifact.match.quality}${artifact.match.partial ? ` (${artifact.match.matched_query_tokens}/${artifact.match.query_tokens} query tokens; partial match)` : ""}${artifact.title_version_integrity.status === "conflicting_label" ? `; warning: ${artifact.title_version_integrity.notice}` : ""}`,
+          )
+          .join(
+            "\n",
+          )}${result.continuation ? `\nMore results are available: repeat the same search with offset ${result.continuation.next_offset}.` : ""}`;
+  return [search, readableDecisionConflicts(result.decision_conflicts)]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function readableDecisionRecords(records) {
+  return records?.length
+    ? `Structured decision records:\n${records
+        .map((record) => `- ${record.decision_key}: ${JSON.stringify(record.value)}`)
+        .join("\n")}`
+    : "";
+}
+
+function readableDecisionConflicts(conflicts) {
+  if (!conflicts?.length) return "";
+  return `Decision conflicts detected from explicit structured keys only:\n${conflicts
+    .map((conflict) => {
+      const records = conflict.records
         .map(
-          (artifact) =>
-            `- ${artifact.title} — artifact reference ${artifact.artifact_id}; Alice version ${artifact.current_version}, ${artifact.artifact_type}, ${artifact.lifecycle.state}, from ${artifact.source}; match ${artifact.match.quality}${artifact.match.partial ? ` (${artifact.match.matched_query_tokens}/${artifact.match.query_tokens} query tokens; partial match)` : ""}${artifact.title_version_integrity.status === "conflicting_label" ? `; warning: ${artifact.title_version_integrity.notice}` : ""}`,
+          (record) =>
+            `  - ${record.title}; Alice version ${record.alice_version}; source ${record.source}; saved ${record.saved_at}; exact value ${JSON.stringify(record.value)}`,
         )
-        .join(
-          "\n",
-        )}${result.continuation ? `\nMore results are available: repeat the same search with offset ${result.continuation.next_offset}.` : ""}`;
+        .join("\n");
+      const resolution = conflict.resolution
+        ? `\n  Human-selected exact value: ${JSON.stringify(conflict.resolution.selected_value)}. ${conflict.resolution.notice}`
+        : "\n  Status: unresolved. Alice does not choose which value is correct.";
+      return `- ${conflict.decision_key} (${conflict.status}):\n${records}${resolution}\n  Limitation: ${conflict.limitation}`;
+    })
+    .join("\n")}`;
 }
 
 function readableArtifact(result) {
@@ -281,6 +311,7 @@ function readableArtifact(result) {
     `Goal: ${readableText(artifact.handoff.goal)}`,
     artifact.handoff.summary ? `Summary: ${readableText(artifact.handoff.summary)}` : "",
     list("Decisions", artifact.handoff.decisions),
+    readableDecisionRecords(artifact.handoff.decision_records),
     list("Constraints", artifact.handoff.constraints),
     artifact.handoff.rejected_directions?.length
       ? `Rejected directions:\n${artifact.handoff.rejected_directions
@@ -290,6 +321,7 @@ function readableArtifact(result) {
     list("Open questions", artifact.handoff.open_questions),
     list("Next steps", artifact.handoff.next_steps),
     list("Relevant context", artifact.handoff.relevant_context),
+    readableDecisionConflicts(artifact.decision_conflicts),
     `Full artifact content:\n${artifact.content}`,
   ]
     .filter(Boolean)
@@ -802,7 +834,7 @@ function createProtocolServer(
     {
       title: "Search saved alice. work",
       description:
-        "Use when the user refers to prior work, work from another AI session, an earlier artifact or decision, what was decided, the latest item, yesterday's work, or continuing where they left off. Project is first-class: use the clearly named project; if there is only one accessible project alice. resolves it automatically; if several are available and none is clear, ask the user. Deterministic metadata search tokenizes across title, summary, goal, category, artifact type, and tags; it never searches full artifact bodies. Results identify exact, phrase, all-token, and partial matches, report completeness, and provide a continuation offset when truncated. Search defaults to canonical active artifacts; request superseded or archived history explicitly. A zero result is not proof of absence and never authorizes overwriting a nearby artifact. A host may suggest a duplicate or obsolete artifact but cannot change lifecycle state.",
+        "Use when the user refers to prior work, work from another AI session, an earlier artifact or decision, what was decided, the latest item, yesterday's work, or continuing where they left off. Project is first-class: use the clearly named project; if there is only one accessible project alice. resolves it automatically; if several are available and none is clear, ask the user. Deterministic metadata search tokenizes across title, summary, goal, category, artifact type, and tags; it never searches full artifact bodies. Results identify exact, phrase, all-token, and partial matches, report completeness, and provide a continuation offset when truncated. Search defaults to canonical active artifacts; request superseded or archived history explicitly. A zero result is not proof of absence and never authorizes overwriting a nearby artifact. Alice reports conflicts only when current active artifacts provide the same explicit structured decision_key with different exact JSON values; it does not infer semantic contradictions or choose correctness. Only a separate authenticated human action in Alice can record a resolution. A host may suggest a duplicate or obsolete artifact but cannot change lifecycle state.",
       inputSchema: searchAliceSchema,
       ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -861,7 +893,7 @@ function createProtocolServer(
     {
       title: "Get a complete alice. artifact",
       description:
-        "Retrieve the complete current human-approved artifact and the state needed to continue it: project, authoritative Alice version, stable title, lifecycle, exact canonical replacement when superseded, full content, goal, decisions, constraints, rejected directions with reasons, open questions, next steps, relevant context, source, and saved time. An active current-version read returns one short-lived single-use retrieval receipt required by save_artifact_version and bound to this exact user, connection, project, artifact, current version, and stored title. Superseded and archived artifacts are read-only until an authenticated human restores them in Alice. Defaults to current state without flooding the host with history. Request an older version or lightweight history only when the user asks. This read cannot change trusted state or artifact lifecycle.",
+        "Retrieve the complete current human-approved artifact and the state needed to continue it: project, authoritative Alice version, stable title, lifecycle, exact canonical replacement when superseded, full content, goal, decisions, explicit structured decision records, deterministic decision conflicts involving this artifact, constraints, rejected directions with reasons, open questions, next steps, relevant context, source, and saved time. Alice detects a conflict only when current active artifacts use the same explicit decision_key with different exact JSON values; it does not infer semantic contradictions or choose correctness. Only a separate authenticated human action in Alice can record a resolution. An active current-version read returns one short-lived single-use retrieval receipt required by save_artifact_version and bound to this exact user, connection, project, artifact, current version, and stored title. Superseded and archived artifacts are read-only until an authenticated human restores them in Alice. Defaults to current state without flooding the host with history. Request an older version or lightweight history only when the user asks. This read cannot change trusted state, artifact lifecycle, or conflict resolution.",
       inputSchema: getArtifactSchema,
       ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },

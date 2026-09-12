@@ -27,6 +27,8 @@ The Save preview names the existing stable artifact title, authoritative current
 
 Artifact lifecycle is read-only over MCP. `search_alice` defaults to canonical active artifacts and accepts an explicit lifecycle filter for authorized superseded/archived history. `get_artifact` reports lifecycle and, for superseded artifacts, the exact authorized replacement reference, title, Alice version, and replacement lifecycle. Non-active artifacts receive no version receipt. No MCP tool can archive, restore, supersede, merge, delete, or redirect an artifact; a host may only suggest that the authenticated human use Alice's web control.
 
+Artifact handoff may also contain bounded explicit `decision_records` with validated stable keys and exact JSON values. `search_alice` reports a project conflict only when current active artifacts carry the same exact key with different canonical JSON values; `get_artifact` reports only conflicts involving the selected artifact. Both text and structured forms include every source artifact/version, source AI, save time, exact value, resolution status, and the deterministic limitation. Alice does not compare prose, infer semantic contradictions, or choose truth. MCP has no conflict-resolution mutation: a separate authenticated Owner/Editor web action may append one human selection while leaving source snapshots and trusted project state unchanged.
+
 ## Minimum tool surface
 
 ### `list_projects`

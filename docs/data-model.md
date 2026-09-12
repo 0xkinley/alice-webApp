@@ -88,6 +88,8 @@ Milestone 05 classifies accepted state under the `artifact.` or `artifacts.` pre
 
 Milestone 06 keeps uploaded objects and immutable metadata separate. Deterministic PDF embedded-text extraction never creates an artifact or candidate by itself. An explicit file-suggestion capture retains the exact excerpt inside evidence and its exact file/extraction link in `evidence_file_sources`; the proposed claims remain ordinary pending candidates. Malware-clean and successfully extracted remain distinct from human-accepted.
 
+Complete artifact snapshots may carry bounded `decision_records_json`: explicit validated decision keys paired with exact JSON values. The retained empty-array default keeps older application images able to insert artifact versions after the additive migration. `artifact_decision_resolutions` is append-only and project-scoped; it binds one human-selected current artifact/version/value to a SHA-256 fingerprint of an exact conflict set. A composite foreign key prevents selecting a version from another artifact or project. Resolution records do not change artifact versions or accepted state, and a new current version produces a different conflict fingerprint.
+
 ## Integrations and audit
 
 ### Integration connections

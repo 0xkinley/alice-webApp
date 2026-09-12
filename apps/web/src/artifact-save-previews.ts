@@ -6,7 +6,7 @@ import {
 import type { PrivateFileStore } from "@alice/domain";
 import express from "express";
 import { renderAppPage, renderStatusPage, requireAuthenticatedUser } from "./auth.ts";
-import { escapeHtml, readableLabel, readableText } from "./human-readable.ts";
+import { escapeHtml, readableLabel, readableText, renderReadableValue } from "./human-readable.ts";
 import { hostLabel, localTimestamp } from "./product-copy.ts";
 import { getProjectShell, renderProjectShell } from "./project-shell.ts";
 
@@ -15,6 +15,16 @@ function list(title: string, items: unknown[]) {
   return `<section><h3>${escapeHtml(title)}</h3><ul>${items
     .map((item) => `<li>${escapeHtml(readableText(item))}</li>`)
     .join("")}</ul></section>`;
+}
+
+function decisionRecords(items: unknown[]) {
+  if (!Array.isArray(items) || items.length === 0) return "";
+  return `<section><h3>Structured decision records</h3><dl>${items
+    .map(
+      (item: any) =>
+        `<dt>${escapeHtml(item.decision_key)}</dt><dd><div class="readable-value">${renderReadableValue(item.value)}</div></dd>`,
+    )
+    .join("")}</dl></section>`;
 }
 
 function previewPage(preview) {
@@ -36,7 +46,7 @@ function previewPage(preview) {
       : '<p class="notice danger"><strong>Save blocked.</strong> Ask the AI platform to correct the artifact title and create a new exact Alice preview.</p>';
   const identity = artifact.identity;
   const identitySummary = `<section class="${identity.conflict ? "notice danger" : "notice"}"><h3>Artifact identity and Alice version</h3><dl>${identity.existing_artifact ? `<dt>Existing artifact</dt><dd>${escapeHtml(identity.existing_artifact)}</dd><dt>Authoritative current Alice version</dt><dd>${identity.authoritative_current_alice_version}</dd>` : ""}<dt>Proposed next Alice version</dt><dd>${identity.proposed_next_alice_version}</dd><dt>Proposed title</dt><dd>${escapeHtml(identity.proposed_title)}</dd><dt>Identity/title conflict</dt><dd>${identity.conflict ? `Yes — ${escapeHtml(identity.conflict_reason)}` : "None detected"}</dd></dl></section>`;
-  return `<section><div class="section-heading"><div><p class="eyebrow">Artifact Save preview</p><h2>${preview.save_kind === "new_version" ? `Save Alice version ${artifact.version} of ${escapeHtml(artifact.title)}?` : `Save ${escapeHtml(artifact.title)}?`}</h2></div></div><p>Only your authenticated Save action creates this artifact version. Closing this page does nothing.</p>${identitySummary}<dl><dt>Project</dt><dd>${escapeHtml(preview.destination.project_name)}</dd><dt>Source</dt><dd>${escapeHtml(hostLabel(preview.source_host))}</dd><dt>Prepared</dt><dd>${localTimestamp(preview.created_at)}</dd><dt>Type</dt><dd>${escapeHtml(readableLabel(artifact.artifact_type))}</dd><dt>Category</dt><dd>${escapeHtml(readableLabel(artifact.category))}</dd><dt>Tags</dt><dd>${artifact.tags.length ? artifact.tags.map((tag) => escapeHtml(readableLabel(tag))).join(" · ") : "None"}</dd></dl><section><h3>Full artifact</h3><div class="artifact-body">${escapeHtml(artifact.content)}</div></section><section><h3>Goal</h3><p>${escapeHtml(readableText(handoff.goal))}</p>${handoff.summary ? `<p>${escapeHtml(readableText(handoff.summary))}</p>` : ""}</section>${list("Decisions", handoff.decisions)}${list("Constraints", handoff.constraints)}${rejected}${list("Open questions", handoff.open_questions)}${list("Next steps", handoff.next_steps)}${list("Relevant context", handoff.relevant_context)}${action}<p class="muted">Before Save, this is short-lived preview state only.</p></section>`;
+  return `<section><div class="section-heading"><div><p class="eyebrow">Artifact Save preview</p><h2>${preview.save_kind === "new_version" ? `Save Alice version ${artifact.version} of ${escapeHtml(artifact.title)}?` : `Save ${escapeHtml(artifact.title)}?`}</h2></div></div><p>Only your authenticated Save action creates this artifact version. Closing this page does nothing.</p>${identitySummary}<dl><dt>Project</dt><dd>${escapeHtml(preview.destination.project_name)}</dd><dt>Source</dt><dd>${escapeHtml(hostLabel(preview.source_host))}</dd><dt>Prepared</dt><dd>${localTimestamp(preview.created_at)}</dd><dt>Type</dt><dd>${escapeHtml(readableLabel(artifact.artifact_type))}</dd><dt>Category</dt><dd>${escapeHtml(readableLabel(artifact.category))}</dd><dt>Tags</dt><dd>${artifact.tags.length ? artifact.tags.map((tag) => escapeHtml(readableLabel(tag))).join(" · ") : "None"}</dd></dl><section><h3>Full artifact</h3><div class="artifact-body">${escapeHtml(artifact.content)}</div></section><section><h3>Goal</h3><p>${escapeHtml(readableText(handoff.goal))}</p>${handoff.summary ? `<p>${escapeHtml(readableText(handoff.summary))}</p>` : ""}</section>${list("Decisions", handoff.decisions)}${decisionRecords(handoff.decision_records)}${list("Constraints", handoff.constraints)}${rejected}${list("Open questions", handoff.open_questions)}${list("Next steps", handoff.next_steps)}${list("Relevant context", handoff.relevant_context)}${action}<p class="muted">Before Save, this is short-lived preview state only.</p></section>`;
 }
 
 export function createArtifactSavePreviewsRouter({

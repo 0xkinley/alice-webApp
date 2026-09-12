@@ -7,6 +7,7 @@ import {
   createArtifactSavePreview,
   createProject,
   normalizeArtifactSearchText,
+  resolveArtifactDecisionConflict,
 } from "@alice/domain";
 import { createApp as createMcpApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
@@ -22,7 +23,12 @@ let mcpServer;
 let webBaseUrl;
 let webServer;
 
-function snapshot({ content, idempotencyKey, title = "Stablecoin agent payments" }) {
+function snapshot({
+  content,
+  idempotencyKey,
+  title = "Stablecoin agent payments",
+  decisionRecords = [],
+}) {
   return {
     project_id: identity.project_id,
     title,
@@ -34,6 +40,7 @@ function snapshot({ content, idempotencyKey, title = "Stablecoin agent payments"
       goal: "Explain why AI agents may use stablecoins for payments.",
       summary: "An accessible article for fintech professionals.",
       decisions: ["Audience is fintech professionals", "Focus on payments, not speculation"],
+      decision_records: decisionRecords,
       constraints: ["No em dashes", "Avoid deep protocol detail"],
       rejected_directions: [
         {
@@ -1102,4 +1109,265 @@ test("authenticated humans control append-only active, archived, restored, and s
   assert.ok(
     !names.some((name) => /archive_artifact|supersede_artifact|restore_artifact/.test(name)),
   );
+});
+
+test("explicit structured decision keys expose exact conflicts for separate human resolution", async () => {
+  const firstPrepared = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "save_to_alice",
+    arguments: {
+      save_type: "artifact",
+      ...snapshot({
+        content: "Launch through the customer email list.",
+        idempotencyKey: "decision-conflict-email-001",
+        title: "Decision collision email plan",
+        decisionRecords: [{ decision_key: "launch.channel", value: { channel: "email", wave: 1 } }],
+      }),
+    },
+  });
+  const firstPreview = firstPrepared.payload.result.structuredContent;
+  const previewResponse = await fetch(
+    `${webBaseUrl}/artifact-save-previews/${encodeURIComponent(firstPreview.preview_id)}`,
+    { headers: { cookie } },
+  );
+  const previewHtml = await previewResponse.text();
+  assert.match(previewHtml, /Structured decision records/);
+  assert.match(previewHtml, /launch\.channel/);
+  assert.match(previewHtml, /email/);
+  const first = await commit(chatGptToken, firstPrepared);
+  const firstId = first.payload.result.structuredContent.artifact_id;
+
+  const second = await saveNewArtifact(
+    claudeToken,
+    snapshot({
+      content: "Launch through the partner social accounts.",
+      idempotencyKey: "decision-conflict-social-001",
+      title: "Decision collision social plan",
+      decisionRecords: [{ decision_key: "launch.channel", value: { wave: 1, channel: "social" } }],
+    }),
+  );
+  const secondId = second.payload.result.structuredContent.artifact_id;
+
+  const search = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "search_alice",
+    arguments: { project_id: identity.project_id, query: "decision collision" },
+  });
+  const conflicts = search.payload.result.structuredContent.decision_conflicts;
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].decision_key, "launch.channel");
+  assert.equal(conflicts[0].status, "unresolved");
+  assert.deepEqual(
+    conflicts[0].records
+      .map((record) => ({
+        title: record.title,
+        source: record.source,
+        value: record.value,
+      }))
+      .sort((left, right) => left.title.localeCompare(right.title)),
+    [
+      {
+        title: "Decision collision email plan",
+        source: "chatgpt",
+        value: { channel: "email", wave: 1 },
+      },
+      {
+        title: "Decision collision social plan",
+        source: "claude",
+        value: { wave: 1, channel: "social" },
+      },
+    ],
+  );
+  assert.match(conflicts[0].limitation, /free-form semantic contradictions are not inferred/);
+  assert.match(search.payload.result.content[0].text, /exact value \{"channel":"email","wave":1\}/);
+  assert.match(search.payload.result.content[0].text, /does not choose which value is correct/);
+
+  const read = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: firstId },
+  });
+  assert.equal(read.payload.result.structuredContent.artifact.decision_conflicts.length, 1);
+  assert.deepEqual(read.payload.result.structuredContent.artifact.handoff.decision_records, [
+    { decision_key: "launch.channel", value: { channel: "email", wave: 1 } },
+  ]);
+  assert.match(read.payload.result.content[0].text, /Structured decision records/);
+
+  const listPage = await fetch(`${webBaseUrl}/projects/${identity.project_id}/artifacts`, {
+    headers: { cookie },
+  });
+  const listHtml = await listPage.text();
+  assert.match(listHtml, /Decision conflicts/);
+  assert.match(listHtml, /Record human selection/);
+  assert.match(listHtml, /not Alice verification/);
+
+  const fingerprint = conflicts[0].conflict_fingerprint;
+  const selected = conflicts[0].records.find((record) => record.artifact_id === firstId);
+  const resolved = await fetch(
+    `${webBaseUrl}/projects/${identity.project_id}/artifact-decision-conflicts/${fingerprint}/resolve`,
+    {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ selected_version_id: selected.version_id }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(resolved.status, 303);
+
+  const resolvedSearch = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "search_alice",
+    arguments: { project_id: identity.project_id, query: "decision collision" },
+  });
+  const resolvedConflict = resolvedSearch.payload.result.structuredContent.decision_conflicts[0];
+  assert.equal(resolvedConflict.status, "human_resolved");
+  assert.deepEqual(resolvedConflict.resolution.selected_value, { channel: "email", wave: 1 });
+  assert.match(resolvedConflict.resolution.notice, /does not verify which value is correct/);
+  assert.throws(
+    () =>
+      database
+        .prepare(
+          "UPDATE artifact_decision_resolutions SET decision_key = 'changed' WHERE conflict_fingerprint = ?",
+        )
+        .run(fingerprint),
+    /immutable/,
+  );
+
+  const viewer = await createTestIdentity(database, {
+    email: "artifact-decision-viewer@alice.example",
+    password: "artifact decision viewer password",
+    projectId: "project_artifact_decision_viewer",
+  });
+  const membershipTime = new Date().toISOString();
+  database
+    .prepare(
+      `INSERT INTO project_memberships
+        (id, workspace_id, project_id, user_id, role, created_by_user_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'viewer', ?, ?, ?)`,
+    )
+    .run(
+      "membership_artifact_decision_viewer",
+      identity.workspace_id,
+      identity.project_id,
+      viewer.id,
+      identity.id,
+      membershipTime,
+      membershipTime,
+    );
+  assert.equal(
+    await resolveArtifactDecisionConflict(database, {
+      userId: viewer.id,
+      projectId: identity.project_id,
+      conflictFingerprint: fingerprint,
+      selectedVersionId: selected.version_id,
+    }),
+    undefined,
+  );
+
+  const latestRead = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: secondId },
+  });
+  const revised = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: secondId,
+      retrieval_receipt:
+        latestRead.payload.result.structuredContent.artifact.retrieval_receipt.token,
+      ...snapshot({
+        content: "Launch through a partner webinar.",
+        idempotencyKey: "decision-conflict-webinar-002",
+        title: "Decision collision social plan",
+        decisionRecords: [
+          { decision_key: "launch.channel", value: { channel: "webinar", wave: 1 } },
+        ],
+      }),
+    },
+  });
+  await commit(chatGptToken, revised);
+  const changedSearch = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "search_alice",
+    arguments: { project_id: identity.project_id, query: "decision collision" },
+  });
+  assert.equal(
+    changedSearch.payload.result.structuredContent.decision_conflicts[0].status,
+    "unresolved",
+  );
+  assert.notEqual(
+    changedSearch.payload.result.structuredContent.decision_conflicts[0].conflict_fingerprint,
+    fingerprint,
+  );
+  const stale = await resolveArtifactDecisionConflict(database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    conflictFingerprint: fingerprint,
+    selectedVersionId: selected.version_id,
+  }).catch((error) => error);
+  assert.match(stale.message, /conflict changed/i);
+
+  await saveNewArtifact(
+    claudeToken,
+    snapshot({
+      content: "A corroborating email launch record.",
+      idempotencyKey: "decision-conflict-email-same-001",
+      title: "Decision collision corroborating plan",
+      decisionRecords: [{ decision_key: "launch.channel", value: { wave: 1, channel: "email" } }],
+    }),
+  );
+  await changeArtifactLifecycle(database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    artifactId: secondId,
+    action: "archive",
+    expectedVersion: 0,
+  });
+  const equalValuesOnly = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "search_alice",
+    arguments: { project_id: identity.project_id, query: "decision collision" },
+  });
+  assert.equal(equalValuesOnly.payload.result.structuredContent.decision_conflicts.length, 0);
+  await changeArtifactLifecycle(database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    artifactId: secondId,
+    action: "restore",
+    expectedVersion: 1,
+  });
+  const restoredConflict = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "search_alice",
+    arguments: { project_id: identity.project_id, query: "decision collision" },
+  });
+  assert.equal(restoredConflict.payload.result.structuredContent.decision_conflicts.length, 1);
+
+  const semanticOnly = await saveNewArtifact(
+    chatGptToken,
+    snapshot({
+      content: "Free-form prose says the launch channel is events.",
+      idempotencyKey: "decision-conflict-semantic-only-001",
+      title: "Decision prose only",
+    }),
+  );
+  assert.ok(semanticOnly.payload.result.structuredContent.artifact_id);
+  const afterSemantic = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "search_alice",
+    arguments: { project_id: identity.project_id, query: "decision collision" },
+  });
+  assert.equal(afterSemantic.payload.result.structuredContent.decision_conflicts.length, 1);
+
+  const invalid = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "save_to_alice",
+    arguments: {
+      save_type: "artifact",
+      ...snapshot({
+        content: "Invalid structured key.",
+        idempotencyKey: "decision-conflict-invalid-001",
+        title: "Invalid decision record",
+        decisionRecords: [
+          { decision_key: "Launch Channel!", value: "email" },
+          { decision_key: "Launch Channel!", value: "social" },
+        ],
+      }),
+    },
+  });
+  assert.equal(invalid.payload.result.isError, true);
+
+  const tools = await callMcp(mcpBaseUrl, claudeToken, "tools/list");
+  const names = tools.payload.result.tools.map((tool) => tool.name);
+  assert.ok(!names.some((name) => /resolve.*decision|decision.*resolve/.test(name)));
 });

@@ -195,6 +195,21 @@ Minimum controls:
 
 Alice does not infer duplicates or choose a canonical artifact from prose. Production cleanup is outside implementation and requires a separate explicit human action.
 
+### Semantic collision invention or host-controlled resolution
+
+A host may claim two prose passages conflict, invent a decision key, hide one source value, or try to resolve a disagreement through MCP. It may also replay a resolution after one source has a newer current version.
+
+Minimum controls:
+
+- accept only validated explicit structured decision keys inside the exact human-reviewed artifact snapshot;
+- compare exact keys and deterministic canonical JSON values only across current active versions in one authorized project;
+- expose every source artifact/version, provider, saved time, and exact value without asserting correctness;
+- bind resolution authority to a fingerprint of the complete current conflict set;
+- permit resolution only as a separately authenticated Owner/Editor web action under a transaction lock;
+- append immutable resolution and content-free audit records without rewriting sources or accepted state;
+- deny Viewers and expose no MCP resolution tool; and
+- state that free-form semantic contradictions are not inferred and a human selection is not Alice verification.
+
 ## Spike security gates
 
 - Candidate tool calls cannot directly change trusted state.

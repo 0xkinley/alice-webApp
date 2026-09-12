@@ -846,6 +846,9 @@ function createSchema(database: DatabaseSync) {
       goal TEXT NOT NULL CHECK (length(goal) BETWEEN 1 AND 2000),
       summary TEXT CHECK (summary IS NULL OR length(summary) BETWEEN 1 AND 2000),
       decisions_json TEXT NOT NULL CHECK (length(decisions_json) BETWEEN 2 AND 32768),
+      decision_records_json TEXT NOT NULL CHECK (
+        length(decision_records_json) BETWEEN 2 AND 32768
+      ),
       constraints_json TEXT NOT NULL CHECK (length(constraints_json) BETWEEN 2 AND 32768),
       rejected_directions_json TEXT NOT NULL CHECK (
         length(rejected_directions_json) BETWEEN 2 AND 32768
@@ -883,7 +886,8 @@ function createSchema(database: DatabaseSync) {
       ),
       UNIQUE (workspace_id, project_id, artifact_id, version),
       UNIQUE (source_connection_id, project_id, idempotency_key),
-      UNIQUE (workspace_id, project_id, id)
+      UNIQUE (workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, artifact_id, id)
     ) STRICT;
 
     CREATE INDEX artifact_versions_current
@@ -980,6 +984,26 @@ function createSchema(database: DatabaseSync) {
 
     CREATE INDEX artifact_lifecycle_current
       ON artifact_lifecycle_events (workspace_id, project_id, artifact_id, version DESC);
+
+    CREATE TABLE artifact_decision_resolutions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      decision_key TEXT NOT NULL CHECK (length(decision_key) BETWEEN 1 AND 200),
+      conflict_fingerprint TEXT NOT NULL CHECK (length(conflict_fingerprint) = 64),
+      selected_artifact_id TEXT NOT NULL,
+      selected_version_id TEXT NOT NULL,
+      selected_value_json TEXT NOT NULL CHECK (length(selected_value_json) BETWEEN 1 AND 8192),
+      resolved_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      resolved_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, selected_artifact_id, selected_version_id)
+        REFERENCES artifact_versions(workspace_id, project_id, artifact_id, id),
+      UNIQUE (workspace_id, project_id, conflict_fingerprint),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX artifact_decision_resolutions_lookup
+      ON artifact_decision_resolutions (workspace_id, project_id, decision_key, resolved_at DESC);
 
     CREATE TABLE save_confirmation_receipts (
       id TEXT PRIMARY KEY,
@@ -1672,6 +1696,18 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON artifact_lifecycle_events
     BEGIN
       SELECT RAISE(ABORT, 'artifact lifecycle events are immutable');
+    END;
+
+    CREATE TRIGGER artifact_decision_resolutions_no_update
+    BEFORE UPDATE ON artifact_decision_resolutions
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact decision resolutions are immutable');
+    END;
+
+    CREATE TRIGGER artifact_decision_resolutions_no_delete
+    BEFORE DELETE ON artifact_decision_resolutions
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact decision resolutions are immutable');
     END;
 
     CREATE TRIGGER save_confirmation_receipts_no_update
