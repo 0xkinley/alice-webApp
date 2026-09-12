@@ -559,6 +559,12 @@ export const searchAliceSchema = z
       .max(10_000)
       .default(0)
       .describe("Continuation offset returned by an earlier search_alice result"),
+    lifecycle: z
+      .enum(["active", "superseded", "archived", "all"])
+      .default("active")
+      .describe(
+        "Defaults to canonical active artifacts; request superseded, archived, or all history explicitly",
+      ),
   })
   .strict();
 

@@ -242,7 +242,7 @@ function readableArtifactSearch(result) {
     : `Matching saved artifacts in ${result.project.name} (${result.returned_count} of ${result.result_count}; applied limit ${result.applied_limit}; truncated: ${result.truncated ? "yes" : "no"}):\n${result.results
         .map(
           (artifact) =>
-            `- ${artifact.title} — artifact reference ${artifact.artifact_id}; Alice version ${artifact.current_version}, ${artifact.artifact_type}, from ${artifact.source}; match ${artifact.match.quality}${artifact.match.partial ? ` (${artifact.match.matched_query_tokens}/${artifact.match.query_tokens} query tokens; partial match)` : ""}${artifact.title_version_integrity.status === "conflicting_label" ? `; warning: ${artifact.title_version_integrity.notice}` : ""}`,
+            `- ${artifact.title} — artifact reference ${artifact.artifact_id}; Alice version ${artifact.current_version}, ${artifact.artifact_type}, ${artifact.lifecycle.state}, from ${artifact.source}; match ${artifact.match.quality}${artifact.match.partial ? ` (${artifact.match.matched_query_tokens}/${artifact.match.query_tokens} query tokens; partial match)` : ""}${artifact.title_version_integrity.status === "conflicting_label" ? `; warning: ${artifact.title_version_integrity.notice}` : ""}`,
         )
         .join(
           "\n",
@@ -265,6 +265,13 @@ function readableArtifact(result) {
     `Tags: ${artifact.tags.join(", ") || "None"}`,
     `Source: ${artifact.source}`,
     `Saved: ${artifact.saved_at}`,
+    `Lifecycle: ${artifact.lifecycle.state}`,
+    artifact.lifecycle.replacement
+      ? `Canonical replacement: ${artifact.lifecycle.replacement.title || "Authorized replacement"} — artifact reference ${artifact.lifecycle.replacement.artifact_id}; Alice version ${artifact.lifecycle.replacement.current_version}; lifecycle ${artifact.lifecycle.replacement.lifecycle_state}`
+      : "",
+    artifact.lifecycle.state !== "active"
+      ? "Version writes are disabled until an authenticated human restores this artifact in Alice."
+      : "",
     artifact.title_version_integrity?.notice
       ? `Title/version note: ${artifact.title_version_integrity.notice}`
       : "",
@@ -795,7 +802,7 @@ function createProtocolServer(
     {
       title: "Search saved alice. work",
       description:
-        "Use when the user refers to prior work, work from another AI session, an earlier artifact or decision, what was decided, the latest item, yesterday's work, or continuing where they left off. Project is first-class: use the clearly named project; if there is only one accessible project alice. resolves it automatically; if several are available and none is clear, ask the user. Deterministic metadata search tokenizes across title, summary, goal, category, artifact type, and tags; it never searches full artifact bodies. Results identify exact, phrase, all-token, and partial matches, report completeness, and provide a continuation offset when truncated. A zero result is not proof of absence and never authorizes overwriting a nearby artifact.",
+        "Use when the user refers to prior work, work from another AI session, an earlier artifact or decision, what was decided, the latest item, yesterday's work, or continuing where they left off. Project is first-class: use the clearly named project; if there is only one accessible project alice. resolves it automatically; if several are available and none is clear, ask the user. Deterministic metadata search tokenizes across title, summary, goal, category, artifact type, and tags; it never searches full artifact bodies. Results identify exact, phrase, all-token, and partial matches, report completeness, and provide a continuation offset when truncated. Search defaults to canonical active artifacts; request superseded or archived history explicitly. A zero result is not proof of absence and never authorizes overwriting a nearby artifact. A host may suggest a duplicate or obsolete artifact but cannot change lifecycle state.",
       inputSchema: searchAliceSchema,
       ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -817,6 +824,7 @@ function createProtocolServer(
         timeline: input.timeline,
         limit: input.limit,
         offset: input.offset,
+        lifecycle: input.lifecycle,
         ...(input.query ? { query: input.query } : {}),
         project_id: resolution.projectId,
         userId: authenticatedUserId(context),
@@ -853,7 +861,7 @@ function createProtocolServer(
     {
       title: "Get a complete alice. artifact",
       description:
-        "Retrieve the complete current human-approved artifact and the state needed to continue it: project, authoritative Alice version, stable title, full content, goal, decisions, constraints, rejected directions with reasons, open questions, next steps, relevant context, source, and saved time. A current-version read returns one short-lived single-use retrieval receipt required by save_artifact_version and bound to this exact user, connection, project, artifact, current version, and stored title. Defaults to current state without flooding the host with history. Request an older version or lightweight history only when the user asks. This read cannot change trusted state.",
+        "Retrieve the complete current human-approved artifact and the state needed to continue it: project, authoritative Alice version, stable title, lifecycle, exact canonical replacement when superseded, full content, goal, decisions, constraints, rejected directions with reasons, open questions, next steps, relevant context, source, and saved time. An active current-version read returns one short-lived single-use retrieval receipt required by save_artifact_version and bound to this exact user, connection, project, artifact, current version, and stored title. Superseded and archived artifacts are read-only until an authenticated human restores them in Alice. Defaults to current state without flooding the host with history. Request an older version or lightweight history only when the user asks. This read cannot change trusted state or artifact lifecycle.",
       inputSchema: getArtifactSchema,
       ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },

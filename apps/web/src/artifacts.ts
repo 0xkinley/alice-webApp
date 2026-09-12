@@ -1,4 +1,11 @@
-import { getProjectArtifact, searchProjectArtifacts } from "@alice/domain";
+import {
+  ArtifactLifecycleUserError,
+  changeArtifactLifecycle,
+  getArtifactLifecycleControl,
+  getProjectArtifact,
+  listArtifactLifecycleReplacements,
+  searchProjectArtifacts,
+} from "@alice/domain";
 import type { PrivateFileStore } from "@alice/domain";
 import { aliceArtifactCategories, aliceCanonicalTags } from "@alice/schemas";
 import express from "express";
@@ -15,6 +22,7 @@ const TIMELINES = [
   "past_year",
   "all_time",
 ] as const;
+const LIFECYCLES = ["active", "superseded", "archived", "all"] as const;
 
 function unavailable(response) {
   return response
@@ -46,7 +54,8 @@ function artifactFilters(query) {
   const tags = allowedValues(query.tag, aliceCanonicalTags, 12);
   const sources = allowedValues(query.source, SOURCES, 2);
   const timelines = allowedValues(query.period, TIMELINES, 1);
-  if (search.length > 300 || !categories || !tags || !sources || !timelines) {
+  const lifecycles = allowedValues(query.lifecycle, LIFECYCLES, 1);
+  if (search.length > 300 || !categories || !tags || !sources || !timelines || !lifecycles) {
     return undefined;
   }
   return {
@@ -57,6 +66,7 @@ function artifactFilters(query) {
     artifact_types: [],
     timeline: timelines[0] || "all_time",
     limit: 100,
+    lifecycle: (lifecycles[0] || "active") as (typeof LIFECYCLES)[number],
   };
 }
 
@@ -90,7 +100,17 @@ function filtersForm(projectId: string, filters): string {
         `<option value="${value}"${filters.timeline === value ? " selected" : ""}>${timelineLabels.get(value)}</option>`,
     )
     .join("")}`;
-  return `<form class="artifact-filters" method="get" action="/projects/${encodeURIComponent(projectId)}/artifacts"><label class="artifact-search">Search artifacts<input type="search" name="q" maxlength="300" value="${escapeHtml(filters.query || "")}" placeholder="Title, goal, summary, or tag"></label><div class="artifact-filter-grid"><label>Category<select name="category">${optionList(aliceArtifactCategories, filters.categories, "All categories")}</select></label><label>Tag<select name="tag">${optionList(aliceCanonicalTags, filters.tags, "All tags")}</select></label><label>Source AI<select name="source">${optionList(SOURCES, filters.sources, "All source AIs", hostLabel)}</select></label><label>Time period<select name="period">${periods}</select></label></div><div class="actions"><button type="submit">Search and filter</button><a href="/projects/${encodeURIComponent(projectId)}/artifacts">Clear filters</a></div></form>`;
+  const lifecycleLabels = new Map([
+    ["active", "Active artifacts"],
+    ["superseded", "Superseded artifacts"],
+    ["archived", "Archived artifacts"],
+    ["all", "All lifecycle states"],
+  ]);
+  const lifecycles = LIFECYCLES.map(
+    (value) =>
+      `<option value="${value}"${filters.lifecycle === value ? " selected" : ""}>${lifecycleLabels.get(value)}</option>`,
+  ).join("");
+  return `<form class="artifact-filters" method="get" action="/projects/${encodeURIComponent(projectId)}/artifacts"><label class="artifact-search">Search artifacts<input type="search" name="q" maxlength="300" value="${escapeHtml(filters.query || "")}" placeholder="Title, goal, summary, or tag"></label><div class="artifact-filter-grid"><label>Category<select name="category">${optionList(aliceArtifactCategories, filters.categories, "All categories")}</select></label><label>Tag<select name="tag">${optionList(aliceCanonicalTags, filters.tags, "All tags")}</select></label><label>Source AI<select name="source">${optionList(SOURCES, filters.sources, "All source AIs", hostLabel)}</select></label><label>Time period<select name="period">${periods}</select></label><label>Lifecycle<select name="lifecycle">${lifecycles}</select></label></div><div class="actions"><button type="submit">Search and filter</button><a href="/projects/${encodeURIComponent(projectId)}/artifacts">Clear filters</a></div></form>`;
 }
 
 function artifactCards(projectId: string, artifacts): string {
@@ -106,7 +126,7 @@ function artifactCards(projectId: string, artifacts): string {
         artifact.title_version_integrity?.status === "conflicting_label"
           ? `<p class="notice warning"><strong>Title/version mismatch.</strong> ${escapeHtml(artifact.title_version_integrity.notice)}</p>`
           : "";
-      return `<article class="artifact-card"><div class="artifact-card-meta"><span>${escapeHtml(readableLabel(artifact.artifact_type))}</span><span>${escapeHtml(readableLabel(artifact.category))}</span><span>Alice version ${artifact.current_version}</span></div><h2><a class="artifact-link" href="/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifact.artifact_id)}">${escapeHtml(artifact.title)}</a></h2>${titleWarning}${artifact.summary ? `<p>${escapeHtml(readableText(artifact.summary))}</p>` : `<p>${escapeHtml(readableText(artifact.goal))}</p>`}<div class="artifact-tags">${tags}</div><p class="artifact-card-source">From ${escapeHtml(hostLabel(artifact.source))} · ${localTimestamp(artifact.saved_at)}</p></article>`;
+      return `<article class="artifact-card"><div class="artifact-card-meta"><span>${escapeHtml(readableLabel(artifact.artifact_type))}</span><span>${escapeHtml(readableLabel(artifact.category))}</span><span>Alice version ${artifact.current_version}</span><span>${escapeHtml(readableLabel(artifact.lifecycle.state))}</span></div><h2><a class="artifact-link" href="/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifact.artifact_id)}">${escapeHtml(artifact.title)}</a></h2>${titleWarning}${artifact.summary ? `<p>${escapeHtml(readableText(artifact.summary))}</p>` : `<p>${escapeHtml(readableText(artifact.goal))}</p>`}<div class="artifact-tags">${tags}</div><p class="artifact-card-source">From ${escapeHtml(hostLabel(artifact.source))} · ${localTimestamp(artifact.saved_at)}</p></article>`;
     })
     .join("")}</div>`;
 }
@@ -130,7 +150,25 @@ function rejectedDirections(items): string {
   return `<section class="handoff-section"><h3>Rejected directions</h3>${content}</section>`;
 }
 
-function artifactDetail(projectId: string, result): string {
+function lifecycleControls(projectId: string, artifact, control, replacements): string {
+  const project = encodeURIComponent(projectId);
+  const id = encodeURIComponent(artifact.id);
+  const expected = control ? Number(control.version) : 0;
+  const replacementOptions = (replacements || [])
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.artifact_id)}">${escapeHtml(item.title)} · Alice version ${item.current_version}</option>`,
+    )
+    .join("");
+  const humanControls = !control
+    ? ""
+    : control.state === "active"
+      ? `<section><h3>Artifact lifecycle</h3><p>Only this authenticated Alice action can change lifecycle. AI tools may suggest a duplicate or obsolete artifact but cannot apply this change.</p><div class="actions"><form method="post" action="/projects/${project}/artifacts/${id}/lifecycle"><input type="hidden" name="action" value="archive"><input type="hidden" name="expected_version" value="${expected}"><button type="submit">Archive artifact</button></form></div>${replacementOptions ? `<form method="post" action="/projects/${project}/artifacts/${id}/lifecycle"><input type="hidden" name="action" value="supersede"><input type="hidden" name="expected_version" value="${expected}"><label>Canonical replacement<select name="replacement_artifact_id" required><option value="">Choose an active artifact</option>${replacementOptions}</select></label><button type="submit">Mark superseded</button></form>` : ""}</section>`
+      : `<section><h3>Artifact lifecycle</h3><p>Only this authenticated Alice action can restore the artifact to active use.</p><form method="post" action="/projects/${project}/artifacts/${id}/lifecycle"><input type="hidden" name="action" value="restore"><input type="hidden" name="expected_version" value="${expected}"><button type="submit">Restore artifact</button></form></section>`;
+  return humanControls;
+}
+
+function artifactDetail(projectId: string, result, control, replacements): string {
   const artifact = result.artifact;
   const selectedIsCurrent = artifact.selected_version === artifact.current_version;
   const tags = artifact.tags
@@ -152,7 +190,13 @@ function artifactDetail(projectId: string, result): string {
   const titleWarning = artifact.title_version_integrity?.notice
     ? `<p class="notice ${artifact.title_version_integrity.status === "conflicting_label" ? "danger" : "warning"}"><strong>Stored title label.</strong> ${escapeHtml(artifact.title_version_integrity.notice)}</p>`
     : "";
-  return `<section class="artifact-detail"><p><a href="/projects/${encodeURIComponent(projectId)}/artifacts">← All artifacts</a></p><div class="section-heading"><div><p class="eyebrow">${selectedIsCurrent ? "Current artifact" : "Earlier artifact version"}</p><h2>${escapeHtml(artifact.title)}</h2></div><span class="badge">Alice version ${artifact.selected_version} of ${artifact.current_version}</span></div>${titleWarning}<div class="artifact-card-meta"><span>${escapeHtml(readableLabel(artifact.artifact_type))}</span><span>${escapeHtml(readableLabel(artifact.category))}</span><span>From ${escapeHtml(hostLabel(artifact.source))}</span><span>${localTimestamp(artifact.saved_at)}</span></div><div class="artifact-tags">${tags}</div><p class="notice warning"><strong>Saved after human confirmation, not verified by alice.</strong> The source AI generated this content. Saving the exact snapshot preserves it and its provenance; it does not verify its claims.</p>${olderNotice}<section class="artifact-content"><h3>${heading}</h3><div class="artifact-body">${escapeHtml(artifact.content)}</div></section><section><div class="section-heading"><div><p class="eyebrow">Handoff information</p><h2>Continue this work</h2></div></div><dl><dt>Goal</dt><dd>${escapeHtml(readableText(artifact.handoff.goal))}</dd><dt>Summary</dt><dd>${artifact.handoff.summary ? escapeHtml(readableText(artifact.handoff.summary)) : '<span class="muted">None saved for this version.</span>'}</dd></dl><div class="handoff-grid">${handoffList("Decisions", artifact.handoff.decisions)}${handoffList("Constraints", artifact.handoff.constraints)}${rejectedDirections(artifact.handoff.rejected_directions)}${handoffList("Open questions", artifact.handoff.open_questions)}${handoffList("Next steps", artifact.handoff.next_steps)}${handoffList("Relevant context", artifact.handoff.relevant_context)}</div></section><section><div class="section-heading"><div><p class="eyebrow">Immutable lineage</p><h2>Version history</h2></div></div><ol class="artifact-history">${history}</ol></section></section>`;
+  const lifecycleNotice =
+    artifact.lifecycle.state === "superseded" && artifact.lifecycle.replacement
+      ? `<p class="notice warning"><strong>Superseded.</strong> Continue with <a href="/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifact.lifecycle.replacement.artifact_id)}">${escapeHtml(artifact.lifecycle.replacement.title || "the canonical replacement")}</a>, Alice version ${artifact.lifecycle.replacement.current_version}.</p>`
+      : artifact.lifecycle.state === "archived"
+        ? '<p class="notice warning"><strong>Archived.</strong> This artifact remains in immutable history but is excluded from default search and cannot receive versions.</p>'
+        : "";
+  return `<section class="artifact-detail"><p><a href="/projects/${encodeURIComponent(projectId)}/artifacts">← All artifacts</a></p><div class="section-heading"><div><p class="eyebrow">${selectedIsCurrent ? "Current artifact" : "Earlier artifact version"}</p><h2>${escapeHtml(artifact.title)}</h2></div><span class="badge">Alice version ${artifact.selected_version} of ${artifact.current_version}</span></div>${titleWarning}${lifecycleNotice}<div class="artifact-card-meta"><span>${escapeHtml(readableLabel(artifact.artifact_type))}</span><span>${escapeHtml(readableLabel(artifact.category))}</span><span>${escapeHtml(readableLabel(artifact.lifecycle.state))}</span><span>From ${escapeHtml(hostLabel(artifact.source))}</span><span>${localTimestamp(artifact.saved_at)}</span></div><div class="artifact-tags">${tags}</div><p class="notice warning"><strong>Saved after human confirmation, not verified by alice.</strong> The source AI generated this content. Saving the exact snapshot preserves it and its provenance; it does not verify its claims.</p>${olderNotice}<section class="artifact-content"><h3>${heading}</h3><div class="artifact-body">${escapeHtml(artifact.content)}</div></section><section><div class="section-heading"><div><p class="eyebrow">Handoff information</p><h2>Continue this work</h2></div></div><dl><dt>Goal</dt><dd>${escapeHtml(readableText(artifact.handoff.goal))}</dd><dt>Summary</dt><dd>${artifact.handoff.summary ? escapeHtml(readableText(artifact.handoff.summary)) : '<span class="muted">None saved for this version.</span>'}</dd></dl><div class="handoff-grid">${handoffList("Decisions", artifact.handoff.decisions)}${handoffList("Constraints", artifact.handoff.constraints)}${rejectedDirections(artifact.handoff.rejected_directions)}${handoffList("Open questions", artifact.handoff.open_questions)}${handoffList("Next steps", artifact.handoff.next_steps)}${handoffList("Relevant context", artifact.handoff.relevant_context)}</div></section><section><div class="section-heading"><div><p class="eyebrow">Immutable lineage</p><h2>Version history</h2></div></div><ol class="artifact-history">${history}</ol></section>${lifecycleControls(projectId, artifact, control, replacements)}</section>`;
 }
 
 export function createArtifactsRouter({
@@ -218,6 +262,18 @@ export function createArtifactsRouter({
       includeHistory: true,
     });
     if (!result) return unavailable(response);
+    const control = await getArtifactLifecycleControl(database, {
+      userId: request.aliceUser!.id,
+      projectId: request.params.projectId,
+      artifactId: request.params.artifactId,
+    });
+    const replacements = control
+      ? await listArtifactLifecycleReplacements(database, {
+          userId: request.aliceUser!.id,
+          projectId: request.params.projectId,
+          artifactId: request.params.artifactId,
+        })
+      : undefined;
     const shell = await getProjectShell(database, request.aliceUser!.id, request.params.projectId);
     if (!shell) return unavailable(response);
     response
@@ -226,11 +282,57 @@ export function createArtifactsRouter({
       .send(
         renderAppPage(
           `${result.artifact.title} · ${result.project.name}`,
-          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "artifacts" })}${artifactDetail(result.project.id, result)}</div>`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "artifacts" })}${artifactDetail(result.project.id, result, control, replacements)}</div>`,
           { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );
   });
+
+  router.post(
+    "/:projectId/artifacts/:artifactId/lifecycle",
+    authenticated,
+    async (request, response) => {
+      const action = String(request.body.action || "");
+      const expectedVersion = Number(request.body.expected_version);
+      if (
+        !["archive", "restore", "supersede"].includes(action) ||
+        !Number.isSafeInteger(expectedVersion) ||
+        expectedVersion < 0
+      ) {
+        return unavailable(response);
+      }
+      try {
+        const changed = await changeArtifactLifecycle(database, {
+          userId: request.aliceUser!.id,
+          projectId: request.params.projectId,
+          artifactId: request.params.artifactId,
+          action: action as "archive" | "restore" | "supersede",
+          expectedVersion,
+          ...(action === "supersede"
+            ? { replacementArtifactId: String(request.body.replacement_artifact_id || "") }
+            : {}),
+        });
+        if (!changed) return unavailable(response);
+        response.redirect(
+          303,
+          `/projects/${encodeURIComponent(request.params.projectId)}/artifacts/${encodeURIComponent(request.params.artifactId)}`,
+        );
+      } catch (error) {
+        if (!(error instanceof ArtifactLifecycleUserError)) throw error;
+        response
+          .status(409)
+          .set("Cache-Control", "no-store")
+          .type("html")
+          .send(
+            renderStatusPage(
+              "Artifact lifecycle unchanged",
+              `<h1>Artifact lifecycle unchanged</h1><p>${escapeHtml(error.message)}</p><p>No artifact, version, or lifecycle history was changed.</p>`,
+              "danger",
+            ),
+          );
+      }
+    },
+  );
 
   return router;
 }

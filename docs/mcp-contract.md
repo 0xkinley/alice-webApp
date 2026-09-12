@@ -25,6 +25,8 @@ A current-version retrieval returns the complete authorized artifact plus a ten-
 
 The Save preview names the existing stable artifact title, authoritative current Alice version, proposed next Alice version, proposed stable title, and deterministic identity/title conflict state. Explicit trailing `Vn` and `Version n` labels are never treated as authoritative. Matching labels are separated from the stable title; conflicting labels and changed stable identities block Save. The tool never converts a failed version request into a new artifact or project-information save. A tool call still creates preview state only; only the authenticated Alice Save action can append an immutable version.
 
+Artifact lifecycle is read-only over MCP. `search_alice` defaults to canonical active artifacts and accepts an explicit lifecycle filter for authorized superseded/archived history. `get_artifact` reports lifecycle and, for superseded artifacts, the exact authorized replacement reference, title, Alice version, and replacement lifecycle. Non-active artifacts receive no version receipt. No MCP tool can archive, restore, supersede, merge, delete, or redirect an artifact; a host may only suggest that the authenticated human use Alice's web control.
+
 ## Minimum tool surface
 
 ### `list_projects`

@@ -11,6 +11,7 @@ export const ARTIFACT_SAVE_PREVIEW_LIFETIME_MS = 30 * 60 * 1_000;
 export const ARTIFACT_READ_RECEIPT_LIFETIME_MS = 10 * 60 * 1_000;
 
 export class ArtifactSaveUserError extends Error {}
+export class ArtifactLifecycleUserError extends Error {}
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -27,6 +28,33 @@ function equalSecretHash(expected: string, token: string): boolean {
 function parsedArray(value: unknown): any[] {
   const parsed = JSON.parse(String(value));
   return Array.isArray(parsed) ? parsed : [];
+}
+
+function artifactLifecycleColumns() {
+  return `COALESCE((
+            SELECT lifecycle.lifecycle_state
+            FROM artifact_lifecycle_events lifecycle
+            WHERE lifecycle.workspace_id = artifact.workspace_id
+              AND lifecycle.project_id = artifact.project_id
+              AND lifecycle.artifact_id = artifact.id
+            ORDER BY lifecycle.version DESC LIMIT 1
+          ), 'active') AS lifecycle_state,
+          COALESCE((
+            SELECT lifecycle.version
+            FROM artifact_lifecycle_events lifecycle
+            WHERE lifecycle.workspace_id = artifact.workspace_id
+              AND lifecycle.project_id = artifact.project_id
+              AND lifecycle.artifact_id = artifact.id
+            ORDER BY lifecycle.version DESC LIMIT 1
+          ), 0) AS lifecycle_version,
+          (
+            SELECT lifecycle.replacement_artifact_id
+            FROM artifact_lifecycle_events lifecycle
+            WHERE lifecycle.workspace_id = artifact.workspace_id
+              AND lifecycle.project_id = artifact.project_id
+              AND lifecycle.artifact_id = artifact.id
+            ORDER BY lifecycle.version DESC LIMIT 1
+          ) AS replacement_artifact_id`;
 }
 
 export function artifactTitlePresentation(value: unknown, authoritativeVersion: number) {
@@ -61,7 +89,8 @@ function artifactRevisionQuery(extraWhere = "") {
                  revision.decisions_json, revision.constraints_json,
                  revision.rejected_directions_json, revision.open_questions_json,
                  revision.next_steps_json, revision.relevant_context_json,
-                 revision.source_provider, revision.saved_at
+                 revision.source_provider, revision.saved_at,
+                 ${artifactLifecycleColumns()}
           FROM artifacts artifact
           JOIN artifact_versions revision
             ON revision.workspace_id = artifact.workspace_id
@@ -84,7 +113,8 @@ function currentArtifactRevisionQuery(extraWhere = "") {
 function currentArtifactSearchQuery() {
   return `SELECT artifact.id AS artifact_id, revision.version, revision.title,
                  revision.artifact_type, revision.category, revision.tags_json,
-                 revision.goal, revision.summary, revision.source_provider, revision.saved_at
+                 revision.goal, revision.summary, revision.source_provider, revision.saved_at,
+                 ${artifactLifecycleColumns()}
           FROM artifacts artifact
           JOIN artifact_versions revision
             ON revision.workspace_id = artifact.workspace_id
@@ -131,6 +161,24 @@ function artifactResult(row, project, history: any[] = []) {
       handoff: handoffFromRow(row),
       source: row.source_provider,
       saved_at: row.saved_at,
+      lifecycle: {
+        state: row.lifecycle_state || "active",
+        version: Number(row.lifecycle_version || 0),
+        ...(row.replacement_artifact_id
+          ? {
+              replacement: {
+                artifact_id: row.replacement_artifact_id,
+                ...(row.replacement_title ? { title: row.replacement_title } : {}),
+                ...(row.replacement_current_version
+                  ? { current_version: Number(row.replacement_current_version) }
+                  : {}),
+                ...(row.replacement_lifecycle_state
+                  ? { lifecycle_state: row.replacement_lifecycle_state }
+                  : {}),
+              },
+            }
+          : {}),
+      },
       ...(history.length > 0 ? { history } : {}),
     },
   };
@@ -225,6 +273,12 @@ async function createArtifactSavePreviewInternal(database, input: ArtifactSavePr
     ? await currentRevision(database, access.projectWorkspaceId, access.projectId, input.artifactId)
     : undefined;
   if (input.artifactId && !current) return { error: "The artifact is unavailable." };
+  if (current && current.lifecycle_state !== "active") {
+    return {
+      error:
+        "This artifact cannot receive versions unless a human restores its active lifecycle in Alice.",
+    };
+  }
   const saveKind = input.artifactId ? "new_version" : "create_artifact";
   const proposedVersion = current ? Number(current.version) + 1 : 1;
   const proposedTitle = artifactTitlePresentation(input.payload.title, proposedVersion);
@@ -269,6 +323,7 @@ async function createArtifactSavePreviewInternal(database, input: ArtifactSavePr
       readReceipt.artifact_id !== input.artifactId ||
       readReceipt.version_id !== current.version_id ||
       Number(readReceipt.version) !== Number(current.version) ||
+      Number(readReceipt.lifecycle_version) !== Number(current.lifecycle_version || 0) ||
       readReceipt.title !== current.title
     ) {
       return { error: "A fresh exact current artifact retrieval is required before versioning." };
@@ -549,6 +604,11 @@ export async function commitArtifactSavePreview(
     const current = row.artifact_id
       ? await currentRevision(database, row.workspace_id, row.project_id, row.artifact_id)
       : undefined;
+    if (current && current.lifecycle_state !== "active") {
+      throw new ArtifactSaveUserError(
+        "This artifact cannot receive versions unless a human restores its active lifecycle in Alice.",
+      );
+    }
     if (
       (row.save_kind === "create_artifact" && current) ||
       (row.save_kind === "new_version" &&
@@ -659,6 +719,7 @@ function filteredArtifactRows(
     timeline: string;
     limit: number;
     offset?: number;
+    lifecycle?: "active" | "superseded" | "archived" | "all";
     now?: Date;
   },
 ) {
@@ -675,6 +736,10 @@ function filteredArtifactRows(
         return false;
       }
       if (start && new Date(row.saved_at).getTime() < start) return false;
+      const lifecycle = input.lifecycle || "active";
+      if (lifecycle !== "all" && row.lifecycle_state !== lifecycle) {
+        return false;
+      }
       return true;
     })
     .map((row) => {
@@ -744,6 +809,13 @@ function filteredArtifactRows(
       goal: row.goal,
       source: row.source_provider,
       saved_at: row.saved_at,
+      lifecycle: {
+        state: row.lifecycle_state,
+        version: Number(row.lifecycle_version || 0),
+        ...(row.replacement_artifact_id
+          ? { replacement_artifact_id: row.replacement_artifact_id }
+          : {}),
+      },
       match: {
         quality: match.matchQuality,
         matched_query_tokens: match.matchedTokenCount,
@@ -793,6 +865,7 @@ export async function searchProjectArtifacts(
     timeline: string;
     limit: number;
     offset?: number;
+    lifecycle?: "active" | "superseded" | "archived" | "all";
     now?: Date;
   },
 ) {
@@ -830,6 +903,7 @@ export async function searchAliceArtifacts(
     timeline: string;
     limit: number;
     offset?: number;
+    lifecycle?: "active" | "superseded" | "archived" | "all";
     now?: Date;
   },
 ) {
@@ -913,6 +987,22 @@ async function getArtifactForScope(
   }
   if (!selected || selected.content_storage_kind !== "inline_text") return undefined;
   selected.current_version = Number(current.version);
+  if (selected.replacement_artifact_id) {
+    const replacement = await currentRevision(
+      database,
+      access.projectWorkspaceId,
+      input.projectId,
+      selected.replacement_artifact_id,
+    );
+    if (replacement) {
+      selected.replacement_title = artifactTitlePresentation(
+        replacement.title,
+        Number(replacement.version),
+      ).title;
+      selected.replacement_current_version = Number(replacement.version);
+      selected.replacement_lifecycle_state = replacement.lifecycle_state;
+    }
+  }
   let history: any[] = [];
   if (input.includeHistory) {
     history = await database
@@ -969,7 +1059,11 @@ export async function getAliceArtifact(
   });
   if (!access) return undefined;
   const result = await getArtifactForScope(database, access, input);
-  if (!result || result.artifact.selected_version !== result.artifact.current_version)
+  if (
+    !result ||
+    result.artifact.selected_version !== result.artifact.current_version ||
+    result.artifact.lifecycle.state !== "active"
+  )
     return result;
   const current = await currentRevision(
     database,
@@ -996,8 +1090,9 @@ export async function getAliceArtifact(
     .prepare(
       `INSERT INTO artifact_read_receipts
         (id, workspace_id, project_id, user_id, connection_workspace_id, connection_id,
-         client_id, artifact_id, version_id, version, title, token_hash, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         client_id, artifact_id, version_id, version, lifecycle_version, title, token_hash,
+         created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       receiptId,
@@ -1010,6 +1105,7 @@ export async function getAliceArtifact(
       input.artifactId,
       current.version_id,
       Number(current.version),
+      Number(current.lifecycle_version || 0),
       current.title,
       sha256(token),
       now.toISOString(),
@@ -1022,4 +1118,172 @@ export async function getAliceArtifact(
     purpose: "single_use_current_version_preview",
   };
   return result;
+}
+
+export async function getArtifactLifecycleControl(
+  database,
+  input: { userId: string; projectId: string; artifactId: string },
+) {
+  const access = await projectScopeForUser(database, {
+    userId: input.userId,
+    projectId: input.projectId,
+    capability: "write",
+  });
+  if (!access) return undefined;
+  const current = await currentRevision(
+    database,
+    access.projectWorkspaceId,
+    access.projectId,
+    input.artifactId,
+  );
+  if (!current) return undefined;
+  return {
+    state: current.lifecycle_state,
+    version: Number(current.lifecycle_version || 0),
+    replacement_artifact_id: current.replacement_artifact_id || null,
+  };
+}
+
+export async function listArtifactLifecycleReplacements(
+  database,
+  input: { userId: string; projectId: string; artifactId: string },
+) {
+  const access = await projectScopeForUser(database, {
+    userId: input.userId,
+    projectId: input.projectId,
+    capability: "write",
+  });
+  if (!access) return undefined;
+  const rows = await database
+    .prepare(currentArtifactSearchQuery())
+    .all(access.projectWorkspaceId, access.projectId);
+  return rows
+    .filter((row) => row.artifact_id !== input.artifactId && row.lifecycle_state === "active")
+    .map((row) => ({
+      artifact_id: row.artifact_id,
+      ...artifactTitlePresentation(row.title, Number(row.version)),
+      current_version: Number(row.version),
+    }))
+    .sort(
+      (left, right) =>
+        left.title.localeCompare(right.title) || left.artifact_id.localeCompare(right.artifact_id),
+    );
+}
+
+export async function changeArtifactLifecycle(
+  database,
+  input: {
+    userId: string;
+    projectId: string;
+    artifactId: string;
+    action: "archive" | "restore" | "supersede";
+    expectedVersion: number;
+    replacementArtifactId?: string;
+  },
+) {
+  return await database.transaction(async () => {
+    const access = await projectScopeForUser(database, {
+      userId: input.userId,
+      projectId: input.projectId,
+      capability: "write",
+    });
+    if (!access) return undefined;
+    await database
+      .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
+      .get(
+        `artifact-lifecycle:${access.projectWorkspaceId}:${access.projectId}:${input.artifactId}`,
+      );
+    const current = await currentRevision(
+      database,
+      access.projectWorkspaceId,
+      access.projectId,
+      input.artifactId,
+    );
+    if (!current) return undefined;
+    const currentLifecycleVersion = Number(current.lifecycle_version || 0);
+    if (input.expectedVersion !== currentLifecycleVersion) {
+      throw new ArtifactLifecycleUserError(
+        "The artifact lifecycle changed. Review its current state before trying again.",
+      );
+    }
+    let nextState: "active" | "superseded" | "archived";
+    let replacementArtifactId: string | null = null;
+    if (input.action === "archive") {
+      if (current.lifecycle_state !== "active") {
+        throw new ArtifactLifecycleUserError("Only an active artifact can be archived.");
+      }
+      nextState = "archived";
+    } else if (input.action === "supersede") {
+      if (current.lifecycle_state !== "active" || !input.replacementArtifactId) {
+        throw new ArtifactLifecycleUserError(
+          "Choose an exact active replacement for the active artifact.",
+        );
+      }
+      const replacement = await currentRevision(
+        database,
+        access.projectWorkspaceId,
+        access.projectId,
+        input.replacementArtifactId,
+      );
+      if (
+        !replacement ||
+        replacement.artifact_id === input.artifactId ||
+        replacement.lifecycle_state !== "active"
+      ) {
+        throw new ArtifactLifecycleUserError("The replacement artifact is unavailable.");
+      }
+      nextState = "superseded";
+      replacementArtifactId = replacement.artifact_id;
+    } else {
+      if (!["archived", "superseded"].includes(current.lifecycle_state)) {
+        throw new ArtifactLifecycleUserError(
+          "Only an archived or superseded artifact can be restored.",
+        );
+      }
+      nextState = "active";
+    }
+    const version = currentLifecycleVersion + 1;
+    const changedAt = new Date().toISOString();
+    const eventId = `artifact_lifecycle_${randomUUID()}`;
+    await database
+      .prepare(
+        `INSERT INTO artifact_lifecycle_events
+          (id, workspace_id, project_id, artifact_id, version, lifecycle_state,
+           replacement_artifact_id, changed_by_user_id, changed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        eventId,
+        access.projectWorkspaceId,
+        access.projectId,
+        input.artifactId,
+        version,
+        nextState,
+        replacementArtifactId,
+        input.userId,
+        changedAt,
+      );
+    await appendAuditEvent(database, {
+      workspaceId: access.projectWorkspaceId,
+      projectId: access.projectId,
+      action: input.action === "restore" ? "artifact_restored" : `artifact_${nextState}`,
+      actorType: "human_user",
+      actorId: input.userId,
+      correlationId: `artifact_lifecycle_${eventId}`,
+      metadata: {
+        artifact_id: input.artifactId,
+        lifecycle_version: version,
+        lifecycle_state: nextState,
+        ...(replacementArtifactId ? { replacement_artifact_id: replacementArtifactId } : {}),
+      },
+    });
+    return {
+      artifact_id: input.artifactId,
+      lifecycle: {
+        state: nextState,
+        version,
+        ...(replacementArtifactId ? { replacement_artifact_id: replacementArtifactId } : {}),
+      },
+    };
+  });
 }

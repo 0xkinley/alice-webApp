@@ -3,6 +3,7 @@ import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
 import {
   ARTIFACT_READ_RECEIPT_LIFETIME_MS,
+  changeArtifactLifecycle,
   createArtifactSavePreview,
   createProject,
   normalizeArtifactSearchText,
@@ -871,5 +872,234 @@ test("version-like title labels are neutralized and conflicts remain explicit ac
   assert.equal(
     current.payload.result.structuredContent.artifact.history[1].title_version_integrity.status,
     "conflicting_label",
+  );
+});
+
+test("authenticated humans control append-only active, archived, restored, and superseded artifact lifecycle", async () => {
+  const canonical = await saveNewArtifact(
+    chatGptToken,
+    snapshot({
+      content: "Canonical Thursday lineage.",
+      idempotencyKey: "lifecycle-canonical-001",
+      title: "Thursday interview-first script",
+    }),
+  );
+  const duplicate = await saveNewArtifact(
+    claudeToken,
+    snapshot({
+      content: "Duplicate Thursday lineage.",
+      idempotencyKey: "lifecycle-duplicate-001",
+      title: "Thursday interview first script duplicate",
+    }),
+  );
+  const canonicalId = canonical.payload.result.structuredContent.artifact_id;
+  const duplicateId = duplicate.payload.result.structuredContent.artifact_id;
+  const activeRead = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: duplicateId },
+  });
+  const preLifecycleReceipt =
+    activeRead.payload.result.structuredContent.artifact.retrieval_receipt.token;
+
+  const archive = await fetch(
+    `${webBaseUrl}/projects/${identity.project_id}/artifacts/${duplicateId}/lifecycle`,
+    {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ action: "archive", expected_version: "0" }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(archive.status, 303);
+
+  const defaultSearch = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "search_alice",
+    arguments: { project_id: identity.project_id, query: "Thursday interview first script" },
+  });
+  assert.ok(
+    defaultSearch.payload.result.structuredContent.results.every(
+      (item) => item.artifact_id !== duplicateId,
+    ),
+  );
+  const archivedSearch = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "search_alice",
+    arguments: {
+      project_id: identity.project_id,
+      query: "Thursday interview first script",
+      lifecycle: "archived",
+    },
+  });
+  assert.equal(archivedSearch.payload.result.structuredContent.results[0].artifact_id, duplicateId);
+  assert.equal(
+    archivedSearch.payload.result.structuredContent.results[0].lifecycle.state,
+    "archived",
+  );
+  const archivedRead = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: duplicateId },
+  });
+  assert.equal(archivedRead.payload.result.structuredContent.artifact.lifecycle.state, "archived");
+  assert.equal(archivedRead.payload.result.structuredContent.artifact.retrieval_receipt, undefined);
+  assert.match(archivedRead.payload.result.content[0].text, /Version writes are disabled/);
+  const archivedVersion = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: duplicateId,
+      retrieval_receipt: preLifecycleReceipt,
+      ...snapshot({
+        content: "Archived write attempt.",
+        idempotencyKey: "lifecycle-archived-write-001",
+        title: "Thursday interview first script duplicate",
+      }),
+    },
+  });
+  assert.equal(archivedVersion.payload.result.isError, true);
+  assert.match(archivedVersion.payload.result.content[0].text, /cannot receive versions/i);
+
+  const restore = await fetch(
+    `${webBaseUrl}/projects/${identity.project_id}/artifacts/${duplicateId}/lifecycle`,
+    {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ action: "restore", expected_version: "1" }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(restore.status, 303);
+  const restoredRead = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: duplicateId },
+  });
+  const restoredReceipt =
+    restoredRead.payload.result.structuredContent.artifact.retrieval_receipt.token;
+
+  const supersede = await fetch(
+    `${webBaseUrl}/projects/${identity.project_id}/artifacts/${duplicateId}/lifecycle`,
+    {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        action: "supersede",
+        expected_version: "2",
+        replacement_artifact_id: canonicalId,
+      }),
+      redirect: "manual",
+    },
+  );
+  assert.equal(supersede.status, 303);
+  const supersededRead = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: duplicateId },
+  });
+  const supersededArtifact = supersededRead.payload.result.structuredContent.artifact;
+  assert.equal(supersededArtifact.lifecycle.state, "superseded");
+  assert.equal(supersededArtifact.lifecycle.replacement.artifact_id, canonicalId);
+  assert.equal(supersededArtifact.lifecycle.replacement.title, "Thursday interview-first script");
+  assert.match(supersededRead.payload.result.content[0].text, /Canonical replacement/);
+  assert.equal(supersededArtifact.retrieval_receipt, undefined);
+  const supersededDetail = await fetch(
+    `${webBaseUrl}/projects/${identity.project_id}/artifacts/${duplicateId}`,
+    { headers: { cookie } },
+  );
+  const supersededHtml = await supersededDetail.text();
+  assert.match(supersededHtml, /Superseded/);
+  assert.match(supersededHtml, /Thursday interview-first script/);
+  assert.match(supersededHtml, /Restore artifact/);
+
+  const staleAfterLifecycle = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: duplicateId,
+      retrieval_receipt: restoredReceipt,
+      ...snapshot({
+        content: "Superseded write attempt.",
+        idempotencyKey: "lifecycle-superseded-write-001",
+        title: "Thursday interview first script duplicate",
+      }),
+    },
+  });
+  assert.equal(staleAfterLifecycle.payload.result.isError, true);
+  assert.match(staleAfterLifecycle.payload.result.content[0].text, /cannot receive versions/i);
+
+  const staleHumanAction = await changeArtifactLifecycle(database, {
+    userId: identity.id,
+    projectId: identity.project_id,
+    artifactId: duplicateId,
+    action: "restore",
+    expectedVersion: 2,
+  }).catch((error) => error);
+  assert.match(staleHumanAction.message, /lifecycle changed/i);
+  assert.equal(
+    database
+      .prepare("SELECT COUNT(*) AS count FROM artifact_lifecycle_events WHERE artifact_id = ?")
+      .get(duplicateId).count,
+    3,
+  );
+  assert.deepEqual(
+    database
+      .prepare(
+        `SELECT lifecycle_state, version FROM artifact_lifecycle_events
+         WHERE artifact_id = ? ORDER BY version`,
+      )
+      .all(duplicateId)
+      .map((row) => ({ lifecycle_state: row.lifecycle_state, version: Number(row.version) })),
+    [
+      { lifecycle_state: "archived", version: 1 },
+      { lifecycle_state: "active", version: 2 },
+      { lifecycle_state: "superseded", version: 3 },
+    ],
+  );
+  assert.throws(
+    () =>
+      database
+        .prepare(
+          "UPDATE artifact_lifecycle_events SET lifecycle_state = 'active' WHERE artifact_id = ?",
+        )
+        .run(duplicateId),
+    /immutable/,
+  );
+
+  const viewer = await createTestIdentity(database, {
+    email: "artifact-lifecycle-viewer@alice.example",
+    password: "artifact lifecycle viewer password",
+    projectId: "project_artifact_lifecycle_viewer",
+  });
+  const membershipTime = new Date().toISOString();
+  database
+    .prepare(
+      `INSERT INTO project_memberships
+        (id, workspace_id, project_id, user_id, role, created_by_user_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'viewer', ?, ?, ?)`,
+    )
+    .run(
+      "membership_artifact_lifecycle_viewer",
+      identity.workspace_id,
+      identity.project_id,
+      viewer.id,
+      identity.id,
+      membershipTime,
+      membershipTime,
+    );
+  assert.equal(
+    await changeArtifactLifecycle(database, {
+      userId: viewer.id,
+      projectId: identity.project_id,
+      artifactId: canonicalId,
+      action: "archive",
+      expectedVersion: 0,
+    }),
+    undefined,
+  );
+  assert.equal(
+    database
+      .prepare("SELECT COUNT(*) AS count FROM artifact_lifecycle_events WHERE artifact_id = ?")
+      .get(canonicalId).count,
+    0,
+  );
+
+  const tools = await callMcp(mcpBaseUrl, claudeToken, "tools/list");
+  const names = tools.payload.result.tools.map((tool) => tool.name);
+  assert.ok(
+    !names.some((name) => /archive_artifact|supersede_artifact|restore_artifact/.test(name)),
   );
 });

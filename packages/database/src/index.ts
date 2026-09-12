@@ -278,6 +278,9 @@ export async function configureApplicationRole(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.artifact_read_receipt_uses FROM ${role}`,
     );
     await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.artifact_lifecycle_events FROM ${role}`,
+    );
+    await database.exec(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.save_confirmation_receipts FROM ${role}`,
     );
     await database.exec(`REVOKE ALL ON TABLE ${schema}.project_erasure_jobs FROM ${role}`);

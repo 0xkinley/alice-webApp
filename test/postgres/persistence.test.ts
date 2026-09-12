@@ -19,6 +19,7 @@ import {
   confirmCapturedUpdate,
   commitCaptureSavePreview,
   commitArtifactSavePreview,
+  changeArtifactLifecycle,
   createArtifactSavePreview,
   createHostFileSaveOffer,
   createHostFileSaveOffers,
@@ -328,12 +329,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 24, filename: "024_artifact_handoffs.sql" },
     { version: 25, filename: "025_save_confirmation_receipts.sql" },
     { version: 26, filename: "026_artifact_read_receipts.sql" },
+    { version: 27, filename: "027_artifact_lifecycle.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    26,
+    27,
   );
   await reopened.close();
 });
@@ -430,6 +432,135 @@ test("PostgreSQL preserves an exact artifact handoff and immutable version linea
     database
       .prepare("UPDATE artifact_versions SET title = ? WHERE id = ?")
       .run("Rewritten", saved.version_id),
+    /immutable|permission denied/i,
+  );
+});
+
+test("PostgreSQL serializes human artifact lifecycle and denies non-active version writes", async () => {
+  const save = async (title, key) => {
+    const prepared = await createArtifactSavePreview(database, {
+      userId: owner.id,
+      connectionId,
+      clientId,
+      publicUrl: "https://app.alice.example",
+      payload: {
+        project_id: owner.project_id,
+        title,
+        artifact_type: "document",
+        category: "product",
+        tags: ["decision"],
+        content: `${title} complete body.`,
+        handoff: {
+          goal: "Verify append-only artifact lifecycle.",
+          decisions: [],
+          constraints: [],
+          rejected_directions: [],
+          open_questions: [],
+          next_steps: [],
+          relevant_context: [],
+        },
+        idempotency_key: key,
+      },
+    });
+    assert.ok(!("error" in prepared));
+    return await commitArtifactSavePreview(database, {
+      previewId: prepared.preview.preview_id,
+      previewVersion: prepared.preview.preview_version,
+      authorityToken: prepared.authorityToken,
+      authority: "mcp_app",
+      userId: owner.id,
+    });
+  };
+  const duplicate = await save("PostgreSQL duplicate lifecycle", "postgres-lifecycle-duplicate");
+  const canonical = await save("PostgreSQL canonical lifecycle", "postgres-lifecycle-canonical");
+  const races = await Promise.allSettled(
+    Array.from({ length: 2 }, () =>
+      changeArtifactLifecycle(database, {
+        userId: owner.id,
+        projectId: owner.project_id,
+        artifactId: duplicate.artifact_id,
+        action: "archive",
+        expectedVersion: 0,
+      }),
+    ),
+  );
+  assert.equal(races.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(races.filter((result) => result.status === "rejected").length, 1);
+  await changeArtifactLifecycle(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    artifactId: duplicate.artifact_id,
+    action: "restore",
+    expectedVersion: 1,
+  });
+  const activeRead = await getAliceArtifact(database, {
+    userId: owner.id,
+    connectionId,
+    projectId: owner.project_id,
+    artifactId: duplicate.artifact_id,
+  });
+  await changeArtifactLifecycle(database, {
+    userId: owner.id,
+    projectId: owner.project_id,
+    artifactId: duplicate.artifact_id,
+    action: "supersede",
+    expectedVersion: 2,
+    replacementArtifactId: canonical.artifact_id,
+  });
+  const denied = await createArtifactSavePreview(database, {
+    userId: owner.id,
+    connectionId,
+    clientId,
+    publicUrl: "https://app.alice.example",
+    artifactId: duplicate.artifact_id,
+    retrievalReceipt: activeRead.artifact.retrieval_receipt.token,
+    payload: {
+      project_id: owner.project_id,
+      title: "PostgreSQL duplicate lifecycle",
+      artifact_type: "document",
+      category: "product",
+      tags: ["decision"],
+      content: "Denied superseded body.",
+      handoff: {
+        goal: "This must not save.",
+        decisions: [],
+        constraints: [],
+        rejected_directions: [],
+        open_questions: [],
+        next_steps: [],
+        relevant_context: [],
+      },
+      idempotency_key: "postgres-lifecycle-denied",
+    },
+  });
+  assert.match(denied.error, /cannot receive versions/i);
+  const found = await searchAliceArtifacts(database, {
+    userId: owner.id,
+    connectionId,
+    project_id: owner.project_id,
+    query: "PostgreSQL duplicate lifecycle",
+    categories: [],
+    tags: [],
+    sources: [],
+    artifact_types: [],
+    timeline: "all_time",
+    lifecycle: "superseded",
+    limit: 20,
+  });
+  assert.equal(found.results[0].lifecycle.replacement_artifact_id, canonical.artifact_id);
+  const superseded = await getAliceArtifact(database, {
+    userId: owner.id,
+    connectionId,
+    projectId: owner.project_id,
+    artifactId: duplicate.artifact_id,
+  });
+  assert.equal(superseded.artifact.lifecycle.replacement.artifact_id, canonical.artifact_id);
+  await assert.rejects(
+    database
+      .prepare(
+        "UPDATE artifact_lifecycle_events SET lifecycle_state = 'active' WHERE artifact_id = ?",
+      )
+      .run(duplicate.artifact_id),
     /immutable|permission denied/i,
   );
 });

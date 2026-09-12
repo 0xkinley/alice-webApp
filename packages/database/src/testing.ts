@@ -936,6 +936,7 @@ function createSchema(database: DatabaseSync) {
       artifact_id TEXT NOT NULL,
       version_id TEXT NOT NULL REFERENCES artifact_versions(id),
       version INTEGER NOT NULL CHECK (version > 0),
+      lifecycle_version INTEGER NOT NULL CHECK (lifecycle_version >= 0),
       title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
       token_hash TEXT NOT NULL UNIQUE CHECK (length(token_hash) = 64),
       created_at TEXT NOT NULL,
@@ -954,6 +955,31 @@ function createSchema(database: DatabaseSync) {
       preview_id TEXT NOT NULL UNIQUE,
       used_at TEXT NOT NULL
     ) STRICT;
+
+    CREATE TABLE artifact_lifecycle_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      artifact_id TEXT NOT NULL,
+      version INTEGER NOT NULL CHECK (version > 0),
+      lifecycle_state TEXT NOT NULL CHECK (
+        lifecycle_state IN ('active', 'superseded', 'archived')
+      ),
+      replacement_artifact_id TEXT,
+      changed_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      changed_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, artifact_id)
+        REFERENCES artifacts(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, replacement_artifact_id)
+        REFERENCES artifacts(workspace_id, project_id, id),
+      CHECK ((lifecycle_state = 'superseded') = (replacement_artifact_id IS NOT NULL)),
+      CHECK (replacement_artifact_id IS NULL OR replacement_artifact_id <> artifact_id),
+      UNIQUE (workspace_id, project_id, artifact_id, version),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX artifact_lifecycle_current
+      ON artifact_lifecycle_events (workspace_id, project_id, artifact_id, version DESC);
 
     CREATE TABLE save_confirmation_receipts (
       id TEXT PRIMARY KEY,
@@ -1634,6 +1660,18 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON artifact_read_receipt_uses
     BEGIN
       SELECT RAISE(ABORT, 'artifact read receipt uses are immutable');
+    END;
+
+    CREATE TRIGGER artifact_lifecycle_events_no_update
+    BEFORE UPDATE ON artifact_lifecycle_events
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact lifecycle events are immutable');
+    END;
+
+    CREATE TRIGGER artifact_lifecycle_events_no_delete
+    BEFORE DELETE ON artifact_lifecycle_events
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact lifecycle events are immutable');
     END;
 
     CREATE TRIGGER save_confirmation_receipts_no_update

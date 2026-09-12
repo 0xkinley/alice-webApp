@@ -179,6 +179,22 @@ Minimum controls:
 
 Receipt issuance is a read-side security record, not trusted project state or human Save authority. The model can request a preview only after the exact read; the preview still cannot commit itself.
 
+### Host-controlled artifact cleanup or redirection
+
+A host may identify close-title duplicates but then attempt to archive, merge, supersede, delete, redirect, or version a non-canonical lineage without accountable human authority.
+
+Minimum controls:
+
+- no artifact-lifecycle MCP mutation tool;
+- append-only lifecycle events under authenticated Owner/Editor web authority;
+- exact same-project active replacement references for supersession;
+- project authorization, audit, lifecycle-version concurrency checks, and non-disclosing failures;
+- active-only default search with explicit authorized history filters;
+- a clear authorized replacement pointer on superseded retrieval; and
+- version-receipt denial plus independent preview/commit denial for superseded or archived artifacts.
+
+Alice does not infer duplicates or choose a canonical artifact from prose. Production cleanup is outside implementation and requires a separate explicit human action.
+
 ## Spike security gates
 
 - Candidate tool calls cannot directly change trusted state.

@@ -68,6 +68,12 @@ Private alpha accepts non-empty UTF-8 artifact text up to 48 KiB inline. It is s
 
 An artifact version never stores both inline content and an object pointer. alice. never stores a second full copy in Activity or the Change log.
 
+## Human-controlled lifecycle
+
+Every artifact with no lifecycle event is canonical and active. Lifecycle changes append immutable, project-scoped events; they never update artifact identity, delete a version, rewrite provenance, or alter content. An authenticated Owner or Editor may archive an active artifact, supersede it with one exact currently active artifact in the same project, or restore an archived/superseded artifact. Each action reauthorizes project write access, checks an exact lifecycle version under a transaction lock, and appends an audit event. Viewers and AI connections cannot perform these actions; hosts may only suggest that the human review a duplicate or obsolete lineage.
+
+Search defaults to active artifacts. An explicit `superseded`, `archived`, or `all` lifecycle filter makes authorized history discoverable. Retrieval of a superseded artifact names the exact authorized replacement, its current Alice version, and current lifecycle. Archived and superseded artifacts do not issue version-write receipts, and preview plus commit paths independently reject new versions until a human restores the lineage. Existing production artifacts need no backfill and remain active by default; implementation does not classify or clean up any live Thursday artifact.
+
 ## Controlled taxonomy
 
 Categories are a bounded 20-value enumeration. Tags are a bounded 30-value canonical enumeration exposed in the Save schemas. ChatGPT and Claude may select only those values; they cannot create, normalize, alias, or extend tags during alpha. Duplicate tags, unknown tags, unknown categories, unknown artifact types, oversized payloads, and unsafe extra fields fail schema validation before a preview exists.
