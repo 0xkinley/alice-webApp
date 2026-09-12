@@ -925,6 +925,36 @@ function createSchema(database: DatabaseSync) {
 
     CREATE INDEX artifact_save_previews_expiry ON artifact_save_previews (expires_at);
 
+    CREATE TABLE artifact_read_receipts (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      connection_workspace_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      artifact_id TEXT NOT NULL,
+      version_id TEXT NOT NULL REFERENCES artifact_versions(id),
+      version INTEGER NOT NULL CHECK (version > 0),
+      title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+      token_hash TEXT NOT NULL UNIQUE CHECK (length(token_hash) = 64),
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, artifact_id)
+        REFERENCES artifacts(workspace_id, project_id, id),
+      FOREIGN KEY (connection_workspace_id, user_id, connection_id, client_id)
+        REFERENCES integration_connections(workspace_id, user_id, id, client_id),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX artifact_read_receipts_expiry ON artifact_read_receipts (expires_at);
+
+    CREATE TABLE artifact_read_receipt_uses (
+      receipt_id TEXT PRIMARY KEY REFERENCES artifact_read_receipts(id) ON DELETE RESTRICT,
+      preview_id TEXT NOT NULL UNIQUE,
+      used_at TEXT NOT NULL
+    ) STRICT;
+
     CREATE TABLE save_confirmation_receipts (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
@@ -1586,6 +1616,24 @@ function createSchema(database: DatabaseSync) {
     BEFORE UPDATE ON artifact_save_previews
     BEGIN
       SELECT RAISE(ABORT, 'artifact save previews are immutable');
+    END;
+
+    CREATE TRIGGER artifact_read_receipts_no_update
+    BEFORE UPDATE ON artifact_read_receipts
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact read receipts are immutable');
+    END;
+
+    CREATE TRIGGER artifact_read_receipt_uses_no_update
+    BEFORE UPDATE ON artifact_read_receipt_uses
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact read receipt uses are immutable');
+    END;
+
+    CREATE TRIGGER artifact_read_receipt_uses_no_delete
+    BEFORE DELETE ON artifact_read_receipt_uses
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact read receipt uses are immutable');
     END;
 
     CREATE TRIGGER save_confirmation_receipts_no_update

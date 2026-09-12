@@ -270,6 +270,13 @@ export async function configureApplicationRole(
     await database.exec(
       `GRANT SELECT, INSERT, DELETE ON TABLE ${schema}.artifact_save_previews TO ${role}`,
     );
+    await database.exec(`REVOKE UPDATE ON TABLE ${schema}.artifact_read_receipts FROM ${role}`);
+    await database.exec(
+      `GRANT SELECT, INSERT, DELETE ON TABLE ${schema}.artifact_read_receipts TO ${role}`,
+    );
+    await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.artifact_read_receipt_uses FROM ${role}`,
+    );
     await database.exec(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.save_confirmation_receipts FROM ${role}`,
     );

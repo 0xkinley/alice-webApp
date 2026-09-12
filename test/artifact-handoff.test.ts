@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
-import { createProject, normalizeArtifactSearchText } from "@alice/domain";
+import {
+  ARTIFACT_READ_RECEIPT_LIFETIME_MS,
+  createArtifactSavePreview,
+  createProject,
+  normalizeArtifactSearchText,
+} from "@alice/domain";
 import { createApp as createMcpApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
 import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
@@ -188,6 +193,7 @@ test("ChatGPT saves once and Claude retrieves, revises, and returns the current 
     name: "save_artifact_version",
     arguments: {
       artifact_id: artifactId,
+      retrieval_receipt: artifact.retrieval_receipt.token,
       ...snapshot({ content: revisedContent, idempotencyKey: "artifact-v2-001" }),
     },
   });
@@ -265,10 +271,15 @@ test("Claude JSON-encoded nested artifact fields normalize before the same stric
     idempotencyKey: "claude-json-artifact-002",
     title: original.title,
   });
+  const current = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: artifactId },
+  });
   const preparedRevision = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
     name: "save_artifact_version",
     arguments: {
       artifact_id: artifactId,
+      retrieval_receipt: current.payload.result.structuredContent.artifact.retrieval_receipt.token,
       ...revision,
       tags: JSON.stringify(revision.tags),
       handoff: JSON.stringify(revision.handoff),
@@ -455,4 +466,410 @@ test("artifact search ranks deterministically, identifies partials, paginates, a
     /Do not overwrite or version a nearby artifact/i,
   );
   assert.match(bodyOnly.payload.result.content[0].text, /safe broader search/i);
+});
+
+test("artifact version previews require a fresh single-use receipt bound to the exact connection and identity", async () => {
+  const base = snapshot({
+    content: "Receipt-bound artifact version one.",
+    idempotencyKey: "receipt-bound-v1-001",
+    title: "Receipt-bound artifact",
+  });
+  const created = await saveNewArtifact(chatGptToken, base);
+  const artifactId = created.payload.result.structuredContent.artifact_id;
+
+  const missing = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: artifactId,
+      ...snapshot({
+        content: "Missing receipt attempt.",
+        idempotencyKey: "receipt-missing-001",
+        title: base.title,
+      }),
+    },
+  });
+  assert.ok(missing.payload.error || missing.payload.result.isError);
+
+  const read = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: artifactId },
+  });
+  const receipt = read.payload.result.structuredContent.artifact.retrieval_receipt;
+  assert.match(receipt.token, /^alice_artifact_read_/);
+  assert.match(read.payload.result.content[0].text, /Fresh version receipt/);
+
+  const distractor = await saveNewArtifact(
+    chatGptToken,
+    snapshot({
+      content: "A different artifact in the same project.",
+      idempotencyKey: "receipt-wrong-artifact-fixture",
+      title: "Receipt distractor",
+    }),
+  );
+  const wrongArtifact = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: distractor.payload.result.structuredContent.artifact_id,
+      retrieval_receipt: receipt.token,
+      ...snapshot({
+        content: "Wrong artifact attempt.",
+        idempotencyKey: "receipt-wrong-artifact-001",
+        title: "Receipt distractor",
+      }),
+    },
+  });
+  assert.equal(wrongArtifact.payload.result.isError, true);
+
+  const secondProject = await createProject(database, identity.id, {
+    name: "Receipt boundary project",
+  });
+  const secondProjectArtifact = await saveNewArtifact(chatGptToken, {
+    ...snapshot({
+      content: "An artifact in a different project.",
+      idempotencyKey: "receipt-wrong-project-fixture",
+      title: "Cross-project receipt fixture",
+    }),
+    project_id: secondProject.id,
+  });
+  const wrongProject = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: secondProjectArtifact.payload.result.structuredContent.artifact_id,
+      retrieval_receipt: receipt.token,
+      ...snapshot({
+        content: "Wrong project attempt.",
+        idempotencyKey: "receipt-wrong-project-001",
+        title: "Cross-project receipt fixture",
+      }),
+      project_id: secondProject.id,
+    },
+  });
+  assert.equal(wrongProject.payload.result.isError, true);
+  assert.equal(
+    wrongProject.payload.result.content[0].text,
+    wrongArtifact.payload.result.content[0].text,
+  );
+
+  const foreignConnection = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: artifactId,
+      retrieval_receipt: receipt.token,
+      ...snapshot({
+        content: "Wrong connection attempt.",
+        idempotencyKey: "receipt-foreign-001",
+        title: base.title,
+      }),
+    },
+  });
+  assert.equal(foreignConnection.payload.result.isError, true);
+  assert.match(foreignConnection.payload.result.content[0].text, /fresh exact current artifact/i);
+
+  const guessed = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: artifactId,
+      retrieval_receipt: `alice_artifact_read_${"a".repeat(43)}`,
+      ...snapshot({
+        content: "Guessed receipt attempt.",
+        idempotencyKey: "receipt-guessed-001",
+        title: base.title,
+      }),
+    },
+  });
+  assert.equal(guessed.payload.result.isError, true);
+  assert.equal(
+    guessed.payload.result.content[0].text,
+    foreignConnection.payload.result.content[0].text,
+  );
+
+  const prepared = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: artifactId,
+      retrieval_receipt: receipt.token,
+      ...snapshot({
+        content: "Receipt-bound artifact version two.",
+        idempotencyKey: "receipt-bound-v2-001",
+        title: base.title,
+      }),
+    },
+  });
+  assert.equal(prepared.payload.result.structuredContent.artifact.identity.conflict, false);
+  assert.equal(
+    prepared.payload.result.structuredContent.artifact.identity.authoritative_current_alice_version,
+    1,
+  );
+  assert.equal(
+    prepared.payload.result.structuredContent.artifact.identity.proposed_next_alice_version,
+    2,
+  );
+
+  const replay = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: artifactId,
+      retrieval_receipt: receipt.token,
+      ...snapshot({
+        content: "Receipt replay attempt.",
+        idempotencyKey: "receipt-replay-001",
+        title: base.title,
+      }),
+    },
+  });
+  assert.equal(replay.payload.result.isError, true);
+  await commit(claudeToken, prepared);
+
+  const staleRead = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: artifactId },
+  });
+  const staleReceipt = staleRead.payload.result.structuredContent.artifact.retrieval_receipt.token;
+  const winningRead = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: artifactId },
+  });
+  const winning = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: artifactId,
+      retrieval_receipt:
+        winningRead.payload.result.structuredContent.artifact.retrieval_receipt.token,
+      ...snapshot({
+        content: "Receipt-bound artifact version three.",
+        idempotencyKey: "receipt-bound-v3-001",
+        title: base.title,
+      }),
+    },
+  });
+  await commit(claudeToken, winning);
+  const stale = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: artifactId,
+      retrieval_receipt: staleReceipt,
+      ...snapshot({
+        content: "Stale receipt attempt.",
+        idempotencyKey: "receipt-stale-001",
+        title: base.title,
+      }),
+    },
+  });
+  assert.equal(stale.payload.result.isError, true);
+
+  const latestRead = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: artifactId },
+  });
+  const connection = database
+    .prepare(
+      `SELECT id, client_id FROM integration_connections
+       WHERE user_id = ? AND client_classification = 'claude'`,
+    )
+    .get(identity.id);
+  const expired = await createArtifactSavePreview(database, {
+    userId: identity.id,
+    connectionId: connection.id,
+    clientId: connection.client_id,
+    publicUrl: "http://127.0.0.1",
+    payload: snapshot({
+      content: "Expired receipt attempt.",
+      idempotencyKey: "receipt-expired-001",
+      title: base.title,
+    }),
+    artifactId,
+    retrievalReceipt: latestRead.payload.result.structuredContent.artifact.retrieval_receipt.token,
+    now: new Date(Date.now() + ARTIFACT_READ_RECEIPT_LIFETIME_MS + 1),
+  });
+  assert.deepEqual(expired, {
+    error: "A fresh exact current artifact retrieval is required before versioning.",
+  });
+});
+
+test("version-like title labels are neutralized and conflicts remain explicit across MCP and web surfaces", async () => {
+  const conflictingCreate = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "save_to_alice",
+    arguments: {
+      save_type: "artifact",
+      ...snapshot({
+        content: "Conflicting initial title label.",
+        idempotencyKey: "title-conflicting-create-001",
+        title: "Conflicting initial story V4",
+      }),
+    },
+  });
+  assert.equal(conflictingCreate.payload.result.structuredContent.can_save, false);
+  assert.equal(
+    conflictingCreate.payload.result.structuredContent.artifact.title_version_integrity.status,
+    "conflicting_label",
+  );
+  assert.equal((await commit(chatGptToken, conflictingCreate)).payload.result.isError, true);
+
+  const matching = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "save_to_alice",
+    arguments: {
+      save_type: "artifact",
+      ...snapshot({
+        content: "Title integrity version one.",
+        idempotencyKey: "title-integrity-v1-001",
+        title: "Title integrity story V1",
+      }),
+    },
+  });
+  const matchingPreview = matching.payload.result.structuredContent;
+  assert.equal(matchingPreview.artifact.title, "Title integrity story");
+  assert.equal(matchingPreview.artifact.title_version_integrity.status, "matching_label");
+  const saved = await commit(chatGptToken, matching);
+  const artifactId = saved.payload.result.structuredContent.artifact_id;
+
+  database.exec("DROP TRIGGER artifact_versions_no_update");
+  database
+    .prepare("UPDATE artifact_versions SET title = ? WHERE artifact_id = ? AND version = 1")
+    .run("Title integrity story V1", artifactId);
+  database.exec(`CREATE TRIGGER artifact_versions_no_update
+    BEFORE UPDATE ON artifact_versions
+    BEGIN SELECT RAISE(ABORT, 'artifact versions are immutable'); END`);
+
+  const matchingSearch = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "search_alice",
+    arguments: { project_id: identity.project_id, query: "title integrity story" },
+  });
+  assert.equal(
+    matchingSearch.payload.result.structuredContent.results[0].title_version_integrity.status,
+    "matching_label",
+  );
+  assert.equal(
+    matchingSearch.payload.result.structuredContent.results[0].title,
+    "Title integrity story",
+  );
+  const matchingRead = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: artifactId, include_history: true },
+  });
+  assert.equal(
+    matchingRead.payload.result.structuredContent.artifact.title_version_integrity.status,
+    "matching_label",
+  );
+  assert.equal(
+    matchingRead.payload.result.structuredContent.artifact.history[0].title_version_integrity
+      .status,
+    "matching_label",
+  );
+  const matchingDetail = await fetch(
+    `${webBaseUrl}/projects/${identity.project_id}/artifacts/${artifactId}`,
+    { headers: { cookie } },
+  );
+  assert.match(await matchingDetail.text(), /included a matching V1 label/);
+
+  database.exec("DROP TRIGGER artifact_versions_no_update");
+  database
+    .prepare("UPDATE artifact_versions SET title = ? WHERE artifact_id = ? AND version = 1")
+    .run("Title integrity story V4", artifactId);
+  database.exec(`CREATE TRIGGER artifact_versions_no_update
+    BEFORE UPDATE ON artifact_versions
+    BEGIN SELECT RAISE(ABORT, 'artifact versions are immutable'); END`);
+
+  const search = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "search_alice",
+    arguments: { project_id: identity.project_id, query: "title integrity story" },
+  });
+  const result = search.payload.result.structuredContent.results[0];
+  assert.equal(result.title, "Title integrity story");
+  assert.equal(result.current_version, 1);
+  assert.equal(result.title_version_integrity.status, "conflicting_label");
+  assert.match(search.payload.result.content[0].text, /Alice version 1/);
+  assert.match(search.payload.result.content[0].text, /included V4/);
+
+  const retrieved = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: artifactId, include_history: true },
+  });
+  const artifact = retrieved.payload.result.structuredContent.artifact;
+  assert.equal(artifact.title, "Title integrity story");
+  assert.equal(artifact.title_version_integrity.status, "conflicting_label");
+  assert.equal(artifact.history[0].title, "Title integrity story");
+  assert.equal(artifact.history[0].title_version_integrity.status, "conflicting_label");
+
+  const detail = await fetch(
+    `${webBaseUrl}/projects/${identity.project_id}/artifacts/${artifactId}`,
+    { headers: { cookie } },
+  );
+  const detailHtml = await detail.text();
+  assert.match(detailHtml, /Alice version 1 of 1/);
+  assert.match(detailHtml, /included V4, but Alice version 1 is authoritative/);
+  const activity = await fetch(`${webBaseUrl}/projects/${identity.project_id}/changes`, {
+    headers: { cookie },
+  });
+  const activityHtml = await activity.text();
+  assert.match(activityHtml, /Title integrity story/);
+  assert.doesNotMatch(activityHtml, /Title integrity story V4/);
+
+  const wrongIdentity = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: artifactId,
+      retrieval_receipt: artifact.retrieval_receipt.token,
+      ...snapshot({
+        content: "Wrong identity content.",
+        idempotencyKey: "title-wrong-identity-001",
+        title: "Different Thursday artifact V2",
+      }),
+    },
+  });
+  const wrongPreview = wrongIdentity.payload.result.structuredContent;
+  assert.equal(wrongPreview.can_save, false);
+  assert.equal(wrongPreview.artifact.identity.existing_artifact, "Title integrity story");
+  assert.equal(wrongPreview.artifact.identity.proposed_title, "Different Thursday artifact");
+  assert.equal(wrongPreview.artifact.identity.conflict, true);
+  const previewPage = await fetch(
+    `${webBaseUrl}/artifact-save-previews/${encodeURIComponent(wrongPreview.preview_id)}`,
+    { headers: { cookie } },
+  );
+  const previewHtml = await previewPage.text();
+  assert.match(previewHtml, /Existing artifact/);
+  assert.match(previewHtml, /Authoritative current Alice version/);
+  assert.match(previewHtml, /Proposed next Alice version/);
+  assert.match(previewHtml, /Identity\/title conflict/);
+  assert.match(previewHtml, /Save blocked/);
+  assert.doesNotMatch(previewHtml, /<button type="submit">Save<\/button>/);
+  const blocked = await commit(claudeToken, wrongIdentity);
+  assert.equal(blocked.payload.result.isError, true);
+
+  const correctedRead = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: artifactId },
+  });
+  const corrected = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "save_artifact_version",
+    arguments: {
+      artifact_id: artifactId,
+      retrieval_receipt:
+        correctedRead.payload.result.structuredContent.artifact.retrieval_receipt.token,
+      ...snapshot({
+        content: "Corrected title integrity version two.",
+        idempotencyKey: "title-integrity-v2-001",
+        title: "Title integrity story V2",
+      }),
+    },
+  });
+  assert.equal(corrected.payload.result.structuredContent.can_save, true);
+  assert.equal(
+    corrected.payload.result.structuredContent.artifact.replaces.title_version_integrity.status,
+    "conflicting_label",
+  );
+  await commit(claudeToken, corrected);
+  const current = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "get_artifact",
+    arguments: { project_id: identity.project_id, artifact_id: artifactId, include_history: true },
+  });
+  assert.equal(current.payload.result.structuredContent.artifact.current_version, 2);
+  assert.equal(current.payload.result.structuredContent.artifact.title, "Title integrity story");
+  assert.equal(
+    current.payload.result.structuredContent.artifact.title_version_integrity.status,
+    "version_neutral",
+  );
+  assert.equal(
+    current.payload.result.structuredContent.artifact.history[1].title_version_integrity.status,
+    "conflicting_label",
+  );
 });

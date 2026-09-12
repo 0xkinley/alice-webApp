@@ -44,6 +44,8 @@ ChatGPT and Claude receive the same available-project catalog for the same Alice
 - `save_to_alice`: prepare either a full artifact Save card or a structured project-information Save card.
 - `save_artifact_version`: prepare the complete next version of one exact artifact.
 
+Every successful current-version `get_artifact` read issues one ten-minute, single-use retrieval receipt. `save_artifact_version` requires that receipt and binds it to the authenticated user, exact connection and client, project, artifact, current version row, and stored title. Preview creation reauthorizes write access, locks and consumes the receipt, and rechecks every binding. Expired, replayed, foreign-connection, wrong-project, wrong-artifact, guessed, and stale-after-concurrent-update receipts share one content-free failure. An older-version read does not issue a version-write receipt.
+
 Legacy project-context tools remain temporarily available for backwards compatibility while the private-alpha artifact loop is validated. New host examples and evaluation coverage use the four-tool artifact interface.
 
 The two Save tools only create short-lived preview records. They cannot create an artifact, version, accepted context, or trusted state. In the embedded MCP App, only the authenticated human's exact `Save selected` action commits the preview; the existing authenticated web fallback retains its exact `Save` action. Closing, ignoring, tampering with, deselecting the artifact in the app, or allowing a preview to expire saves nothing.
@@ -55,6 +57,8 @@ Project-information selection is intentionally separate: one preview may contain
 ## Artifact and version model
 
 `artifacts` stores the stable project-scoped identity. `artifact_versions` stores immutable complete snapshots. Each version records its parent version, source connection and provider, authenticated saver, timestamp, validated metadata, complete handoff snapshot, and exact content integrity metadata. A new version must be based on the version shown in its preview; a concurrent change makes the preview stale and requires a new review.
+
+Alice's integer version is authoritative. A deterministic title parser recognizes only an explicit trailing `Vn` or `Version n` label. Search, retrieval, detail, and history render the stable title separately from the system-owned Alice version badge. A matching label is identified and removed from new stored metadata after appearing in the exact preview. A stored historical mismatch is not rewritten: the surface displays the stable title, authoritative Alice version, and mismatch notice. A proposed label that disagrees with the proposed Alice version, or a proposed stable title that differs from the freshly retrieved artifact identity, creates a prominently blocked preview; neither the embedded nor web Save action can commit it. A later fresh retrieval and corrected preview may create the next immutable version.
 
 Activity is derived from intentional saved versions. The project Change log shows a readable reference—action, title, version, type, category, tags, source, local time, goal, and summary—without duplicating the artifact body or exposing hashes, storage keys, or internal JSON.
 

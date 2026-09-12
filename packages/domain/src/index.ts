@@ -1,7 +1,9 @@
 export { saveCandidateUpdate } from "./candidate-updates.ts";
 export {
   ARTIFACT_SAVE_PREVIEW_LIFETIME_MS,
+  ARTIFACT_READ_RECEIPT_LIFETIME_MS,
   ArtifactSaveUserError,
+  artifactTitlePresentation,
   commitArtifactSavePreview,
   createArtifactSavePreview,
   getAliceArtifact,

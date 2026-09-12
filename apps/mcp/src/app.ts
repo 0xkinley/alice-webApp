@@ -242,7 +242,7 @@ function readableArtifactSearch(result) {
     : `Matching saved artifacts in ${result.project.name} (${result.returned_count} of ${result.result_count}; applied limit ${result.applied_limit}; truncated: ${result.truncated ? "yes" : "no"}):\n${result.results
         .map(
           (artifact) =>
-            `- ${artifact.title} — artifact reference ${artifact.artifact_id}; Alice version ${artifact.current_version}, ${artifact.artifact_type}, from ${artifact.source}; match ${artifact.match.quality}${artifact.match.partial ? ` (${artifact.match.matched_query_tokens}/${artifact.match.query_tokens} query tokens; partial match)` : ""}`,
+            `- ${artifact.title} — artifact reference ${artifact.artifact_id}; Alice version ${artifact.current_version}, ${artifact.artifact_type}, from ${artifact.source}; match ${artifact.match.quality}${artifact.match.partial ? ` (${artifact.match.matched_query_tokens}/${artifact.match.query_tokens} query tokens; partial match)` : ""}${artifact.title_version_integrity.status === "conflicting_label" ? `; warning: ${artifact.title_version_integrity.notice}` : ""}`,
         )
         .join(
           "\n",
@@ -265,6 +265,12 @@ function readableArtifact(result) {
     `Tags: ${artifact.tags.join(", ") || "None"}`,
     `Source: ${artifact.source}`,
     `Saved: ${artifact.saved_at}`,
+    artifact.title_version_integrity?.notice
+      ? `Title/version note: ${artifact.title_version_integrity.notice}`
+      : "",
+    artifact.retrieval_receipt
+      ? `Fresh version receipt (single use; required by save_artifact_version): ${artifact.retrieval_receipt.token}\nReceipt expires: ${artifact.retrieval_receipt.expires_at}`
+      : "",
     `Goal: ${readableText(artifact.handoff.goal)}`,
     artifact.handoff.summary ? `Summary: ${readableText(artifact.handoff.summary)}` : "",
     list("Decisions", artifact.handoff.decisions),
@@ -847,7 +853,7 @@ function createProtocolServer(
     {
       title: "Get a complete alice. artifact",
       description:
-        "Retrieve the complete current human-approved artifact and the state needed to continue it: project, current version, full content, goal, decisions, constraints, rejected directions with reasons, open questions, next steps, relevant context, source, and saved time. Defaults to current state without flooding the host with history. Request an older version or lightweight history only when the user asks. This read never mutates alice.",
+        "Retrieve the complete current human-approved artifact and the state needed to continue it: project, authoritative Alice version, stable title, full content, goal, decisions, constraints, rejected directions with reasons, open questions, next steps, relevant context, source, and saved time. A current-version read returns one short-lived single-use retrieval receipt required by save_artifact_version and bound to this exact user, connection, project, artifact, current version, and stored title. Defaults to current state without flooding the host with history. Request an older version or lightweight history only when the user asks. This read cannot change trusted state.",
       inputSchema: getArtifactSchema,
       ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -985,7 +991,7 @@ function createProtocolServer(
     {
       title: "Save a new alice. artifact version",
       description:
-        "Use only when the user explicitly asks to save a revised version of an exact alice. artifact. Supply the complete new artifact and a complete current handoff snapshot; do not send only a diff or replay old history, and never fall back to project information after a validation error. Category and tags must come from alice.'s predefined schema values. If a host serializes nested tool values as strings, tags may be the exact JSON-encoded canonical array and handoff may be the exact JSON-encoded complete object; Alice parses and strictly validates those compatibility forms. This call creates only an exact Save card. The new current version exists only after the authenticated human chooses Save.",
+        "Use only when the user explicitly asks to save a revised version of an exact alice. artifact after a fresh exact current-version get_artifact call. Pass that read's single-use retrieval_receipt. Supply the complete new artifact and a complete current handoff snapshot; do not send only a diff or replay old history, and never fall back to project information or create a new artifact after an error. Category and tags must come from alice.'s predefined schema values. If a host serializes nested tool values as strings, tags may be the exact JSON-encoded canonical array and handoff may be the exact JSON-encoded complete object; Alice parses and strictly validates those compatibility forms. Alice blocks a changed artifact identity or a title version label that conflicts with the authoritative next Alice version. This call creates only an exact Save card. The new current version exists only after the authenticated human chooses Save.",
       inputSchema: saveArtifactVersionSchema,
       _meta: oauthAppToolMeta("mcp:write", ["model"], SAVE_APP_URI),
       annotations: {
@@ -1015,7 +1021,11 @@ function createProtocolServer(
           isError: true,
         };
       }
-      const { artifact_id: artifactId, ...artifactPayload } = canonical.data;
+      const {
+        artifact_id: artifactId,
+        retrieval_receipt: retrievalReceipt,
+        ...artifactPayload
+      } = canonical.data;
       const result = await createArtifactSavePreview(database, {
         clientId: authInfo.clientId,
         connectionId: authenticatedConnectionId(context),
@@ -1023,6 +1033,7 @@ function createProtocolServer(
         userId: authenticatedUserId(context),
         payload: { ...artifactPayload, project_id: resolution.projectId },
         artifactId,
+        retrievalReceipt,
       });
       if ("error" in result) {
         return { content: [{ type: "text", text: result.error }], isError: true };

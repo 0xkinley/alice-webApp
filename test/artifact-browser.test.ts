@@ -5,6 +5,7 @@ import {
   commitArtifactSavePreview,
   createArtifactSavePreview,
   createUserSession,
+  getAliceArtifact,
 } from "@alice/domain";
 import { createApp } from "../apps/web/src/app.ts";
 import { createTestIdentity } from "./helpers.ts";
@@ -73,6 +74,16 @@ async function saveArtifact({ provider, payload, artifactId: existingArtifactId,
        WHERE connection.user_id = ? AND connection.client_classification = ?`,
     )
     .get(identity.id, provider);
+  const retrievalReceipt = existingArtifactId
+    ? (
+        await getAliceArtifact(database, {
+          userId: identity.id,
+          connectionId: connection.id,
+          projectId: identity.project_id,
+          artifactId: existingArtifactId,
+        })
+      ).artifact.retrieval_receipt.token
+    : undefined;
   const prepared = await createArtifactSavePreview(database, {
     userId: identity.id,
     connectionId: connection.id,
@@ -80,6 +91,7 @@ async function saveArtifact({ provider, payload, artifactId: existingArtifactId,
     publicUrl,
     payload,
     ...(existingArtifactId ? { artifactId: existingArtifactId } : {}),
+    ...(retrievalReceipt ? { retrievalReceipt } : {}),
     now,
   });
   assert.ok(!("error" in prepared));
@@ -312,7 +324,7 @@ test("the current artifact safely renders full content and complete handoff info
   assert.equal(response.headers.get("cache-control"), "no-store");
   const html = await response.text();
   assert.match(html, /Current artifact/);
-  assert.match(html, /Version 2 of 2/);
+  assert.match(html, /Alice version 2 of 2/);
   assert.match(html, /Version two opening/);
   assert.match(html, /&lt;script&gt;alert\(&quot;artifact&quot;\)&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>alert\("artifact"\)<\/script>/);
@@ -337,7 +349,7 @@ test("version history links to and renders one exact immutable older version", a
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /Earlier artifact version/);
-  assert.match(html, /Version 1 of 2/);
+  assert.match(html, /Alice version 1 of 2/);
   assert.match(html, /You are viewing version 1/);
   assert.match(html, /Version one opening/);
   assert.doesNotMatch(html, /Version two opening/);

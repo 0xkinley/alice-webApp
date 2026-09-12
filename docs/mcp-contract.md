@@ -19,6 +19,12 @@ Searches current artifact metadata inside one exact authorized project. Query no
 
 A zero-result response is a metadata-search result, not proof that an artifact is absent. It instructs the host not to overwrite or version a nearby artifact and offers a safe broader query in the same exact project. `list_projects` remains only a project catalog and must never be interpreted as an artifact inventory.
 
+### `get_artifact` and `save_artifact_version`
+
+A current-version retrieval returns the complete authorized artifact plus a ten-minute single-use receipt. The model-visible and structured forms both provide it so text-only ChatGPT- and Claude-like hosts can perform the same safe flow. The receipt is mandatory for `save_artifact_version`; it is bound to the user, connection/client, project, artifact, exact current version row, and stored title. Version-preview creation reauthorizes write access and rejects expired, replayed, foreign, guessed, cross-project, wrong-artifact, and stale receipts with the same non-disclosing message. An exact older-version read never grants current-version write authority.
+
+The Save preview names the existing stable artifact title, authoritative current Alice version, proposed next Alice version, proposed stable title, and deterministic identity/title conflict state. Explicit trailing `Vn` and `Version n` labels are never treated as authoritative. Matching labels are separated from the stable title; conflicting labels and changed stable identities block Save. The tool never converts a failed version request into a new artifact or project-information save. A tool call still creates preview state only; only the authenticated Alice Save action can append an immutable version.
+
 ## Minimum tool surface
 
 ### `list_projects`

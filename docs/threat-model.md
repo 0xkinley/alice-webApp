@@ -163,6 +163,22 @@ Minimum controls:
 
 Milestone 05 keeps accepted decisions, accepted open questions, reference-only artifacts, and unresolved-conflict notices in separate typed sections. Artifact targets are never fetched during assembly. Conflict notices expose no pending value or summary, label pending alternatives unreviewed, and retain both the accepted provenance chain and pending candidate/evidence references. Rejected candidates are excluded. This warns about disagreement without promoting host-generated content or introducing a read-side mutation.
 
+### Wrong-artifact versioning and misleading title labels
+
+A host may select a close-title artifact after an incomplete search, replay an old reference after a concurrent update, use a receipt from another connection/project, or embed `V4` in a title while Alice's stored version is 3.
+
+Minimum controls:
+
+- deterministic metadata search with explicit zero-result and partial-match semantics;
+- a ten-minute single-use current-retrieval receipt bound to user, connection/client, project, artifact, immutable current version row, and stored title;
+- independent read and version-preview authorization plus optimistic concurrency at commit;
+- the same non-disclosing failure for expired, replayed, foreign, guessed, wrong-project, wrong-artifact, and stale receipts;
+- deterministic stable-title parsing for explicit trailing version labels, with Alice's integer version always rendered separately and authoritatively;
+- a blocked exact preview for a conflicting proposed version label or changed stable artifact identity; and
+- no fallback from failed versioning to artifact creation or project-information capture.
+
+Receipt issuance is a read-side security record, not trusted project state or human Save authority. The model can request a preview only after the exact read; the preview still cannot commit itself.
+
 ## Spike security gates
 
 - Candidate tool calls cannot directly change trusted state.

@@ -515,6 +515,13 @@ export const saveArtifactVersionSchema = artifactSnapshotSchema
   .extend({
     project_id: mcpProjectReferenceSchema.optional(),
     artifact_id: z.string().trim().min(1).max(200).regex(boundedIdentifierPattern),
+    retrieval_receipt: z
+      .string()
+      .trim()
+      .min(32)
+      .max(240)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .describe("Single-use fresh current-version receipt returned by get_artifact"),
     idempotency_key: z
       .string()
       .trim()

@@ -89,7 +89,9 @@ function artifactPayload() {
           )
           .join("")}</ul></section>`
       : "";
-  return `<section><p class="eyebrow">Complete artifact · v${Number(artifact.version)}</p><label class="select-row"><input type="checkbox" data-artifact-selection checked><span><strong>${escapeHtml(artifact.title)}</strong><small>${escapeHtml(readableLabel(artifact.artifact_type))} · ${escapeHtml(readableLabel(artifact.category))}</small></span></label><p>${artifact.tags.map((tag: string) => `<span class="tag">${escapeHtml(readableLabel(tag))}</span>`).join(" ")}</p><details><summary>Review exact artifact and handoff</summary><div class="artifact-content">${escapeHtml(artifact.content)}</div><section><p class="eyebrow">Goal</p><p>${escapeHtml(readableText(handoff.goal))}</p>${handoff.summary ? `<p class="muted">${escapeHtml(readableText(handoff.summary))}</p>` : ""}</section>${list("Decisions", handoff.decisions)}${list("Constraints", handoff.constraints)}${rejected}${list("Open questions", handoff.open_questions)}${list("Next steps", handoff.next_steps)}${list("Relevant context", handoff.relevant_context)}</details></section>`;
+  const identity = artifact.identity;
+  const identityDetails = `<aside class="replace"><strong>Artifact identity and Alice version</strong><dl>${identity.existing_artifact ? `<dt>Existing artifact</dt><dd>${escapeHtml(identity.existing_artifact)}</dd><dt>Current Alice version</dt><dd>${identity.authoritative_current_alice_version}</dd>` : ""}<dt>Proposed next Alice version</dt><dd>${identity.proposed_next_alice_version}</dd><dt>Proposed title</dt><dd>${escapeHtml(identity.proposed_title)}</dd><dt>Conflict</dt><dd>${identity.conflict ? `Yes — ${escapeHtml(identity.conflict_reason)}` : "None detected"}</dd></dl></aside>`;
+  return `<section><p class="eyebrow">Complete artifact · Alice version ${Number(artifact.version)}</p>${identityDetails}<label class="select-row"><input type="checkbox" data-artifact-selection checked ${card.can_save ? "" : "disabled"}><span><strong>${escapeHtml(artifact.title)}</strong><small>${escapeHtml(readableLabel(artifact.artifact_type))} · ${escapeHtml(readableLabel(artifact.category))}</small></span></label><p>${artifact.tags.map((tag: string) => `<span class="tag">${escapeHtml(readableLabel(tag))}</span>`).join(" ")}</p><details><summary>Review exact artifact and handoff</summary><div class="artifact-content">${escapeHtml(artifact.content)}</div><section><p class="eyebrow">Goal</p><p>${escapeHtml(readableText(handoff.goal))}</p>${handoff.summary ? `<p class="muted">${escapeHtml(readableText(handoff.summary))}</p>` : ""}</section>${list("Decisions", handoff.decisions)}${list("Constraints", handoff.constraints)}${rejected}${list("Open questions", handoff.open_questions)}${list("Next steps", handoff.next_steps)}${list("Relevant context", handoff.relevant_context)}</details></section>`;
 }
 
 function checkpoint() {
@@ -148,11 +150,13 @@ function render() {
           ? "Some files were already authorized separately. Continue through each exact browser fallback; this mixed preview cannot perform Save all."
           : expired
             ? "This card expired. Ask the host for a new exact preview."
-            : `${card.card_type === "artifact" ? "1 item selected" : `${card.payload?.candidate_claims?.length || 0} items selected`}. Nothing is saved yet. Expires ${escapeHtml(formatLocalTime(card.expires_at))}.`;
+            : card.card_type === "artifact" && !card.can_save
+              ? `Save blocked: ${escapeHtml(card.artifact.identity.conflict_reason)} Create a corrected Alice preview.`
+              : `${card.card_type === "artifact" ? "1 item selected" : `${card.payload?.candidate_claims?.length || 0} items selected`}. Nothing is saved yet. Expires ${escapeHtml(formatLocalTime(card.expires_at))}.`;
   const action =
     alreadyAuthorized || partiallyAuthorized
       ? attachmentTransferActions()
-      : `<button id="save" type="button" ${expired ? "disabled" : ""}>${card.card_type === "host_attachments" ? "Save all" : ["artifact", "context_capture"].includes(card.card_type) ? "Save selected" : "Save"}</button>`;
+      : `<button id="save" type="button" ${expired || (card.card_type === "artifact" && !card.can_save) ? "disabled" : ""}>${card.card_type === "host_attachments" ? "Save all" : ["artifact", "context_capture"].includes(card.card_type) ? "Save selected" : "Save"}</button>`;
   const source = card.source_host
     ? `<span>From ${escapeHtml(providerName(card.source_host))}</span>`
     : "";
@@ -220,10 +224,17 @@ function updateSelection() {
       : selectedClaimIndices().length;
   const button = document.querySelector<HTMLButtonElement>("#save");
   const status = document.querySelector<HTMLElement>("#status");
-  if (button) button.disabled = selected === 0 || Date.parse(card.expires_at) <= Date.now();
+  if (button)
+    button.disabled =
+      selected === 0 ||
+      Date.parse(card.expires_at) <= Date.now() ||
+      (card.card_type === "artifact" && !card.can_save);
   if (status && Date.parse(card.expires_at) > Date.now()) {
     status.className = "notice";
-    status.textContent = `${selected} ${selected === 1 ? "item" : "items"} selected. Nothing is saved yet.`;
+    status.textContent =
+      card.card_type === "artifact" && !card.can_save
+        ? `Save blocked: ${card.artifact.identity.conflict_reason} Create a corrected Alice preview.`
+        : `${selected} ${selected === 1 ? "item" : "items"} selected. Nothing is saved yet.`;
   }
 }
 

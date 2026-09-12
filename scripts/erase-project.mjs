@@ -15,6 +15,8 @@ const DELETE_TRIGGER_TABLES = [
   "accepted_project_state",
   "active_connection_targets",
   "artifact_save_previews",
+  "artifact_read_receipts",
+  "artifact_read_receipt_uses",
   "artifact_versions",
   "artifacts",
   "audit_events",
@@ -306,6 +308,17 @@ async function deleteProjectRows(database, input, plan) {
   const scoped = [plan.project.workspace_id, input.projectId];
   await remove(
     "DELETE FROM save_confirmation_receipts WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove(
+    `DELETE FROM artifact_read_receipt_uses
+     WHERE receipt_id IN (
+       SELECT id FROM artifact_read_receipts WHERE workspace_id = ? AND project_id = ?
+     )`,
+    ...scoped,
+  );
+  await remove(
+    "DELETE FROM artifact_read_receipts WHERE workspace_id = ? AND project_id = ?",
     ...scoped,
   );
   await remove(

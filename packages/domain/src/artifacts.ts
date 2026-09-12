@@ -8,6 +8,7 @@ import {
 } from "./save-confirmation-receipts.ts";
 
 export const ARTIFACT_SAVE_PREVIEW_LIFETIME_MS = 30 * 60 * 1_000;
+export const ARTIFACT_READ_RECEIPT_LIFETIME_MS = 10 * 60 * 1_000;
 
 export class ArtifactSaveUserError extends Error {}
 
@@ -26,6 +27,28 @@ function equalSecretHash(expected: string, token: string): boolean {
 function parsedArray(value: unknown): any[] {
   const parsed = JSON.parse(String(value));
   return Array.isArray(parsed) ? parsed : [];
+}
+
+export function artifactTitlePresentation(value: unknown, authoritativeVersion: number) {
+  const storedTitle = String(value ?? "").trim();
+  const match = storedTitle.match(/^(.*?)(?:\s*[-–—:|]\s*|\s+)(?:v(?:ersion)?\.?\s*)(\d+)\s*$/iu);
+  if (!match || !match[1]?.trim()) {
+    return { title: storedTitle, title_version_integrity: { status: "version_neutral" } };
+  }
+  const labelVersion = Number(match[2]!);
+  const status = labelVersion === authoritativeVersion ? "matching_label" : "conflicting_label";
+  return {
+    title: match[1]!.trim(),
+    title_version_integrity: {
+      status,
+      label_version: labelVersion,
+      authoritative_version: authoritativeVersion,
+      notice:
+        status === "matching_label"
+          ? `The stored title included a matching V${labelVersion} label. Alice's version badge is authoritative.`
+          : `The stored title included V${labelVersion}, but Alice version ${authoritativeVersion} is authoritative.`,
+    },
+  };
 }
 
 function artifactRevisionQuery(extraWhere = "") {
@@ -91,17 +114,18 @@ function handoffFromRow(row) {
 }
 
 function artifactResult(row, project, history: any[] = []) {
+  const selectedVersion = Number(row.version);
   return {
     contract_version: "alice_artifact_v1",
     project: { id: project.id, name: project.name },
     artifact: {
       id: row.artifact_id,
-      title: row.title,
+      ...artifactTitlePresentation(row.title, selectedVersion),
       artifact_type: row.artifact_type,
       category: row.category,
       tags: parsedArray(row.tags_json),
       current_version: Number(row.current_version ?? row.version),
-      selected_version: Number(row.version),
+      selected_version: selectedVersion,
       content: row.content_text,
       content_utf8_bytes: Number(row.content_utf8_bytes),
       handoff: handoffFromRow(row),
@@ -135,6 +159,7 @@ export async function listProjectArtifactActivity(
     .all(access.projectWorkspaceId, access.projectId);
   return rows.map((row) => ({
     ...row,
+    ...artifactTitlePresentation(row.title, Number(row.version)),
     entry_kind: "artifact_version",
     version: Number(row.version),
     tags: parsedArray(row.tags_json),
@@ -152,18 +177,27 @@ async function currentRevision(
     .get(workspaceId, projectId, artifactId);
 }
 
-export async function createArtifactSavePreview(
-  database,
-  input: {
-    userId: string;
-    connectionId: string;
-    clientId: string;
-    publicUrl: string;
-    payload: any;
-    artifactId?: string;
-    now?: Date;
-  },
-) {
+type ArtifactSavePreviewInput = {
+  userId: string;
+  connectionId: string;
+  clientId: string;
+  publicUrl: string;
+  payload: any;
+  artifactId?: string;
+  retrievalReceipt?: string;
+  now?: Date;
+};
+
+export async function createArtifactSavePreview(database, input: ArtifactSavePreviewInput) {
+  if (input.artifactId) {
+    return await database.transaction(async () =>
+      createArtifactSavePreviewInternal(database, input),
+    );
+  }
+  return await createArtifactSavePreviewInternal(database, input);
+}
+
+async function createArtifactSavePreviewInternal(database, input: ArtifactSavePreviewInput) {
   const access = await projectScopeForConnection(database, {
     userId: input.userId,
     connectionId: input.connectionId,
@@ -192,8 +226,57 @@ export async function createArtifactSavePreview(
     : undefined;
   if (input.artifactId && !current) return { error: "The artifact is unavailable." };
   const saveKind = input.artifactId ? "new_version" : "create_artifact";
+  const proposedVersion = current ? Number(current.version) + 1 : 1;
+  const proposedTitle = artifactTitlePresentation(input.payload.title, proposedVersion);
+  const currentTitle = current
+    ? artifactTitlePresentation(current.title, Number(current.version))
+    : undefined;
+  const titleIdentityConflict = Boolean(
+    currentTitle &&
+    normalizeArtifactSearchText(currentTitle.title) !==
+      normalizeArtifactSearchText(proposedTitle.title),
+  );
+  const versionLabelConflict = proposedTitle.title_version_integrity.status === "conflicting_label";
+  const canSave = !titleIdentityConflict && !versionLabelConflict;
+  let readReceipt;
+  if (input.artifactId) {
+    if (!input.retrievalReceipt) {
+      return { error: "A fresh exact current artifact retrieval is required before versioning." };
+    }
+    const receiptHash = sha256(input.retrievalReceipt);
+    await database
+      .prepare("SELECT pg_advisory_xact_lock(hashtext(?))")
+      .get(`artifact-read-receipt:${receiptHash}`);
+    readReceipt = await database
+      .prepare(
+        `SELECT receipt.*, use.receipt_id AS used_receipt_id
+         FROM artifact_read_receipts receipt
+         LEFT JOIN artifact_read_receipt_uses use ON use.receipt_id = receipt.id
+         WHERE receipt.token_hash = ?`,
+      )
+      .get(receiptHash);
+    const nowMs = (input.now || new Date()).getTime();
+    if (
+      !readReceipt ||
+      readReceipt.used_receipt_id ||
+      Number(readReceipt.expires_at) <= nowMs ||
+      readReceipt.user_id !== input.userId ||
+      readReceipt.connection_workspace_id !== access.userWorkspaceId ||
+      readReceipt.connection_id !== input.connectionId ||
+      readReceipt.client_id !== input.clientId ||
+      readReceipt.workspace_id !== access.projectWorkspaceId ||
+      readReceipt.project_id !== access.projectId ||
+      readReceipt.artifact_id !== input.artifactId ||
+      readReceipt.version_id !== current.version_id ||
+      Number(readReceipt.version) !== Number(current.version) ||
+      readReceipt.title !== current.title
+    ) {
+      return { error: "A fresh exact current artifact retrieval is required before versioning." };
+    }
+  }
   const exactPayload = {
     ...input.payload,
+    title: proposedTitle.title,
     ...(input.artifactId ? { artifact_id: input.artifactId } : {}),
   };
   const exactPayloadJson = JSON.stringify(exactPayload);
@@ -222,8 +305,43 @@ export async function createArtifactSavePreview(
       tags: exactPayload.tags,
       content: exactPayload.content,
       handoff: exactPayload.handoff,
-      version: current ? Number(current.version) + 1 : 1,
-      ...(current ? { replaces: { version: Number(current.version), title: current.title } } : {}),
+      version: proposedVersion,
+      title_version_integrity: proposedTitle.title_version_integrity,
+      identity: current
+        ? {
+            existing_artifact: currentTitle!.title,
+            authoritative_current_alice_version: Number(current.version),
+            proposed_next_alice_version: proposedVersion,
+            proposed_title: exactPayload.title,
+            conflict: titleIdentityConflict || versionLabelConflict,
+            ...(titleIdentityConflict
+              ? {
+                  conflict_reason:
+                    "The proposed title does not match the retrieved artifact identity.",
+                }
+              : versionLabelConflict
+                ? {
+                    conflict_reason: `The proposed title label disagrees with Alice version ${proposedVersion}.`,
+                  }
+                : {}),
+          }
+        : {
+            proposed_next_alice_version: 1,
+            proposed_title: exactPayload.title,
+            conflict: versionLabelConflict,
+            ...(versionLabelConflict
+              ? { conflict_reason: "The proposed title label disagrees with Alice version 1." }
+              : {}),
+          },
+      ...(current
+        ? {
+            replaces: {
+              version: Number(current.version),
+              title: currentTitle!.title,
+              title_version_integrity: currentTitle!.title_version_integrity,
+            },
+          }
+        : {}),
     },
     source_host: connection.client_classification,
     created_at: createdAt,
@@ -231,6 +349,7 @@ export async function createArtifactSavePreview(
     status: "awaiting_save",
     pre_save_state: "preview_only",
     trusted_state_changed: false,
+    can_save: canSave,
     last_saved: lastSaved || null,
     fallback_url: new URL(
       `/artifact-save-previews/${encodeURIComponent(previewId)}`,
@@ -271,6 +390,14 @@ export async function createArtifactSavePreview(
       createdAt,
       expiresAt,
     );
+  if (readReceipt) {
+    await database
+      .prepare(
+        `INSERT INTO artifact_read_receipt_uses (receipt_id, preview_id, used_at)
+         VALUES (?, ?, ?)`,
+      )
+      .run(readReceipt.id, previewId, createdAt);
+  }
   return { preview, authorityToken };
 }
 
@@ -388,6 +515,12 @@ export async function commitArtifactSavePreview(
       throw new ArtifactSaveUserError("Project access changed. Review a new artifact Save card.");
     }
     const payload = JSON.parse(row.exact_payload_json);
+    const exactPreview = JSON.parse(row.exact_preview_json);
+    if (!exactPreview.can_save) {
+      throw new ArtifactSaveUserError(
+        "This artifact identity or title-version conflict must be corrected in a new Alice preview.",
+      );
+    }
     const duplicate = await database
       .prepare(
         `SELECT artifact_id, id AS version_id, version, payload_sha256, saved_at
@@ -546,9 +679,10 @@ function filteredArtifactRows(
     })
     .map((row) => {
       const tags = parsedArray(row.tags_json);
-      const title = normalizeArtifactSearchText(row.title);
+      const titlePresentation = artifactTitlePresentation(row.title, Number(row.version));
+      const title = normalizeArtifactSearchText(titlePresentation.title);
       const metadata = normalizeArtifactSearchText(
-        [row.title, row.summary, row.goal, row.category, row.artifact_type, ...tags]
+        [titlePresentation.title, row.summary, row.goal, row.category, row.artifact_type, ...tags]
           .filter(Boolean)
           .join(" "),
       );
@@ -601,7 +735,7 @@ function filteredArtifactRows(
     const row = match.row;
     return {
       artifact_id: row.artifact_id,
-      title: row.title,
+      ...artifactTitlePresentation(row.title, Number(row.version)),
       current_version: Number(row.version),
       artifact_type: row.artifact_type,
       category: row.category,
@@ -789,7 +923,10 @@ async function getArtifactForScope(
          ORDER BY version DESC`,
       )
       .all(access.projectWorkspaceId, input.projectId, input.artifactId);
-    history = history.map((item) => ({ ...item, version: Number(item.version) }));
+    history = history.map((item) => {
+      const version = Number(item.version);
+      return { ...item, ...artifactTitlePresentation(item.title, version), version };
+    });
   }
   return artifactResult(selected, project, history);
 }
@@ -831,5 +968,58 @@ export async function getAliceArtifact(
     capability: "read",
   });
   if (!access) return undefined;
-  return await getArtifactForScope(database, access, input);
+  const result = await getArtifactForScope(database, access, input);
+  if (!result || result.artifact.selected_version !== result.artifact.current_version)
+    return result;
+  const current = await currentRevision(
+    database,
+    access.projectWorkspaceId,
+    input.projectId,
+    input.artifactId,
+  );
+  if (!current) return undefined;
+  const now = new Date();
+  const token = `alice_artifact_read_${randomBytes(32).toString("base64url")}`;
+  const receiptId = `artifact_read_receipt_${randomUUID()}`;
+  const expiresAt = now.getTime() + ARTIFACT_READ_RECEIPT_LIFETIME_MS;
+  await database
+    .prepare(
+      `DELETE FROM artifact_read_receipts
+       WHERE expires_at <= ?
+         AND NOT EXISTS (
+           SELECT 1 FROM artifact_read_receipt_uses use
+           WHERE use.receipt_id = artifact_read_receipts.id
+         )`,
+    )
+    .run(now.getTime());
+  await database
+    .prepare(
+      `INSERT INTO artifact_read_receipts
+        (id, workspace_id, project_id, user_id, connection_workspace_id, connection_id,
+         client_id, artifact_id, version_id, version, title, token_hash, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      receiptId,
+      access.projectWorkspaceId,
+      input.projectId,
+      input.userId,
+      access.userWorkspaceId,
+      input.connectionId,
+      access.clientId,
+      input.artifactId,
+      current.version_id,
+      Number(current.version),
+      current.title,
+      sha256(token),
+      now.toISOString(),
+      expiresAt,
+    );
+  const artifact: any = result.artifact;
+  artifact.retrieval_receipt = {
+    token,
+    expires_at: new Date(expiresAt).toISOString(),
+    purpose: "single_use_current_version_preview",
+  };
+  return result;
 }
