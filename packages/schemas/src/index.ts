@@ -545,6 +545,13 @@ export const searchAliceSchema = z
       .enum(["past_7_days", "past_28_days", "past_3_months", "past_year", "all_time"])
       .default("all_time"),
     limit: z.number().int().min(1).max(50).default(20),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .max(10_000)
+      .default(0)
+      .describe("Continuation offset returned by an earlier search_alice result"),
   })
   .strict();
 

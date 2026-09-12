@@ -8,6 +8,7 @@ export {
   getProjectArtifact,
   getArtifactSavePreview,
   listProjectArtifactActivity,
+  normalizeArtifactSearchText,
   searchAliceArtifacts,
   searchProjectArtifacts,
 } from "./artifacts.ts";

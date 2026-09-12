@@ -525,12 +525,14 @@ function filteredArtifactRows(
     artifact_types: string[];
     timeline: string;
     limit: number;
+    offset?: number;
     now?: Date;
   },
 ) {
-  const query = input.query?.toLocaleLowerCase();
+  const normalizedQuery = input.query ? normalizeArtifactSearchText(input.query) : "";
+  const queryTokens = searchTokens(normalizedQuery);
   const start = timelineStart(input.timeline, input.now || new Date());
-  return rows
+  const ranked = rows
     .filter((row) => {
       const tags = parsedArray(row.tags_json);
       if (input.categories.length > 0 && !input.categories.includes(row.category)) return false;
@@ -540,23 +542,64 @@ function filteredArtifactRows(
         return false;
       }
       if (start && new Date(row.saved_at).getTime() < start) return false;
-      if (
-        query &&
-        ![row.title, row.summary, row.goal, row.category, row.artifact_type, ...tags]
-          .filter(Boolean)
-          .some((value) => String(value).toLocaleLowerCase().includes(query))
-      ) {
-        return false;
-      }
       return true;
     })
+    .map((row) => {
+      const tags = parsedArray(row.tags_json);
+      const title = normalizeArtifactSearchText(row.title);
+      const metadata = normalizeArtifactSearchText(
+        [row.title, row.summary, row.goal, row.category, row.artifact_type, ...tags]
+          .filter(Boolean)
+          .join(" "),
+      );
+      const titleTokens = new Set(searchTokens(title));
+      const metadataTokens = new Set(searchTokens(metadata));
+      const matchedTokenCount = queryTokens.filter((token) => metadataTokens.has(token)).length;
+      let matchRank = 6;
+      let matchQuality = "browse";
+      if (normalizedQuery) {
+        if (title === normalizedQuery) {
+          matchRank = 1;
+          matchQuality = "exact_title";
+        } else if (title.includes(normalizedQuery)) {
+          matchRank = 2;
+          matchQuality = "title_phrase";
+        } else if (queryTokens.length > 0 && queryTokens.every((token) => titleTokens.has(token))) {
+          matchRank = 3;
+          matchQuality = "all_tokens_in_title";
+        } else if (
+          queryTokens.length > 0 &&
+          queryTokens.every((token) => metadataTokens.has(token))
+        ) {
+          matchRank = 4;
+          matchQuality = "all_tokens_across_metadata";
+        } else if (matchedTokenCount > 0) {
+          matchRank = 5;
+          matchQuality = "partial_tokens";
+        } else {
+          return undefined;
+        }
+      }
+      return {
+        row,
+        matchRank,
+        matchQuality,
+        matchedTokenCount,
+        queryTokenCount: queryTokens.length,
+      };
+    })
+    .filter(Boolean)
     .sort(
       (left, right) =>
-        new Date(right.saved_at).getTime() - new Date(left.saved_at).getTime() ||
-        String(left.artifact_id).localeCompare(String(right.artifact_id)),
-    )
-    .slice(0, input.limit)
-    .map((row) => ({
+        left.matchRank - right.matchRank ||
+        right.matchedTokenCount - left.matchedTokenCount ||
+        new Date(right.row.saved_at).getTime() - new Date(left.row.saved_at).getTime() ||
+        String(left.row.artifact_id).localeCompare(String(right.row.artifact_id)),
+    );
+  const offset = input.offset || 0;
+  const results = ranked.slice(offset, offset + input.limit).map((match) => {
+    const row = match.row;
+    return {
       artifact_id: row.artifact_id,
       title: row.title,
       current_version: Number(row.version),
@@ -567,7 +610,40 @@ function filteredArtifactRows(
       goal: row.goal,
       source: row.source_provider,
       saved_at: row.saved_at,
-    }));
+      match: {
+        quality: match.matchQuality,
+        matched_query_tokens: match.matchedTokenCount,
+        query_tokens: match.queryTokenCount,
+        partial: match.matchQuality === "partial_tokens",
+      },
+    };
+  });
+  const resultCount = ranked.length;
+  const nextOffset = offset + results.length;
+  return {
+    results,
+    result_count: resultCount,
+    returned_count: results.length,
+    applied_limit: input.limit,
+    offset,
+    truncated: nextOffset < resultCount,
+    continuation: nextOffset < resultCount ? { next_offset: nextOffset } : null,
+    partial_results_included: results.some((result) => result.match.partial),
+  };
+}
+
+export function normalizeArtifactSearchText(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLocaleLowerCase("en-US")
+    .replace(/[\p{P}\p{S}]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+function searchTokens(value: string): string[] {
+  return [...new Set(value.split(" ").filter(Boolean))];
 }
 
 export async function searchProjectArtifacts(
@@ -582,6 +658,7 @@ export async function searchProjectArtifacts(
     artifact_types: string[];
     timeline: string;
     limit: number;
+    offset?: number;
     now?: Date;
   },
 ) {
@@ -600,7 +677,7 @@ export async function searchProjectArtifacts(
     .all(access.projectWorkspaceId, access.projectId);
   return {
     project,
-    results: filteredArtifactRows(rows, input),
+    ...filteredArtifactRows(rows, input),
   };
 }
 
@@ -618,6 +695,7 @@ export async function searchAliceArtifacts(
     artifact_types: string[];
     timeline: string;
     limit: number;
+    offset?: number;
     now?: Date;
   },
 ) {
@@ -631,7 +709,7 @@ export async function searchAliceArtifacts(
   if (!input.project_id && !input.project_name && projects.length !== 1) {
     return {
       contract_version: "alice_search_v1",
-      status: "project_required",
+      status: "project_required" as const,
       projects: projects.map(({ id, name }) => ({ id, name })),
       results: [],
     };
@@ -639,7 +717,8 @@ export async function searchAliceArtifacts(
   if (matches.length !== 1) {
     return {
       contract_version: "alice_search_v1",
-      status: matches.length === 0 ? "project_unavailable" : "project_required",
+      status: (matches.length === 0 ? "project_unavailable" : "project_required") as
+        "project_unavailable" | "project_required",
       projects: matches.map(({ id, name }) => ({ id, name })),
       results: [],
     };
@@ -654,7 +733,7 @@ export async function searchAliceArtifacts(
   if (!access) {
     return {
       contract_version: "alice_search_v1",
-      status: "project_unavailable",
+      status: "project_unavailable" as const,
       projects: [],
       results: [],
     };
@@ -662,12 +741,12 @@ export async function searchAliceArtifacts(
   const rows = await database
     .prepare(currentArtifactSearchQuery())
     .all(access.projectWorkspaceId, project.id);
-  const results = filteredArtifactRows(rows, input);
+  const page = filteredArtifactRows(rows, input);
   return {
     contract_version: "alice_search_v1",
-    status: "ok",
+    status: "ok" as const,
     project: { id: project.id, name: project.name },
-    results,
+    ...page,
   };
 }
 

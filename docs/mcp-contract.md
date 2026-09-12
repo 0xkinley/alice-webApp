@@ -13,6 +13,12 @@ Decision date: 2026-08-28; project-routing amendments 2026-09-09 and 2026-09-10
 - Every write is idempotent, bounded, attributable, and audited.
 - Tool results are structured and also readable by the model.
 
+### `search_alice`
+
+Searches current artifact metadata inside one exact authorized project. Query normalization and ranking are deterministic: normalized exact title; title phrase; all tokens in title; all tokens distributed across title, summary, goal, category, artifact type, and canonical tags; then explicitly labelled partial-token matches. Artifact bodies are never consulted. The response includes `result_count`, `returned_count`, `applied_limit`, `offset`, `truncated`, `partial_results_included`, and an exact `continuation.next_offset` when another bounded page exists. ChatGPT, Claude, and text-only hosts receive the same usable artifact references and completeness information.
+
+A zero-result response is a metadata-search result, not proof that an artifact is absent. It instructs the host not to overwrite or version a nearby artifact and offers a safe broader query in the same exact project. `list_projects` remains only a project catalog and must never be interpreted as an artifact inventory.
+
 ## Minimum tool surface
 
 ### `list_projects`

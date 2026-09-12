@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { openSqliteTestDatabase } from "@alice/database/testing";
-import { createProject } from "@alice/domain";
+import { createProject, normalizeArtifactSearchText } from "@alice/domain";
 import { createApp as createMcpApp } from "../apps/mcp/src/app.ts";
 import { createApp as createWebApp } from "../apps/web/src/app.ts";
 import { authorize, callMcp, createTestIdentity } from "./helpers.ts";
@@ -54,6 +54,16 @@ async function commit(token, prepared) {
       authority_token: authority.token,
     },
   });
+}
+
+async function saveNewArtifact(token, payload) {
+  const prepared = await callMcp(mcpBaseUrl, token, "tools/call", {
+    name: "save_to_alice",
+    arguments: { save_type: "artifact", ...payload },
+  });
+  assert.equal(prepared.payload.error, undefined);
+  assert.equal(prepared.payload.result.isError, undefined);
+  return await commit(token, prepared);
 }
 
 before(async () => {
@@ -346,4 +356,103 @@ test("canonical tags and exact project routing prevent host-invented taxonomy or
     /Available projects: Private project, Second project/,
   );
   assert.doesNotMatch(ambiguous.payload.result.content[0].text, /project_artifact_handoff/);
+});
+
+test("artifact search normalizes natural-language metadata and finds the exact Thursday incident", async () => {
+  assert.equal(
+    normalizeArtifactSearchText("  THURSDAY\u00a0AI—Problem: Café?!  "),
+    "thursday ai problem cafe",
+  );
+  const saved = await saveNewArtifact(chatGptToken, {
+    ...snapshot({
+      content: "The complete Thursday script body must not participate in metadata search.",
+      idempotencyKey: "thursday-search-regression-001",
+      title: "Thursday AI Problem — Make AI Interview You First — Script V1",
+    }),
+    handoff: {
+      ...snapshot({ content: "x", idempotencyKey: "unused" }).handoff,
+      goal: "Avoid generic answers by making the AI interview the user before drafting.",
+      summary: "A Thursday social script about better prompting.",
+    },
+  });
+  const artifactId = saved.payload.result.structuredContent.artifact_id;
+
+  for (const token of [chatGptToken, claudeToken]) {
+    const found = await callMcp(mcpBaseUrl, token, "tools/call", {
+      name: "search_alice",
+      arguments: {
+        project_id: identity.project_id,
+        query: "Thursday generic answers interview you first",
+      },
+    });
+    const output = found.payload.result.structuredContent;
+    assert.equal(output.result_count, 1);
+    assert.equal(output.returned_count, 1);
+    assert.equal(output.applied_limit, 20);
+    assert.equal(output.truncated, false);
+    assert.equal(output.continuation, null);
+    assert.equal(output.results[0].artifact_id, artifactId);
+    assert.equal(output.results[0].match.quality, "all_tokens_across_metadata");
+    assert.equal(output.results[0].content, undefined);
+    assert.match(found.payload.result.content[0].text, /Thursday AI Problem/);
+    assert.match(found.payload.result.content[0].text, /Alice version 1/);
+  }
+});
+
+test("artifact search ranks deterministically, identifies partials, paginates, and does not search bodies", async () => {
+  const fixtures = [
+    ["Rank Signal", "ranking-exact-title-001", "A browse fixture."],
+    ["Rank Signal extended phrase", "ranking-title-phrase-001", "A browse fixture."],
+    ["Signal Rank notes", "ranking-all-title-001", "A browse fixture."],
+    ["Distributed metadata", "ranking-distributed-001", "Rank and signal appear in the goal."],
+    ["Only rank present", "ranking-partial-001", "A partial fixture."],
+  ];
+  for (const [title, idempotencyKey, goal] of fixtures) {
+    const base = snapshot({ content: "Body-only-never-search-9f24.", idempotencyKey, title });
+    await saveNewArtifact(chatGptToken, {
+      ...base,
+      content: "9f24bodysecret",
+      handoff: { ...base.handoff, goal },
+    });
+  }
+
+  const ranked = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "search_alice",
+    arguments: { project_id: identity.project_id, query: "rank signal", limit: 3 },
+  });
+  const first = ranked.payload.result.structuredContent;
+  assert.deepEqual(
+    first.results.map((result) => result.match.quality),
+    ["exact_title", "title_phrase", "all_tokens_in_title"],
+  );
+  assert.equal(first.result_count, 5);
+  assert.equal(first.returned_count, 3);
+  assert.equal(first.applied_limit, 3);
+  assert.equal(first.truncated, true);
+  assert.deepEqual(first.continuation, { next_offset: 3 });
+
+  const continued = await callMcp(mcpBaseUrl, claudeToken, "tools/call", {
+    name: "search_alice",
+    arguments: { project_id: identity.project_id, query: "rank signal", limit: 3, offset: 3 },
+  });
+  const second = continued.payload.result.structuredContent;
+  assert.deepEqual(
+    second.results.map((result) => result.match.quality),
+    ["all_tokens_across_metadata", "partial_tokens"],
+  );
+  assert.equal(second.results[1].match.partial, true);
+  assert.match(continued.payload.result.content[0].text, /partial match/);
+  assert.equal(second.truncated, false);
+
+  const bodyOnly = await callMcp(mcpBaseUrl, chatGptToken, "tools/call", {
+    name: "search_alice",
+    arguments: { project_id: identity.project_id, query: "9f24bodysecret" },
+  });
+  assert.equal(bodyOnly.payload.result.structuredContent.result_count, 0);
+  assert.match(bodyOnly.payload.result.content[0].text, /does not prove the artifact is absent/i);
+  assert.match(
+    bodyOnly.payload.result.content[0].text,
+    /Do not overwrite or version a nearby artifact/i,
+  );
+  assert.match(bodyOnly.payload.result.content[0].text, /safe broader search/i);
 });

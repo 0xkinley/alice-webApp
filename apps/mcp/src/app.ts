@@ -238,13 +238,15 @@ function readableProjectPackage(projectPackage) {
 
 function readableArtifactSearch(result) {
   return result.results.length === 0
-    ? `No matching saved artifacts were found in ${result.project.name}.`
-    : `Matching saved artifacts in ${result.project.name}:\n${result.results
+    ? `No matching saved artifacts were found in ${result.project.name}. A zero-result metadata search does not prove the artifact is absent. Do not overwrite or version a nearby artifact. Try a safe broader search with fewer query words or no query while keeping the same exact project and filters. Result count: 0; applied limit: ${result.applied_limit}; truncated: false.`
+    : `Matching saved artifacts in ${result.project.name} (${result.returned_count} of ${result.result_count}; applied limit ${result.applied_limit}; truncated: ${result.truncated ? "yes" : "no"}):\n${result.results
         .map(
           (artifact) =>
-            `- ${artifact.title} — artifact reference ${artifact.artifact_id}; v${artifact.current_version}, ${artifact.artifact_type}, from ${artifact.source}`,
+            `- ${artifact.title} — artifact reference ${artifact.artifact_id}; Alice version ${artifact.current_version}, ${artifact.artifact_type}, from ${artifact.source}; match ${artifact.match.quality}${artifact.match.partial ? ` (${artifact.match.matched_query_tokens}/${artifact.match.query_tokens} query tokens; partial match)` : ""}`,
         )
-        .join("\n")}`;
+        .join(
+          "\n",
+        )}${result.continuation ? `\nMore results are available: repeat the same search with offset ${result.continuation.next_offset}.` : ""}`;
 }
 
 function readableArtifact(result) {
@@ -740,7 +742,7 @@ function createProtocolServer(
     {
       title: "List alice. projects",
       description:
-        "List every active project the authenticated user may access. ChatGPT and Claude receive the same permission-governed catalog. If there is one project, it may be used automatically. If there are several, use the project named by the user or ask which project they mean. This read never returns project contents and cannot mutate state.",
+        "List every active project the authenticated user may access. This is only a project catalog, never an artifact inventory or evidence that a project contains or lacks an artifact; use search_alice inside one exact project for saved work. ChatGPT and Claude receive the same permission-governed catalog. If there is one project, it may be used automatically. If there are several, use the project named by the user or ask which project they mean. This read never returns project contents and cannot mutate state.",
       inputSchema: listProjectsSchema,
       outputSchema: listProjectsOutputSchema,
       ...oauthToolSecurity("mcp:read"),
@@ -787,7 +789,7 @@ function createProtocolServer(
     {
       title: "Search saved alice. work",
       description:
-        "Use when the user refers to prior work, work from another AI session, an earlier artifact or decision, what was decided, the latest item, yesterday's work, or continuing where they left off. Project is first-class: use the clearly named project; if there is only one accessible project alice. resolves it automatically; if several are available and none is clear, ask the user. Returns lightweight current artifact matches only, never every project's contents and never full artifact bodies.",
+        "Use when the user refers to prior work, work from another AI session, an earlier artifact or decision, what was decided, the latest item, yesterday's work, or continuing where they left off. Project is first-class: use the clearly named project; if there is only one accessible project alice. resolves it automatically; if several are available and none is clear, ask the user. Deterministic metadata search tokenizes across title, summary, goal, category, artifact type, and tags; it never searches full artifact bodies. Results identify exact, phrase, all-token, and partial matches, report completeness, and provide a continuation offset when truncated. A zero result is not proof of absence and never authorizes overwriting a nearby artifact.",
       inputSchema: searchAliceSchema,
       ...oauthToolSecurity("mcp:read"),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -808,6 +810,7 @@ function createProtocolServer(
         artifact_types: input.artifact_types,
         timeline: input.timeline,
         limit: input.limit,
+        offset: input.offset,
         ...(input.query ? { query: input.query } : {}),
         project_id: resolution.projectId,
         userId: authenticatedUserId(context),
