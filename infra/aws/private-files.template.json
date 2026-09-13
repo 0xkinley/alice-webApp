@@ -255,6 +255,16 @@
       "Fn::Equals": [{ "Ref": "RunInvitationOperator" }, "true"]
     },
     "ServicesEnabled": { "Fn::Equals": [{ "Ref": "DeployServices" }, "true"] },
+    "HostedOriginsSupplied": {
+      "Fn::And": [
+        {
+          "Fn::Not": [{ "Fn::Equals": [{ "Ref": "WebPublicUrl" }, "https://pending.invalid"] }]
+        },
+        {
+          "Fn::Not": [{ "Fn::Equals": [{ "Ref": "McpPublicUrl" }, "https://pending.invalid"] }]
+        }
+      ]
+    },
     "PublicOriginsReady": {
       "Fn::And": [
         { "Fn::Equals": [{ "Ref": "DeployServices" }, "true"] },
@@ -381,7 +391,7 @@
         },
         "CorsConfiguration": {
           "Fn::If": [
-            "PublicOriginsReady",
+            "HostedOriginsSupplied",
             {
               "CorsRules": [
                 {

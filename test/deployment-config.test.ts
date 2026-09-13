@@ -102,7 +102,19 @@ test("private-file infrastructure is retained, blocked public, scanned, and cred
     RestrictPublicBuckets: true,
   });
   assert.equal(resources.MalwareProtectionPlan.Properties.Actions.Tagging.Status, "ENABLED");
-  const cors = bucket.Properties.CorsConfiguration["Fn::If"][1].CorsRules[0];
+  const corsConfiguration = bucket.Properties.CorsConfiguration["Fn::If"];
+  assert.equal(corsConfiguration[0], "HostedOriginsSupplied");
+  assert.deepEqual(template.Conditions.HostedOriginsSupplied, {
+    "Fn::And": [
+      {
+        "Fn::Not": [{ "Fn::Equals": [{ Ref: "WebPublicUrl" }, "https://pending.invalid"] }],
+      },
+      {
+        "Fn::Not": [{ "Fn::Equals": [{ Ref: "McpPublicUrl" }, "https://pending.invalid"] }],
+      },
+    ],
+  });
+  const cors = corsConfiguration[1].CorsRules[0];
   assert.deepEqual(cors.AllowedMethods, ["PUT"]);
   assert.deepEqual(cors.AllowedOrigins, [
     { Ref: "WebPublicUrl" },
