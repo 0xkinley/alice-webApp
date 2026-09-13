@@ -476,7 +476,7 @@ Notes:
 
 ## Milestone 06.5 — Project Migration Foundation
 
-Status: Not Started
+Status: In Progress
 
 Branch: `milestone-06point5-migration-foundation`
 
@@ -487,7 +487,7 @@ Add an honest, non-destructive project-migration foundation that can start insid
 Tasks:
 
 - [ ] After `2026-09-16T10:03:48.640Z`, complete the deferred provider-backup-expiry reconciliation for the already-erased synthetic project. Verify the restore window no longer contains the deleted state, preserve the privileged erasure receipt and ordinary-role denials, and update product/privacy copy before making any permanent-erasure promise.
-- [ ] Inspect and document the existing project/workspace, authentication, tenancy, MCP, artifact, file, retrieval, Save, erasure, and web-UI paths that the migration foundation will reuse. Do not create parallel project, storage, authority, or deletion systems.
+- [x] Inspect and document the existing project/workspace, authentication, tenancy, MCP, artifact, file, retrieval, Save, erasure, and web-UI paths that the migration foundation will reuse. Do not create parallel project, storage, authority, or deletion systems.
 - [ ] Add a first-class project-scoped `MigrationSession` with a small status model, source provider, nullable provider project identifiers/names, migration version, bounded fidelity counters, timestamps, and content-free error summary. Only Alice-native human confirmations may be counted as confirmed; do not label host-derived decision candidates as confirmed decisions.
 - [ ] Add append-only, project-scoped migration events and an authorized status API/tool. The backend is authoritative for progress; the embedded card may poll or refresh but cannot own or advance migration state locally.
 - [ ] Add a preview-only MCP migration intent that can use an available host/provider name but treats every host-supplied summary, instruction, message, artifact description, or project identifier as immutable `HOST_SNAPSHOT` data with `UNVERIFIED_HOST_DERIVED` authority.
@@ -516,6 +516,7 @@ Notes:
 - The broader attached migration-engine proposal remains useful roadmap input, but provider-wide history enumeration, undocumented APIs, scraping, hidden session credentials, large defensive export parsers, automatic conversation surveillance, an internal LLM, embeddings, semantic claim/entity/slot reconstruction, temporal reasoning, strategic contradiction sweeps, and automatic supersession are deferred until supported acquisition paths and private-alpha evidence justify them.
 - False project truth is worse than an incomplete import. `HOST_SNAPSHOT` remains unverified evidence, imported content remains data rather than instruction, and `Host-generated does not mean alice.-verified` remains the controlling invariant.
 - Milestone 06.5 planning does not reduce the existing authenticated human Save boundary, add session-level write permission, or add automatic-save windows.
+- Started on 2026-09-13 from clean branch `milestone-06point5-migration-foundation` at verified merge commit `f601a86`. Milestone 06 is complete and GitHub Actions run `34756210533` passed that exact `main` merge. The implementation audit in `docs/project-migration-foundation.md` maps identity, tenancy, project creation/resolution, preview authority, evidence/candidates, artifacts, private files, collaboration, presentation, lifecycle/export/erasure, and deployment to their existing source boundaries. It admits only four new durable concepts—short-lived previews, project-scoped sessions, append-only events, and immutable unverified source records—and records the additive schema/domain/MCP/web/test sequence. The dated provider-backup-expiry reconciliation remains blocked by time until after `2026-09-16T10:03:48.640Z`; no permanent-erasure wording is permitted before it passes.
 
 ## Milestone 07 — Private Alpha
 
