@@ -1,12 +1,14 @@
 # Tenant Isolation Verification
 
-Status: Verified through Milestone 05
+Status: Verified through the Milestone 06 project and context authorization conversion
 
-Verification date: 2026-08-30
+Verification date: 2026-08-31
 
 ## Policy
 
-Every project data path derives the private workspace from an authenticated alice. identity. MCP candidate capture additionally requires an active integration connection whose user, workspace, and registered client match the verified bearer token. A caller-provided workspace field is ignored by bounded project input validation and is never authorization evidence.
+Project-intelligence paths derive an active project membership from an authenticated alice. identity, then resolve the immutable project workspace and required project/context capability. MCP candidate capture additionally requires an active integration connection whose user, private workspace, and registered client match the verified bearer token. A caller-provided workspace, project role, context role, membership, or grant is never authorization evidence.
+
+Migration `010_project_memberships.sql` supplies the explicit project boundary. Migration `011_context_access.sql` completes the switch of current project, context, selection, capture, review, saved-context, file, and consumption paths from originating-workspace authority to active membership plus context capability. Project-wide and all-member contexts derive access from project role. Selected-member contexts require an explicit bounded grant except for their creator; personal contexts remain creator-only. Owners do not bypass restricted context access. Ownership transfer, non-owner departure, and grant-ending member removal preserve active ownership and context history.
 
 Foreign identifiers and random well-formed identifiers intentionally produce the same non-disclosing outcome. This prevents callers from using response differences to enumerate another user's projects or project intelligence.
 
@@ -16,26 +18,45 @@ The integration fixture creates two authenticated users, separate private worksp
 
 | Surface | Project data path | Foreign/guessed assertion | Mutation assertion |
 | --- | --- | --- | --- |
-| Web | Workspace project list | Other project ID, name, and brief are absent | None |
+| Web | Workspace project list | Other project ID and name are absent; legacy brief data is never rendered | None |
 | Web | Project detail | Foreign and random project IDs return identical 404 pages | None |
 | Web | Project creation | Submitted foreign `workspace_id` is ignored | New project belongs to the authenticated workspace |
 | Web | Workspace review dashboard | Other project names, candidate counts, values, and evidence identifiers are absent | None |
 | Web | Project review queue and status filters | Foreign and random project IDs return identical 404 pages with no candidate, evidence, value, accepted-state, or provenance disclosure | None |
 | Web | Candidate acceptance, rejection, and supersession | Foreign and random candidate/accepted-state IDs return identical 409 pages for each decision | Candidate stays pending; current accepted state, version history, and audit counts do not change |
-| MCP | `list_projects` | Other project ID, name, and brief are absent | None |
+| Web | Owner collaborator and invitation management | Non-owner, foreign project, membership, and invitation IDs return the same 404 without project, recipient, role, or invitation status | No invitation, role, ended-membership, or audit row changes |
+| Web | Project invitation preview/accept/decline | Wrong signed-in email, random token, replaced token, terminal token, and expired token return the same 404 without project or recipient metadata | No invitation outcome or membership is created |
+| Web | Accepted membership summary | Non-member, removed member, foreign project, and guessed project return the same 404 | None |
+| Web | Project/context discovery | Removed members and members without a selected/personal context grant see no context identifier, name, count, freshness, file, conflict, or provenance metadata | None |
+| Web | Restricted-context access management | A non-Manager, project Viewer elevation attempt, foreign grant, and guessed context/grant return non-disclosing denial | No grant, role, history, or audit mutation |
+| Web | Saved context, repair, review, and files | Context Viewer controls are read-only; members without write access cannot open repair/removal previews; members without context access receive the same not-found result as guessed identifiers | No candidate decision, repair exclusion, upload, scan transition, replacement, or removal |
+| Web | Ownership transfer and departure | Non-Owners cannot transfer; an Owner cannot leave directly; personal or unmanaged selected contexts block departure | Transfer preserves an active Owner; departure ends grants and membership atomically |
+| MCP | `list_projects` | Other project ID and name are absent; legacy brief data is outside the contract | None |
 | MCP | `get_project_context` | Foreign and random project IDs return the same not-found tool error | No accepted value, pending value, candidate, or evidence leaks |
+| MCP | `read_project_file_text` | Foreign, guessed, superseded, removed, non-clean, and inaccessible file references share a non-disclosing unavailable result; restricted-context metadata and bytes are absent | Exact-version integrity-checked reads create no evidence, candidate, accepted-state, audit, file, or project mutation |
+| MCP | `read_project_file_pdf_text` | The text-read denial matrix also applies to PDF extraction; selected-context boundaries are reauthorized before exact-version parsing | Embedded-text reads remain byte-bounded, no-OCR, untrusted, and project-state read-only |
+| MCP | `suggest_project_updates_from_file` | Read-only tokens, foreign/guessed/stale/removed sources, hash/range mismatches, and a source outside the exact named project fail without file content or metadata disclosure | No evidence source or candidate is created on denial; success creates pending candidates and zero accepted state |
+| Web/MCP | Package preview and read receipts | Preview requires current project and internal-source access; inaccessible explicit reads retain no foreign destination metadata; historical destination details disappear when access ends | Preview creates no receipt; successful/failed receipts are append-only and contain no task or package content |
+| Web | Private-alpha product signals | Aggregates select only the signed-in user's connection-bound read/capture metadata; foreign project and collaborator identifiers, names, and content are never returned | Read-only derivation creates no analytics or project-state write |
+| Web | Project access and security | Non-members receive the same not-found result as a guessed project; members see project membership and only their own connection state; internal context and retained target details are omitted | Read-only derivation creates no permission, audit, connection, or project-state write |
+| Web | Project archive, restore, export, and deletion request | Editor, non-member, foreign, and guessed project identifiers receive the same not-found result; Owner export queries only contexts currently visible to that Owner and omits inaccessible names, counts, content, and provenance | Exact stale-safe Owner actions only; archive preserves data, revokes pending invitations, clears active targets, and a request performs no erasure |
 | MCP | `save_project_update` | Foreign and random project IDs return the same not-found tool error | Evidence, candidate, accepted-state, and audit counts do not change |
 | MCP | Own accepted context | Other tenant values are absent; own pending value is excluded | None |
 | Database | Evidence reference | Foreign workspace/project/connection combination is rejected | No evidence row is inserted |
+| Database | PDF evidence source | Composite evidence/reference/object/context keys reject detached or cross-project provenance; the constrained role and triggers reject updates/deletes | Exact source provenance commits with evidence and pending candidates or all roll back |
 | Database | Candidate reference | Foreign evidence is rejected by composite key | No candidate row is inserted |
 | Database | Accepted-state reference | Foreign candidate/evidence pair is rejected by composite key | No accepted row is inserted |
 | Database | Audit reference | Foreign workspace/project pair is rejected by composite key | No audit row is inserted |
+| Database | Project membership | Composite project anchor and one-active-user index reject mismatches and duplication; triggers reject deletion, ended-row rewrites, and last-Owner demotion | Membership identity/history remains intact |
+| Database | Project invitation | Composite project anchor, unique token digest, and one-pending-email index reject mismatches and duplication; terminal-history triggers reject rewrites/deletion | Exactly one concurrent acceptance creates one active membership |
+| Database | Context access grant | Exact active membership/project/context keys, selected-context validation, and Viewer bounding reject mismatches and elevation; triggers reject identity rewrite, ended-row rewrite, and deletion | Concurrent duplicate grants create one active grant; ending preserves history |
+| Database | Collaborator connection target/evidence | User-workspace connection keys and separate project-workspace context keys reject mismatched connection or project references | Evidence remains in the project workspace while connection ownership remains personal |
 
-Project update and deletion paths do not exist through Milestone 04. Teams, memberships, invitations, organizations, sharing, and team UI also remain absent, so they introduce no additional tenant path in this milestone.
+Project archive/restore, permission-filtered Owner export, cancellable deletion requests, current file-reference packaging, text/Markdown retrieval, deterministic PDF embedded-text extraction, and provenance-bound file suggestions are now covered by exact-recipient, stale-preview, read-only-token, non-owner, foreign/guessed, removed/superseded-reference, active-context, restricted-context, constrained-role, and immutability tests. Privileged permanent erasure, project editing, OCR, other binary extraction, live providers, and host attachment transfer remain unfinished and therefore keep the broader milestone authorization task open. Organizations and merged/shared workspaces remain absent. The collaboration boundary also retains exact invitation-recipient, ended-member, insufficient-context-role, Owner-without-restricted-grant, project-Viewer bounding, cross-workspace collaborator connection, revoked-grant, and concurrent-acceptance/grant tests.
 
 Milestone 04 adds only the authenticated workspace review dashboard and bounded project status/pagination views. Both are covered in both tenant directions; they introduce no caller-supplied workspace scope and no sharing surface.
 
-Milestone 05 enriches the existing MCP `list_projects` and `get_project_context` paths rather than adding a new tenant path. Both-direction negative tests continue to compare foreign and guessed identifiers. Project counts/freshness, accepted provenance, question/artifact classification, conflict detection, budgeting, and omissions are all computed only after resolving the authenticated private workspace; conflict joins repeat workspace/project predicates across accepted state, pending candidates, and both evidence rows.
+Milestone 05 enriches the existing MCP `list_projects` and `get_project_context` paths rather than adding a new tenant path. Both-direction negative tests continue to compare foreign and guessed identifiers. In Milestone 06, project counts/freshness are aggregated only across permitted contexts; accepted provenance, question/artifact classification, conflict detection, budgeting, and omissions are computed only after context authorization. Conflict joins repeat workspace/project/context predicates across accepted state, pending candidates, and both evidence rows.
 
 ## Trusted-state controls retained
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { openDatabase } from "@alice/database";
+import { openSqliteTestDatabase } from "@alice/database/testing";
 import {
   acceptCandidate,
   createProject,
@@ -34,14 +34,14 @@ function insertConnection(database, identity, { id, clientId, revoked = false })
     .run(id, identity.id, identity.workspace_id, clientId, now, now, revoked ? now : null);
 }
 
-test("tenant policies deny missing, unknown, mismatched, and revoked principals", () => {
-  const database = openDatabase(":memory:");
-  const owner = createTestIdentity(database, {
+test("tenant policies deny missing, unknown, mismatched, and revoked principals", async () => {
+  const database = openSqliteTestDatabase();
+  const owner = await createTestIdentity(database, {
     email: "policy-owner@alice.example",
     password: "policy owner private password",
     projectId: "project_policy_owner",
   });
-  const other = createTestIdentity(database, {
+  const other = await createTestIdentity(database, {
     email: "policy-other@alice.example",
     password: "policy other private password",
     projectId: "project_policy_other",
@@ -56,35 +56,32 @@ test("tenant policies deny missing, unknown, mismatched, and revoked principals"
     revoked: true,
   });
 
-  assert.equal(tenantScopeForUser(database, undefined), undefined);
-  assert.equal(tenantScopeForUser(database, "user_guessed"), undefined);
-  assert.deepEqual(tenantScopeForUser(database, owner.id), {
+  assert.equal(await tenantScopeForUser(database, undefined), undefined);
+  assert.equal(await tenantScopeForUser(database, "user_guessed"), undefined);
+  assert.deepEqual(await tenantScopeForUser(database, owner.id), {
     userId: owner.id,
     workspaceId: owner.workspace_id,
   });
   assert.equal(
-    tenantScopeForConnection(database, {
+    await tenantScopeForConnection(database, {
       userId: other.id,
       connectionId: "connection_policy_owner",
     }),
     undefined,
   );
   assert.equal(
-    tenantScopeForConnection(database, {
+    await tenantScopeForConnection(database, {
       userId: owner.id,
       connectionId: "connection_policy_revoked",
     }),
     undefined,
   );
 
-  assert.deepEqual(listProjects(database, undefined), []);
-  assert.equal(getProject(database, other.id, owner.project_id), undefined);
+  assert.deepEqual(await listProjects(database, undefined), []);
+  assert.equal(await getProject(database, other.id, owner.project_id), undefined);
+  assert.equal(await createProject(database, "user_guessed", { name: "Denied" }), undefined);
   assert.equal(
-    createProject(database, "user_guessed", { name: "Denied", brief: "Denied" }),
-    undefined,
-  );
-  assert.equal(
-    getProjectContext(database, {
+    await getProjectContext(database, {
       userId: other.id,
       projectId: owner.project_id,
       task: "Guess",
@@ -93,15 +90,15 @@ test("tenant policies deny missing, unknown, mismatched, and revoked principals"
     undefined,
   );
   assert.equal(
-    getReviewQueue(database, { userId: other.id, projectId: owner.project_id }),
+    await getReviewQueue(database, { userId: other.id, projectId: owner.project_id }),
     undefined,
   );
   assert.equal(
-    acceptCandidate(database, { userId: other.id, candidateId: "candidate_guessed" }),
+    await acceptCandidate(database, { userId: other.id, candidateId: "candidate_guessed" }),
     undefined,
   );
 
-  const deniedCapture = saveCandidateUpdate(database, {
+  const deniedCapture = await saveCandidateUpdate(database, {
     clientId: "client_policy_owner",
     connectionId: "connection_policy_owner",
     publicUrl: "http://127.0.0.1",
@@ -119,14 +116,14 @@ test("tenant policies deny missing, unknown, mismatched, and revoked principals"
   database.close();
 });
 
-test("database tenant constraints reject cross-workspace ownership", () => {
-  const database = openDatabase(":memory:");
-  const owner = createTestIdentity(database, {
+test("database tenant constraints reject cross-workspace ownership", async () => {
+  const database = openSqliteTestDatabase();
+  const owner = await createTestIdentity(database, {
     email: "constraint-owner@alice.example",
     password: "constraint owner private password",
     projectId: "project_constraint_owner",
   });
-  const other = createTestIdentity(database, {
+  const other = await createTestIdentity(database, {
     email: "constraint-other@alice.example",
     password: "constraint other private password",
     projectId: "project_constraint_other",

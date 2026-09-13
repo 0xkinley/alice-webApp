@@ -1,4 +1,4 @@
-import { tenantScopeForUser } from "./authorization.ts";
+import { contextScopeForUser, projectScopeForUser, tenantScopeForUser } from "./authorization.ts";
 
 const REVIEW_STATUSES = new Set(["all", "pending", "accepted", "rejected"]);
 
@@ -9,79 +9,85 @@ function captureDetails(exactPayloadJson) {
       capture_summary: payload.summary,
       source_note: payload.source_note,
       source_context: payload.source_context,
+      file_source: payload.file_source,
     };
   } catch {
-    return { capture_summary: undefined, source_note: undefined, source_context: undefined };
+    return {
+      capture_summary: undefined,
+      source_note: undefined,
+      source_context: undefined,
+      file_source: undefined,
+    };
   }
 }
 
-export function listReviewProjects(database, userId) {
-  const tenant = tenantScopeForUser(database, userId);
+export async function listReviewProjects(database, userId) {
+  const tenant = await tenantScopeForUser(database, userId);
   if (!tenant) return [];
-  return database
+  const projects = await database
     .prepare(
-      `SELECT project.id, project.name, project.brief,
-              COUNT(candidate.id) AS total_count,
-              COALESCE(SUM(CASE WHEN candidate.status = 'pending' THEN 1 ELSE 0 END), 0)
-                AS pending_count,
-              COALESCE(SUM(CASE WHEN candidate.status = 'accepted' THEN 1 ELSE 0 END), 0)
-                AS accepted_count,
-              COALESCE(SUM(CASE WHEN candidate.status = 'rejected' THEN 1 ELSE 0 END), 0)
-                AS rejected_count,
-              MAX(candidate.created_at) AS latest_candidate_at
+      `SELECT project.id, project.name
        FROM projects project
-       LEFT JOIN candidate_claims candidate
-         ON candidate.project_id = project.id
-        AND candidate.workspace_id = project.workspace_id
-       WHERE project.workspace_id = ?
-       GROUP BY project.id, project.name, project.brief
-       ORDER BY pending_count DESC, latest_candidate_at DESC, project.name, project.id`,
+       JOIN project_memberships membership
+         ON membership.workspace_id = project.workspace_id
+        AND membership.project_id = project.id
+       WHERE membership.user_id = ? AND membership.ended_at IS NULL
+         AND membership.role IN ('owner', 'editor')
+         AND project.archived_at IS NULL
+       ORDER BY project.name, project.id`,
     )
-    .all(tenant.workspaceId);
+    .all(tenant.userId);
+  const reviewable: any[] = [];
+  for (const project of projects) {
+    const queue = await getReviewQueue(database, {
+      userId,
+      projectId: project.id,
+      status: "all",
+      page: 1,
+      pageSize: 1,
+    });
+    if (!queue) continue;
+    reviewable.push({
+      ...project,
+      total_count: queue.counts.total,
+      pending_count: queue.counts.pending,
+      accepted_count: queue.counts.accepted,
+      rejected_count: queue.counts.rejected,
+      latest_candidate_at: queue.latest_candidate_at,
+    });
+  }
+  return reviewable.sort(
+    (left, right) =>
+      right.pending_count - left.pending_count ||
+      String(right.latest_candidate_at || "").localeCompare(
+        String(left.latest_candidate_at || ""),
+      ) ||
+      left.name.localeCompare(right.name) ||
+      left.id.localeCompare(right.id),
+  );
 }
 
-export function getReviewQueue(
+export async function getReviewQueue(
   database,
   { userId, projectId, status = "pending", page = 1, pageSize = 20 },
 ) {
-  const tenant = tenantScopeForUser(database, userId);
-  if (!tenant || !REVIEW_STATUSES.has(status)) return undefined;
-  const project = database
+  const scope = await projectScopeForUser(database, {
+    userId,
+    projectId,
+    capability: "write",
+  });
+  if (!scope || !REVIEW_STATUSES.has(status)) return undefined;
+  const project = await database
     .prepare(
-      `SELECT id, name, brief, created_at, updated_at
+      `SELECT id, name, created_at, updated_at
        FROM projects WHERE id = ? AND workspace_id = ?`,
     )
-    .get(projectId, tenant.workspaceId);
+    .get(projectId, scope.projectWorkspaceId);
   if (!project) return undefined;
-
-  const counts = database
-    .prepare(
-      `SELECT COUNT(*) AS total,
-              COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
-              COALESCE(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END), 0) AS accepted,
-              COALESCE(SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END), 0) AS rejected
-       FROM candidate_claims
-       WHERE project_id = ? AND workspace_id = ?`,
-    )
-    .get(project.id, tenant.workspaceId);
-  const selectedTotal = status === "all" ? counts.total : counts[status];
-  const boundedPageSize = Math.min(50, Math.max(1, Number(pageSize) || 20));
-  const pageCount = Math.max(1, Math.ceil(selectedTotal / boundedPageSize));
-  const boundedPage = Math.min(pageCount, Math.max(1, Number(page) || 1));
-  const statusClause = status === "all" ? "" : "AND candidate.status = ?";
-  const parameters =
-    status === "all"
-      ? [project.id, tenant.workspaceId, boundedPageSize, (boundedPage - 1) * boundedPageSize]
-      : [
-          project.id,
-          tenant.workspaceId,
-          status,
-          boundedPageSize,
-          (boundedPage - 1) * boundedPageSize,
-        ];
-  const candidates = database
-    .prepare(
-      `SELECT candidate.id, candidate.state_key, candidate.value_json, candidate.summary,
+  const allCandidates = (
+    await database
+      .prepare(
+        `SELECT candidate.id, candidate.state_key, candidate.value_json, candidate.summary,
               candidate.status, candidate.created_at,
               evidence.id AS evidence_id, evidence.exact_payload_json,
               evidence.actor_type, evidence.connection_id, evidence.client_id,
@@ -89,17 +95,33 @@ export function getReviewQueue(
               evidence.payload_hash, evidence.created_at AS evidence_created_at,
               accepted.id AS accepted_state_id, accepted.version AS accepted_version,
               accepted.accepted_at,
+              target.context_id,
               (SELECT current.id FROM accepted_project_state current
+               JOIN accepted_context_entries current_entry
+                 ON current_entry.workspace_id = current.workspace_id
+                AND current_entry.project_id = current.project_id
+                AND current_entry.accepted_state_id = current.id
+                AND current_entry.context_id = target.context_id
                WHERE current.workspace_id = candidate.workspace_id
                  AND current.project_id = candidate.project_id
                  AND current.state_key = candidate.state_key
                ORDER BY current.version DESC LIMIT 1) AS current_accepted_state_id,
               (SELECT current.version FROM accepted_project_state current
+               JOIN accepted_context_entries current_entry
+                 ON current_entry.workspace_id = current.workspace_id
+                AND current_entry.project_id = current.project_id
+                AND current_entry.accepted_state_id = current.id
+                AND current_entry.context_id = target.context_id
                WHERE current.workspace_id = candidate.workspace_id
                  AND current.project_id = candidate.project_id
                  AND current.state_key = candidate.state_key
                ORDER BY current.version DESC LIMIT 1) AS current_accepted_version,
               (SELECT current.value_json FROM accepted_project_state current
+               JOIN accepted_context_entries current_entry
+                 ON current_entry.workspace_id = current.workspace_id
+                AND current_entry.project_id = current.project_id
+                AND current_entry.accepted_state_id = current.id
+                AND current_entry.context_id = target.context_id
                WHERE current.workspace_id = candidate.workspace_id
                  AND current.project_id = candidate.project_id
                  AND current.state_key = candidate.state_key
@@ -109,30 +131,34 @@ export function getReviewQueue(
                  AND audit.project_id = candidate.project_id
                  AND audit.action IN
                    ('candidate_accepted', 'candidate_rejected', 'accepted_state_superseded')
-                 AND json_extract(audit.safe_metadata_json, '$.candidate_id') = candidate.id
+                 AND audit.safe_metadata_json::jsonb ->> 'candidate_id' = candidate.id
                ORDER BY audit.created_at, audit.id LIMIT 1) AS review_audit_id,
               (SELECT audit.actor_id FROM audit_events audit
                WHERE audit.workspace_id = candidate.workspace_id
                  AND audit.project_id = candidate.project_id
                  AND audit.action IN
                    ('candidate_accepted', 'candidate_rejected', 'accepted_state_superseded')
-                 AND json_extract(audit.safe_metadata_json, '$.candidate_id') = candidate.id
+                 AND audit.safe_metadata_json::jsonb ->> 'candidate_id' = candidate.id
                ORDER BY audit.created_at, audit.id LIMIT 1) AS reviewer_user_id,
               (SELECT audit.correlation_id FROM audit_events audit
                WHERE audit.workspace_id = candidate.workspace_id
                  AND audit.project_id = candidate.project_id
                  AND audit.action IN
                    ('candidate_accepted', 'candidate_rejected', 'accepted_state_superseded')
-                 AND json_extract(audit.safe_metadata_json, '$.candidate_id') = candidate.id
+                 AND audit.safe_metadata_json::jsonb ->> 'candidate_id' = candidate.id
                ORDER BY audit.created_at, audit.id LIMIT 1) AS review_correlation_id,
               (SELECT audit.created_at FROM audit_events audit
                WHERE audit.workspace_id = candidate.workspace_id
                  AND audit.project_id = candidate.project_id
                  AND audit.action IN
                    ('candidate_accepted', 'candidate_rejected', 'accepted_state_superseded')
-                 AND json_extract(audit.safe_metadata_json, '$.candidate_id') = candidate.id
+                 AND audit.safe_metadata_json::jsonb ->> 'candidate_id' = candidate.id
                ORDER BY audit.created_at, audit.id LIMIT 1) AS reviewed_at
        FROM candidate_claims candidate
+       JOIN candidate_context_targets target
+         ON target.workspace_id = candidate.workspace_id
+        AND target.project_id = candidate.project_id
+        AND target.candidate_id = candidate.id
        JOIN evidence_events evidence
          ON evidence.id = candidate.evidence_id
         AND evidence.project_id = candidate.project_id
@@ -142,21 +168,54 @@ export function getReviewQueue(
         AND accepted.project_id = candidate.project_id
         AND accepted.workspace_id = candidate.workspace_id
        WHERE candidate.project_id = ? AND candidate.workspace_id = ?
-         ${statusClause}
        ORDER BY CASE WHEN candidate.status = 'pending' THEN 0 ELSE 1 END,
-                candidate.created_at DESC, candidate.id
-       LIMIT ? OFFSET ?`,
-    )
-    .all(...parameters)
-    .map((candidate) => ({
-      ...candidate,
-      ...captureDetails(candidate.exact_payload_json),
-      exact_payload_json: undefined,
-    }));
+                candidate.created_at DESC, candidate.id`,
+      )
+      .all(project.id, scope.projectWorkspaceId)
+  ).map((candidate) => ({
+    ...candidate,
+    ...captureDetails(candidate.exact_payload_json),
+    exact_payload_json: undefined,
+  }));
+  const permitted: any[] = [];
+  for (const candidate of allCandidates) {
+    if (
+      await contextScopeForUser(database, {
+        userId,
+        projectId,
+        contextId: candidate.context_id,
+        capability: "write",
+      })
+    ) {
+      permitted.push(candidate);
+    }
+  }
+  const counts = {
+    total: permitted.length,
+    pending: permitted.filter(({ status: candidateStatus }) => candidateStatus === "pending")
+      .length,
+    accepted: permitted.filter(({ status: candidateStatus }) => candidateStatus === "accepted")
+      .length,
+    rejected: permitted.filter(({ status: candidateStatus }) => candidateStatus === "rejected")
+      .length,
+  };
+  const selected =
+    status === "all"
+      ? permitted
+      : permitted.filter(({ status: candidateStatus }) => candidateStatus === status);
+  const selectedTotal = selected.length;
+  const boundedPageSize = Math.min(50, Math.max(1, Number(pageSize) || 20));
+  const pageCount = Math.max(1, Math.ceil(selectedTotal / boundedPageSize));
+  const boundedPage = Math.min(pageCount, Math.max(1, Number(page) || 1));
+  const candidates = selected.slice(
+    (boundedPage - 1) * boundedPageSize,
+    boundedPage * boundedPageSize,
+  );
   return {
     project,
     candidates,
     counts,
+    latest_candidate_at: permitted[0]?.created_at || null,
     filter: status,
     pagination: {
       page: boundedPage,

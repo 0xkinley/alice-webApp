@@ -32,7 +32,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["test/*.ts"],
+    files: ["test/**/*.ts"],
     languageOptions: {
       parserOptions: {
         project: "./tsconfig.test.json",

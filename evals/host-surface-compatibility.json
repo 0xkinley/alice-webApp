@@ -1,0 +1,150 @@
+{
+  "version": "2026-09-11.1",
+  "as_of_date": "2026-09-11",
+  "matrix_contract": "alice.host-surface-compatibility.v2",
+  "invocation_denominator_contract": "evals/host-invocation-denominators.json",
+  "local_mcp_server_version": "0.8.0",
+  "hosted_mcp_server_version": "0.8.0",
+  "hosted_runtime_commit": "39522be",
+  "hosted_runtime_image_digest": "sha256:f9b7ced9aa65dc0489fe681764da2647a94257aab28d41c34f22668ed8afee2d",
+  "hosted_runtime_note": "The retained hosted deployment contains the name-resolved project and artifact handoff contract, single- and multi-file Save previews, and all 24 migrations. Exact-surface live runs may begin against this identity, but no surface is advertised until its own capability cells and invocation denominator pass.",
+  "status_definitions": {
+    "pass": "A dated live run on this exact surface passed the capability against the recorded deployment.",
+    "fail": "A dated live run reached the capability but did not satisfy the alice. contract.",
+    "provider_blocked": "The exact surface could not expose or complete the capability through its supported provider path.",
+    "untested": "No qualifying dated live run exists for this exact surface and capability. Treat it as unsupported."
+  },
+  "capabilities": [
+    "oauth_connect_reconnect_revoke",
+    "project_discovery_selection",
+    "accepted_context_read",
+    "single_action_save_or_no_action",
+    "file_reference_attachment_fallback",
+    "permission_non_disclosure",
+    "cross_host_reuse"
+  ],
+  "fallbacks": {
+    "oauth_connect_reconnect_revoke": "Do not advertise the surface; use a separately passing surface.",
+    "project_discovery_selection": "Select the exact project and work context in the alice. connection center.",
+    "accepted_context_read": "Use the permission-filtered alice. package preview or explicit handoff.",
+    "single_action_save_or_no_action": "Use the authenticated alice. web preview with one Save action; closing or expiry does nothing.",
+    "file_reference_attachment_fallback": "Use the authenticated pre-targeted alice. upload page after exact confirmation.",
+    "permission_non_disclosure": "Do not admit the surface until denial and no-mutation behavior pass.",
+    "cross_host_reuse": "Use an explicit permission-filtered handoff; do not claim automatic cross-host continuation."
+  },
+  "live_runs": [],
+  "surfaces": [
+    {
+      "id": "claude_web",
+      "provider": "Anthropic",
+      "surface": "Claude web",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "single_action_save_or_no_action": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "claude_desktop",
+      "provider": "Anthropic",
+      "surface": "Claude Desktop",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "single_action_save_or_no_action": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "claude_ios",
+      "provider": "Anthropic",
+      "surface": "Claude iOS",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "single_action_save_or_no_action": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "claude_android",
+      "provider": "Anthropic",
+      "surface": "Claude Android",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "single_action_save_or_no_action": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "claude_code",
+      "provider": "Anthropic",
+      "surface": "Claude Code",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "single_action_save_or_no_action": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "chatgpt_web",
+      "provider": "OpenAI",
+      "surface": "ChatGPT web",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "single_action_save_or_no_action": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    },
+    {
+      "id": "chatgpt_desktop",
+      "provider": "OpenAI",
+      "surface": "ChatGPT desktop",
+      "overall_status": "untested",
+      "advertised": false,
+      "results": {
+        "oauth_connect_reconnect_revoke": "untested",
+        "project_discovery_selection": "untested",
+        "accepted_context_read": "untested",
+        "single_action_save_or_no_action": "untested",
+        "file_reference_attachment_fallback": "untested",
+        "permission_non_disclosure": "untested",
+        "cross_host_reuse": "untested"
+      }
+    }
+  ]
+}

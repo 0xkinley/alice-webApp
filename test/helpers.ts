@@ -1,16 +1,21 @@
 import { createHash } from "node:crypto";
-import { registerUser } from "@alice/domain";
+import { issueAlphaInvitation, provisionInitialWorkContexts, registerUser } from "@alice/domain";
 
 export const TEST_EMAIL = "tester@alice.example";
 export const TEST_PASSWORD = "correct horse battery staple";
 
-export function createTestIdentity(
+export async function createTestIdentity(
   database,
   { email = TEST_EMAIL, password = TEST_PASSWORD, projectId = "project_switchboard_launch" } = {},
 ) {
-  const user = registerUser(database, { email, password });
+  const invitation = await issueAlphaInvitation(database, { email });
+  const user = await registerUser(database, {
+    email,
+    password,
+    invitationToken: invitation.token,
+  });
   const now = new Date().toISOString();
-  database
+  await database
     .prepare(
       `INSERT INTO projects (id, workspace_id, name, brief, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -23,14 +28,35 @@ export function createTestIdentity(
       now,
       now,
     );
+  await provisionInitialWorkContexts(database, {
+    userId: user.id,
+    workspaceId: user.workspace_id,
+    projectId,
+    createdAt: now,
+    providerAvailability: { chatgpt: true, claude: true },
+  });
   return { ...user, project_id: projectId };
+}
+
+export async function getProjectDefaultContext(database, projectId) {
+  return await database
+    .prepare(
+      `SELECT context.*
+       FROM project_default_contexts mapping
+       JOIN work_contexts context
+         ON context.workspace_id = mapping.workspace_id
+        AND context.project_id = mapping.project_id
+        AND context.id = mapping.context_id
+       WHERE mapping.project_id = ?`,
+    )
+    .get(projectId);
 }
 
 // Shared round-trip helpers exercise the workspace source entry points.
 
 export async function authorize(
   baseUrl,
-  { email = TEST_EMAIL, password = TEST_PASSWORD, clientName = "MCP integration test" } = {},
+  { email = TEST_EMAIL, password = TEST_PASSWORD, clientName = "ChatGPT integration test" } = {},
 ) {
   const redirectUri = "http://127.0.0.1/callback";
   const registrationResponse = await fetch(`${baseUrl}/register`, {

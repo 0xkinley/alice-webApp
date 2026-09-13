@@ -1,35 +1,47 @@
 import { randomUUID } from "node:crypto";
 import { createProjectSchema } from "@alice/schemas";
 import { appendAuditEvent } from "./audit.ts";
-import { tenantScopeForUser } from "./authorization.ts";
+import { projectScopeForUser, tenantScopeForUser } from "./authorization.ts";
+import { provisionInitialWorkContexts } from "./work-contexts.ts";
 
-export function createProject(database, userId, input) {
-  const tenant = tenantScopeForUser(database, userId);
+export async function createProject(
+  database,
+  userId,
+  input,
+  { providerAvailability = { chatgpt: false, claude: false } } = {},
+) {
+  const tenant = await tenantScopeForUser(database, userId);
   if (!tenant) return undefined;
   const project = createProjectSchema.parse(input);
   const projectId = `project_${randomUUID()}`;
   const createdAt = new Date().toISOString();
-  database.exec("BEGIN IMMEDIATE");
   try {
-    database
-      .prepare(
-        `INSERT INTO projects (id, workspace_id, name, brief, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(projectId, tenant.workspaceId, project.name, project.brief, createdAt, createdAt);
-    appendAuditEvent(database, {
-      workspaceId: tenant.workspaceId,
-      projectId,
-      action: "project_created",
-      actorType: "human_user",
-      actorId: userId,
-      correlationId: `project_${randomUUID()}`,
-      metadata: { project_id: projectId },
+    await database.transaction(async () => {
+      await database
+        .prepare(
+          `INSERT INTO projects (id, workspace_id, name, brief, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(projectId, tenant.workspaceId, project.name, "", createdAt, createdAt);
+      await provisionInitialWorkContexts(database, {
+        userId,
+        workspaceId: tenant.workspaceId,
+        projectId,
+        createdAt,
+        providerAvailability,
+      });
+      await appendAuditEvent(database, {
+        workspaceId: tenant.workspaceId,
+        projectId,
+        action: "project_created",
+        actorType: "human_user",
+        actorId: userId,
+        correlationId: `project_${randomUUID()}`,
+        metadata: { project_id: projectId },
+      });
     });
-    database.exec("COMMIT");
   } catch (error) {
-    database.exec("ROLLBACK");
-    if (String(error).includes("UNIQUE constraint failed: projects.workspace_id, projects.name")) {
+    if (typeof error === "object" && error && "code" in error && error.code === "23505") {
       throw new Error("A project with this name already exists in your workspace.", {
         cause: error,
       });
@@ -40,19 +52,18 @@ export function createProject(database, userId, input) {
     id: projectId,
     workspace_id: tenant.workspaceId,
     name: project.name,
-    brief: project.brief,
     created_at: createdAt,
     updated_at: createdAt,
   };
 }
 
-export function getProject(database, userId, projectId) {
-  const tenant = tenantScopeForUser(database, userId);
-  if (!tenant) return undefined;
-  return database
+export async function getProject(database, userId, projectId) {
+  const scope = await projectScopeForUser(database, { userId, projectId });
+  if (!scope) return undefined;
+  return await database
     .prepare(
-      `SELECT id, name, brief, created_at, updated_at
+      `SELECT id, name, created_at, updated_at, ? AS project_role
        FROM projects WHERE id = ? AND workspace_id = ?`,
     )
-    .get(projectId, tenant.workspaceId);
+    .get(scope.projectRole, projectId, scope.projectWorkspaceId);
 }

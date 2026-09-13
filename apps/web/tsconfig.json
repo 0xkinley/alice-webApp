@@ -8,7 +8,9 @@
   "references": [
     { "path": "../../packages/config" },
     { "path": "../../packages/database" },
-    { "path": "../../packages/domain" }
+    { "path": "../../packages/domain" },
+    { "path": "../../packages/private-files" },
+    { "path": "../../packages/presentation" }
   ],
   "include": ["src/**/*.ts"]
 }

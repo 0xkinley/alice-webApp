@@ -1,12 +1,12 @@
 # Repository and Deployment Boundaries
 
-Status: Accepted through Milestone 05
+Status: Accepted through Milestone 06 PostgreSQL foundation
 
 Decision date: 2026-08-27; updated 2026-08-30
 
 ## Purpose
 
-Milestone 02 turned the compatibility spike into a repeatable repository. Milestone 03 replaced spike authentication and introduced the tenant-shaped database. Milestone 04 productionized capture and human review. Milestone 05 adds deterministic, provenance-bearing, budgeted consumption and cross-host evaluation while retaining the same two-deployable boundary.
+Milestone 02 turned the compatibility spike into a repeatable repository. Milestone 03 replaced spike authentication and introduced the tenant-shaped database. Milestone 04 productionized capture and human review. Milestone 05 added deterministic, provenance-bearing, budgeted consumption and cross-host evaluation. Milestone 06 keeps the two-deployable boundary while moving production persistence to shared PostgreSQL.
 
 ## Clean-checkout contract
 
@@ -21,12 +21,15 @@ npm run check:secrets
 npm run eval:capture
 npm run eval:context
 npm test
+npm run test:postgres
 npm run build
 ```
 
-`npm run check` is the equivalent aggregate command. GitHub Actions runs these same gates after `npm ci`, including the versioned capture tool-selection and canonical cross-host context evaluations; it receives read-only repository permissions and no application secrets.
+`npm run check` is the equivalent aggregate command when `ALICE_TEST_DATABASE_URL` points to an isolated PostgreSQL database. GitHub Actions provisions PostgreSQL 17, migrates an empty database, runs both test suites and the deterministic evaluations, and verifies a dump/restore before building. The workflow receives read-only repository permissions and uses only disposable CI credentials.
 
 Generated `dist/` directories are deployment artifacts, not source. They and TypeScript build metadata remain ignored. A deployment must run `npm run build` before starting either server.
+
+The production `Dockerfile` builds both deployables from the locked workspace on Node.js 24, disables dependency lifecycle scripts, prunes development dependencies, runs as the unprivileged `node` user, and defaults to the MCP start command. A host may override only the start command with `npm run start:web`; both services use an injected `PORT`, explicit `HOST=0.0.0.0`, and the same immutable image contract. Neither service uses a volume or an application-local persistence path. Both entry points drain HTTP and close the PostgreSQL pool on `SIGTERM`, with a bounded forced-close fallback.
 
 ## Deployables
 
@@ -39,7 +42,8 @@ Responsibilities:
 - register and authenticate users with one private workspace each;
 - create and revisit tenant-scoped projects;
 - render the candidate review interface;
-- execute explicit human candidate acceptance, rejection, and supersession; and
+- execute explicit human candidate acceptance, rejection, and supersession;
+- when private file storage is explicitly configured, validate bounded human uploads, preserve immutable replacement versions, expose fail-closed scan state, integrity-checked previews, metadata export, and short-lived exact-version downloads; and
 - expose `/health` for process checks.
 
 The web process is server-rendered. It creates no browser JavaScript bundle and exposes no configuration or secret through a client-public environment prefix.
@@ -65,29 +69,47 @@ Both processes validate configuration at startup and fail before listening when 
 | --- | --- | --- | --- |
 | `ALICE_WEB_URL` | Required outside loopback defaults | Review origin; defaults to MCP origin for spike compatibility | Server-only origin, HTTPS unless loopback |
 | `ALICE_PUBLIC_URL` | Not used | OAuth issuer and MCP origin | Server-only origin, HTTPS unless loopback |
-| `ALICE_DATABASE_PATH` | Persistence location | Persistence location | Server filesystem path |
+| `ALICE_MCP_URL` | Stable connection-center MCP origin | Not used | Server-only public origin, HTTPS unless loopback |
+| `ALICE_DATABASE_URL` | Required PostgreSQL application connection | Required PostgreSQL application connection | Server-only URL; TLS required outside loopback |
+| `ALICE_MIGRATION_DATABASE_URL` | Migration command only | Migration command only | Separate owner/migrator URL; never supplied to a deployable |
+| `ALICE_APPLICATION_DATABASE_ROLE` | Migration command only | Migration command only | Constrained runtime role receiving schema/table grants |
+| `ALICE_FILE_STORAGE` | Optional `aws_s3`; enables direct-to-S3 intent/finalize file routes | Optional `aws_s3`; enables exact text/Markdown reads, bounded PDF embedded-text reads, and explicit PDF-backed candidate capture | Shared server-only provider selection; partial configuration fails startup |
+| `ALICE_S3_BUCKET` | Required with file storage | Required with file storage | Private, blocked-public-access, versioned bucket name |
+| `ALICE_S3_REGION` | Required with file storage | Required with file storage | AWS region containing both the bucket and GuardDuty scan plan |
 | `HOST` | Listen address | Listen address | Defaults to `127.0.0.1` |
 | `PORT` | Listen port | Listen port | Defaults to 8788 for web and 8787 for MCP |
 
-Local `.env` files and `.data/` are ignored, and the committed `.env.example` contains names and non-secret placeholders only. alice. passwords are salted and memory-hard hashed. ChatGPT and Claude passwords are never collected. Web session tokens and OAuth access and refresh tokens are hashed before persistence; plaintext bearer values are returned only at issuance and are not logged.
+Local `.env` files and `.data/` are ignored, and the committed `.env.example` contains names and non-secret placeholders only. Connection URLs are server-only. alice. passwords are salted and memory-hard hashed. ChatGPT and Claude passwords are never collected. Web session tokens and OAuth access and refresh tokens are hashed before persistence; plaintext bearer values are returned only at issuance and are not logged.
 
 OAuth client secrets and authorization codes are also hash-only at rest. Integration connection rows store ownership, client classification, scope grants, usage timestamps, and revocation state—not bearer values or provider credentials.
 
-## Current persistence constraint
+AWS access keys, session credentials, and roles use the standard server runtime credential chain and are never returned by configuration, rendered into HTML, or stored in PostgreSQL. Web file routes and all three MCP file tools are absent when storage configuration is missing. Both deployables use the same `@alice/private-files` exact-version adapter. PostgreSQL stores immutable file metadata/references, bounded storage/scan lifecycle, and immutable extraction provenance; private bytes remain in object storage. The MCP deployable parses PDF embedded text in-process under explicit page/item/character limits, so hosted resource limits and dependency monitoring remain required before live alpha claims.
 
-Both deployables currently use the versioned SQLite adapter. They may share one database object in tests or one database file when colocated on the same trusted host and durable volume. Do not deploy them to isolated filesystems and assume state will synchronize. Do not horizontally scale this topology.
+Alpha and project invitation tokens are also hash-only at rest. Their URLs are one-time credentials; both invitation query values and path segments must be redacted from edge and application logs.
 
-Milestones 03 and 04 add production-shaped identity, tenant isolation, transactional capture, and explicit human review but intentionally do not choose a hosted database. Before private alpha, hosting must provide one shared durable database or a documented move to a server database with equivalent constraints. Host writes remain candidate-only, evidence remains immutable, accepted context is authenticated and provenance-bearing, and only the web review action changes trusted state.
+## PostgreSQL persistence boundary
+
+Both deployables use one versioned PostgreSQL database through a pooled asynchronous adapter. Runtime startup never creates or migrates schema; it checks the exact applied migration list and fails closed when the database is absent, behind, or ahead. `npm run db:migrate` runs separately with an owner/migrator login and grants only the runtime permissions required by the application.
+
+The constrained runtime role cannot create schema, manage migrations, truncate tables, or rewrite immutable evidence, accepted history, and audit events. Host writes remain candidate-only, evidence remains immutable, accepted context is authenticated and provenance-bearing, and only the web review action changes trusted state.
+
+File objects, context references, direct-upload intents/completions, and PDF evidence-source links are likewise immutable through the runtime role. Only storage-version and scan-lifecycle columns may advance through database-enforced transitions. Remove-from-context appends an immutable file-reference exclusion; it does not grant the runtime role object/reference deletion or permanent erasure authority.
+
+Project membership and invitation history is also non-deletable through the runtime role. The role may update only bounded membership role/end columns and one invitation terminal outcome; database triggers reject identity rewrites, terminal-history rewrites, ended-membership rewrites, and removal or demotion of the final active Owner. Migration grants must be refreshed after adding these tables.
+
+The old `.data/*.sqlite` development files are not production data and receive no automatic conversion. They are deliberately discarded when moving to Milestone 06. SQLite remains only behind `@alice/database/testing` for empty, ephemeral regression fixtures; neither deployable can select it through configuration.
 
 ## Hosting boundary
 
-The repository deliberately chooses no cloud vendor, container platform, reverse proxy, or infrastructure-as-code layer. A future hosting decision must provide:
+The earlier Railway/Neon comparison in `docs/private-alpha-infrastructure-selection.md` was superseded before provisioning. `docs/private-alpha-aws-compatibility.md` now selects Lambda Function URLs plus Aurora Serverless v2 for a bounded implementation proof, with ECS Express Mode as the higher-baseline-cost fallback. Infrastructure remains unprovisioned until the product owner separately approves account/resource creation, account-plan eligibility, the final change set, and the expected spending ceiling. The selected stack must provide:
 
 - stable HTTPS origins for web and MCP;
 - server-side secret injection;
-- a shared durable database appropriate for the topology;
+- a shared durable PostgreSQL 17 database with separate migration and application roles;
 - separate health checks and logs for both processes;
 - no bearer-token or submitted-evidence logging; and
-- a documented backup and migration path for the versioned tenant schema.
+- scheduled encrypted backups, restore drills, and an operator-run versioned migration path.
 
 Provider-specific behavior stays inside the MCP integration surface. The web application does not receive provider credentials or configuration, and neither deployable routes work between AI models.
+
+The superseded Railway/Neon settings remain in `docs/private-alpha-production-deployment.md` only as decision history. The active no-provisioning gates are in `docs/private-alpha-aws-compatibility.md`, and the exact staged resource, cost, security, migration, and stop boundary is in `docs/private-alpha-aws-deployment-runbook.md`. `infra/aws/private-files.template.json` contains no credential and has not been applied. It uses separate Lambda execution roles, an RDS-managed owner secret, one application secret, and a temporary role-backed Fargate migration task; it creates no IAM user or access key. `.github/workflows/hosted-health.yml` remains dormant because a 15-minute probe would prevent the database's ten-minute auto-pause and could raise gross Aurora compute above USD 50/month.

@@ -64,6 +64,8 @@ User
 Private Workspace
   ↓
 Projects
+  ├── Hidden project default
+  ├── Legacy context records (internal compatibility only)
   ├── Evidence
   ├── Candidate Claims
   ├── Trusted State
@@ -93,9 +95,11 @@ Tenant authorization is centralized in the domain package. Web project operation
 
 Milestone 05 consumption contract `1.0` makes project discovery and context output strict, authenticated MCP reads. Context assembly selects only the latest accepted version per state key with deterministic structured-key/full-text scoring, returns accepted questions and reference-only artifacts separately, and warns about different pending alternatives without exposing their values. Complete accepted provenance, persisted freshness, content-addressed package versions, exact UTF-8 budgets, and per-section omissions travel with the package. No embeddings, model orchestration, external artifact fetch, or project-state write occurs during assembly.
 
+Milestone 06 introduced durable project-wide and work-context records before the 2026-09-09 project-first amendment. Those records now remain internal compatibility and authorization structures. Contract `2.3` exposes one permission-filtered project catalog to every current ChatGPT or Claude MCP connection, stores no private-alpha active target, automatically resolves only a sole accessible project, and otherwise requires one exact named project. Each read returns one project package; writes and file actions require an exact project and resolve the internal destination server-side. File bytes stay out of project packages while separate exact text/Markdown and deterministic bounded PDF embedded-text reads remain available. An explicit file-backed suggestion write revalidates its extraction receipt, while only an authenticated alice. Save action can activate the resulting project information.
+
 ## Repository and deployable boundaries
 
-The repository uses an npm workspace with two deployables and four shared packages:
+The repository uses an npm workspace with two deployables and six shared packages:
 
 ```text
 apps/
@@ -104,11 +108,13 @@ apps/
 packages/
   config/    validated server-only runtime configuration
   schemas/   validated cross-boundary payloads
+  presentation/ shared safe human-readable value rendering
   domain/    capture and context rules
   database/  persistence access and schema bootstrap
+  private-files/ exact-version private object-store adapter
 ```
 
-The web and MCP processes are server-only applications. The MCP deployable can append immutable evidence and pending candidates through the domain package, but it imports no review route and exposes no trusted-state mutation tool. The web deployable owns authentication, private project management, and the explicit human review route. Both use the Milestone 03 versioned tenant schema through the SQLite persistence adapter. A shared hosted database topology remains a deployment decision, and any replacement must preserve the same constraints and authorization boundaries.
+The web and MCP processes are server-only applications. The MCP deployable can append immutable evidence and pending candidates through the domain package, but it imports no review route and exposes no trusted-state mutation tool. When private storage is configured, MCP may perform exact-version untrusted text/Markdown reads, deterministic bounded PDF embedded-text reads, and explicit pending-only PDF suggestion capture as defined in `docs/file-retrieval.md`. Web and MCP share the `@alice/private-files` S3 adapter so storage behavior cannot drift, while authorization, extraction bounds, and immutable metadata/provenance remain in the domain/database boundary. Web pages and both portable MCP Apps consume `@alice/presentation`, which converts structured values to bounded escaped prose, lists, and labelled fields without changing their exact stored representation. The web deployable owns authentication, private project management, and the explicit human review route. Both use the Milestone 06 asynchronous PostgreSQL adapter and one shared production database. PostgreSQL-native transactions, locks, constraints, and triggers preserve the same authorization, evidence, candidate, accepted-state, and audit boundaries. The in-memory SQLite adapter remains available only through the explicit testing subpath and cannot be selected by production configuration.
 
 This split changes endpoint topology, not trust behavior. `ALICE_WEB_URL` supplies the review origin returned by MCP capture results, while `ALICE_PUBLIC_URL` remains the OAuth issuer and MCP resource origin.
 

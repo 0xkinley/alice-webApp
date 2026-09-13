@@ -2,9 +2,11 @@
   "files": [],
   "references": [
     { "path": "./packages/schemas" },
+    { "path": "./packages/presentation" },
     { "path": "./packages/config" },
     { "path": "./packages/database" },
     { "path": "./packages/domain" },
+    { "path": "./packages/private-files" },
     { "path": "./apps/web" },
     { "path": "./apps/mcp" }
   ]

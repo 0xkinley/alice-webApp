@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
+import { openSqliteTestDatabase } from "@alice/database/testing";
 import { createApp } from "../apps/mcp/src/app.ts";
 import { createTestIdentity, TEST_EMAIL, TEST_PASSWORD } from "./helpers.ts";
 
@@ -9,11 +10,11 @@ let created;
 let server;
 
 before(async () => {
-  created = createApp({
-    databaseFilename: ":memory:",
+  created = await createApp({
+    database: openSqliteTestDatabase(),
     publicUrl: "http://127.0.0.1",
   });
-  createTestIdentity(created.database);
+  await createTestIdentity(created.database);
   server = created.app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -23,6 +24,7 @@ after(async () => {
   await new Promise((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
   );
+  created.database.close();
 });
 
 test("publishes OAuth resource and authorization metadata", async () => {
@@ -78,11 +80,15 @@ test("completes DCR, authorization-code PKCE, authenticated MCP, and revocation"
     scope: "mcp:read offline_access",
     resource: "http://127.0.0.1/mcp",
   });
-  const readOnlyConsentResponse = await fetch(readOnlyConsentUrl);
-  assert.equal(readOnlyConsentResponse.status, 200);
-  const readOnlyConsent = await readOnlyConsentResponse.text();
-  assert.match(readOnlyConsent, /read and persistent refresh access/);
-  assert.doesNotMatch(readOnlyConsent, /candidate-write/);
+  const readOnlyConsentResponse = await fetch(readOnlyConsentUrl, { redirect: "manual" });
+  assert.equal(readOnlyConsentResponse.status, 303);
+  const consentHandoff = new URL(readOnlyConsentResponse.headers.get("location"));
+  assert.equal(consentHandoff.pathname, "/oauth/consent");
+  assert.match(consentHandoff.searchParams.get("request"), /^alice_consent_/);
+  assert.equal(
+    created.database.prepare("SELECT COUNT(*) AS count FROM integration_connections").get().count,
+    0,
+  );
 
   const authorizationBody = new URLSearchParams({
     client_id: client.client_id,

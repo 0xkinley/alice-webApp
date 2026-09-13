@@ -1,0 +1,1779 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { DatabaseSync } from "node:sqlite";
+
+function sqliteSql(sql: string): string {
+  return sql
+    .replace(/\s+FOR UPDATE(?: OF [a-z_]+)?\b/g, "")
+    .replace(
+      /(?:([a-z_]+)\.)?safe_metadata_json::jsonb ->> '([a-z_]+)'/g,
+      (_match, alias, key) =>
+        `json_extract(${alias ? `${alias}.` : ""}safe_metadata_json, '$.${key}')`,
+    )
+    .replace("SELECT pg_advisory_xact_lock(hashtext(?))", "SELECT ? AS advisory_lock_key");
+}
+
+class SQLitePreparedStatement {
+  private readonly statement;
+
+  constructor(statement) {
+    this.statement = statement;
+  }
+
+  get(...parameters: unknown[]) {
+    return this.statement.get(...parameters);
+  }
+
+  all(...parameters: unknown[]) {
+    return this.statement.all(...parameters);
+  }
+
+  run(...parameters: unknown[]) {
+    return this.statement.run(...parameters);
+  }
+}
+
+export class SQLiteTestDatabase {
+  readonly #database: DatabaseSync;
+  readonly #transaction = new AsyncLocalStorage<boolean>();
+
+  constructor() {
+    this.#database = new DatabaseSync(":memory:");
+    this.#database.exec("PRAGMA foreign_keys = ON");
+    this.#database.exec("PRAGMA journal_mode = WAL");
+    createSchema(this.#database);
+  }
+
+  prepare(sql: string) {
+    return new SQLitePreparedStatement(this.#database.prepare(sqliteSql(sql)));
+  }
+
+  query(sql: string, parameters: unknown[] = []) {
+    return this.prepare(sql).all(...parameters);
+  }
+
+  exec(sql: string) {
+    this.#database.exec(sql);
+  }
+
+  async transaction<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.#transaction.getStore()) return operation();
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const result = await this.#transaction.run(true, operation);
+      this.#database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  close() {
+    this.#database.close();
+  }
+}
+
+export function openSqliteTestDatabase(): SQLiteTestDatabase {
+  return new SQLiteTestDatabase();
+}
+
+function createSchema(database: DatabaseSync) {
+  database.exec(`
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ) STRICT;
+
+    CREATE TABLE workspaces (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE RESTRICT,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (id, user_id)
+    ) STRICT;
+
+    CREATE TABLE web_sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    ) STRICT;
+
+    CREATE TABLE alpha_invitations (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      accepted_by_user_id TEXT UNIQUE REFERENCES users(id) ON DELETE RESTRICT,
+      accepted_at TEXT,
+      revoked_at TEXT,
+      CHECK ((accepted_by_user_id IS NULL) = (accepted_at IS NULL))
+    ) STRICT;
+
+    CREATE TABLE oauth_clients (
+      client_id TEXT PRIMARY KEY,
+      client_secret_hash TEXT,
+      client_name TEXT NOT NULL,
+      redirect_uris_json TEXT NOT NULL,
+      token_endpoint_auth_method TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ) STRICT;
+
+    CREATE TABLE oauth_consent_transactions (
+      token_hash TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+      redirect_uri TEXT NOT NULL,
+      oauth_state TEXT,
+      code_challenge TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      resource TEXT NOT NULL,
+      mcp_origin TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      approved_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      approved_at TEXT,
+      CHECK ((approved_user_id IS NULL) = (approved_at IS NULL))
+    ) STRICT;
+
+    CREATE INDEX oauth_consent_transactions_expiry
+      ON oauth_consent_transactions (expires_at);
+
+    CREATE TABLE integration_connections (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      workspace_id TEXT NOT NULL,
+      client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE RESTRICT,
+      client_classification TEXT NOT NULL,
+      granted_scopes TEXT NOT NULL,
+      first_connected_at TEXT NOT NULL,
+      last_used_at TEXT NOT NULL,
+      revoked_at TEXT,
+      FOREIGN KEY (workspace_id, user_id) REFERENCES workspaces(id, user_id),
+      UNIQUE (workspace_id, id),
+      UNIQUE (workspace_id, user_id, id),
+      UNIQUE (workspace_id, user_id, id, client_id)
+    ) STRICT;
+
+    CREATE TABLE oauth_authorization_codes (
+      code_hash TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES oauth_clients(client_id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      connection_id TEXT NOT NULL REFERENCES integration_connections(id),
+      redirect_uri TEXT NOT NULL,
+      code_challenge TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      resource TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      consumed_at TEXT
+    ) STRICT;
+
+    CREATE TABLE oauth_access_tokens (
+      token_hash TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES oauth_clients(client_id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      connection_id TEXT NOT NULL REFERENCES integration_connections(id),
+      scope TEXT NOT NULL,
+      resource TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      revoked_at TEXT
+    ) STRICT;
+
+    CREATE TABLE oauth_refresh_tokens (
+      token_hash TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL REFERENCES oauth_clients(client_id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      connection_id TEXT NOT NULL REFERENCES integration_connections(id),
+      scope TEXT NOT NULL,
+      resource TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      revoked_at TEXT
+    ) STRICT;
+
+    CREATE TABLE projects (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+      name TEXT NOT NULL,
+      brief TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      archived_at TEXT,
+      archived_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      CHECK ((archived_at IS NULL) = (archived_by_user_id IS NULL)),
+      UNIQUE (workspace_id, name),
+      UNIQUE (workspace_id, id)
+    ) STRICT;
+
+    CREATE TABLE project_memberships (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      role TEXT NOT NULL CHECK (role IN ('owner', 'editor', 'viewer')),
+      created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      ended_at TEXT,
+      ended_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      CHECK ((ended_at IS NULL) = (ended_by_user_id IS NULL)),
+      UNIQUE (workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, user_id, id)
+    ) STRICT;
+
+    CREATE UNIQUE INDEX project_memberships_active_user
+      ON project_memberships (project_id, user_id) WHERE ended_at IS NULL;
+    CREATE INDEX project_memberships_user_lookup
+      ON project_memberships (user_id, ended_at, project_id, role);
+    CREATE INDEX project_memberships_project_lookup
+      ON project_memberships (workspace_id, project_id, ended_at, role, user_id);
+
+    CREATE TABLE project_invitations (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      email TEXT NOT NULL COLLATE NOCASE,
+      role TEXT NOT NULL CHECK (role IN ('editor', 'viewer')),
+      token_hash TEXT NOT NULL UNIQUE,
+      created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      accepted_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      accepted_at TEXT,
+      declined_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      declined_at TEXT,
+      revoked_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      revoked_at TEXT,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      CHECK ((accepted_at IS NULL) = (accepted_by_user_id IS NULL)),
+      CHECK ((declined_at IS NULL) = (declined_by_user_id IS NULL)),
+      CHECK ((revoked_at IS NULL) = (revoked_by_user_id IS NULL)),
+      CHECK (
+        (CASE WHEN accepted_at IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN declined_at IS NULL THEN 0 ELSE 1 END) +
+        (CASE WHEN revoked_at IS NULL THEN 0 ELSE 1 END) <= 1
+      )
+    ) STRICT;
+
+    CREATE UNIQUE INDEX project_invitations_pending_email
+      ON project_invitations (project_id, email)
+      WHERE accepted_at IS NULL AND declined_at IS NULL AND revoked_at IS NULL;
+    CREATE INDEX project_invitations_project_lookup
+      ON project_invitations (workspace_id, project_id, created_at DESC, id);
+
+    CREATE TABLE project_deletion_requests (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      requested_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      requested_at TEXT NOT NULL,
+      not_before TEXT NOT NULL,
+      cancelled_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      cancelled_at TEXT,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      CHECK (not_before > requested_at),
+      CHECK ((cancelled_at IS NULL) = (cancelled_by_user_id IS NULL)),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE UNIQUE INDEX project_deletion_requests_active_project
+      ON project_deletion_requests (project_id) WHERE cancelled_at IS NULL;
+    CREATE INDEX project_deletion_requests_operator_queue
+      ON project_deletion_requests (not_before, requested_at, id) WHERE cancelled_at IS NULL;
+
+    CREATE TABLE project_erasure_jobs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT,
+      project_fingerprint TEXT NOT NULL,
+      deletion_request_fingerprint TEXT NOT NULL,
+      preview_version TEXT NOT NULL,
+      object_manifest_sha256 TEXT NOT NULL,
+      object_key_count INTEGER NOT NULL CHECK (object_key_count BETWEEN 0 AND 10000),
+      object_version_count INTEGER NOT NULL CHECK (object_version_count BETWEEN 0 AND 50000),
+      shared_object_count INTEGER NOT NULL CHECK (shared_object_count BETWEEN 0 AND 10000),
+      database_row_count INTEGER NOT NULL CHECK (database_row_count >= 0),
+      status TEXT NOT NULL CHECK (status IN ('prepared', 'completed')),
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      active_data_deleted_at TEXT,
+      provider_backup_expires_at TEXT,
+      CHECK (length(project_fingerprint) = 64),
+      CHECK (length(deletion_request_fingerprint) = 64),
+      CHECK (length(object_manifest_sha256) = 64),
+      CHECK (
+        (status = 'prepared' AND project_id IS NOT NULL
+          AND completed_at IS NULL AND active_data_deleted_at IS NULL
+          AND provider_backup_expires_at IS NULL)
+        OR
+        (status = 'completed' AND project_id IS NULL
+          AND completed_at IS NOT NULL AND active_data_deleted_at IS NOT NULL
+          AND provider_backup_expires_at IS NOT NULL)
+      ),
+      UNIQUE (project_fingerprint, deletion_request_fingerprint)
+    ) STRICT;
+
+    CREATE INDEX project_erasure_jobs_status_lookup
+      ON project_erasure_jobs (status, started_at, id);
+
+    CREATE TRIGGER projects_create_owner_membership
+    AFTER INSERT ON projects
+    BEGIN
+      INSERT INTO project_memberships
+        (id, workspace_id, project_id, user_id, role, created_by_user_id,
+         created_at, updated_at)
+      SELECT 'membership_owner_' || NEW.id, NEW.workspace_id, NEW.id, user_id,
+             'owner', user_id, NEW.created_at, NEW.updated_at
+      FROM workspaces WHERE id = NEW.workspace_id;
+    END;
+
+    CREATE TABLE work_contexts (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      context_kind TEXT NOT NULL CHECK (context_kind IN ('project_wide', 'work')),
+      visibility TEXT NOT NULL CHECK (visibility IN ('all_members', 'selected_members', 'personal')),
+      created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      archived_at TEXT,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE UNIQUE INDEX work_contexts_name_unique
+      ON work_contexts (project_id, name COLLATE NOCASE);
+    CREATE UNIQUE INDEX work_contexts_one_project_wide
+      ON work_contexts (project_id) WHERE context_kind = 'project_wide';
+
+    CREATE TABLE project_default_contexts (
+      workspace_id TEXT NOT NULL,
+      project_id TEXT PRIMARY KEY,
+      context_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id)
+    ) STRICT;
+
+    CREATE INDEX project_default_contexts_lookup
+      ON project_default_contexts (workspace_id, project_id, context_id);
+
+    CREATE TRIGGER project_default_contexts_no_update
+    BEFORE UPDATE ON project_default_contexts
+    BEGIN
+      SELECT RAISE(ABORT, 'project default context mapping is immutable');
+    END;
+
+    CREATE TRIGGER project_default_contexts_no_delete
+    BEFORE DELETE ON project_default_contexts
+    BEGIN
+      SELECT RAISE(ABORT, 'project default context mapping is immutable');
+    END;
+
+    CREATE TABLE context_access_grants (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      membership_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'manager')),
+      granted_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      ended_at TEXT,
+      ended_by_user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, user_id, membership_id)
+        REFERENCES project_memberships(workspace_id, project_id, user_id, id),
+      CHECK ((ended_at IS NULL) = (ended_by_user_id IS NULL)),
+      UNIQUE (workspace_id, project_id, context_id, id)
+    ) STRICT;
+
+    CREATE UNIQUE INDEX context_access_grants_active_user
+      ON context_access_grants (context_id, user_id) WHERE ended_at IS NULL;
+    CREATE INDEX context_access_grants_user_lookup
+      ON context_access_grants (user_id, ended_at, project_id, context_id, role);
+    CREATE INDEX context_access_grants_context_lookup
+      ON context_access_grants (workspace_id, project_id, context_id, ended_at, role, user_id);
+
+    CREATE TABLE context_provider_authorizations (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      provider TEXT NOT NULL CHECK (provider IN ('chatgpt', 'claude')),
+      enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+      version TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, context_id, user_id, provider)
+    ) STRICT;
+
+    CREATE INDEX context_provider_authorizations_user_lookup
+      ON context_provider_authorizations
+      (user_id, provider, enabled, project_id, context_id);
+
+    CREATE TABLE context_read_events (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      connection_workspace_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE RESTRICT,
+      client_name TEXT NOT NULL,
+      client_classification TEXT NOT NULL,
+      requested_via TEXT NOT NULL CHECK (requested_via IN ('active_target', 'explicit_fallback')),
+      status TEXT NOT NULL CHECK (status IN ('succeeded', 'failed')),
+      failure_code TEXT CHECK (
+        failure_code IN ('no_active_target', 'not_accessible', 'budget_error', 'internal_error')
+      ),
+      project_workspace_id TEXT,
+      project_id TEXT,
+      context_id TEXT,
+      package_version TEXT,
+      package_utf8_bytes INTEGER CHECK (package_utf8_bytes > 0),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (connection_workspace_id, user_id, connection_id, client_id)
+        REFERENCES integration_connections(workspace_id, user_id, id, client_id),
+      FOREIGN KEY (project_workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      CHECK (
+        (status = 'succeeded'
+          AND failure_code IS NULL
+          AND project_workspace_id IS NOT NULL
+          AND project_id IS NOT NULL
+          AND context_id IS NOT NULL
+          AND package_version IS NOT NULL
+          AND package_utf8_bytes IS NOT NULL)
+        OR
+        (status = 'failed'
+          AND failure_code IS NOT NULL
+          AND package_version IS NULL
+          AND package_utf8_bytes IS NULL
+          AND ((project_workspace_id IS NULL AND project_id IS NULL AND context_id IS NULL)
+            OR (project_workspace_id IS NOT NULL AND project_id IS NOT NULL
+              AND context_id IS NOT NULL)))
+      )
+    ) STRICT;
+
+    CREATE INDEX context_read_events_user_lookup
+      ON context_read_events (user_id, created_at DESC, id DESC);
+    CREATE INDEX context_read_events_project_lookup
+      ON context_read_events (
+        user_id, project_workspace_id, project_id, context_id, created_at DESC, id DESC
+      );
+
+    CREATE TABLE context_history_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      safe_metadata_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE TABLE evidence_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      exact_payload_json TEXT NOT NULL,
+      actor_type TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      connection_workspace_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      client_classification TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      FOREIGN KEY (connection_workspace_id, connection_id)
+        REFERENCES integration_connections(workspace_id, id),
+      UNIQUE (connection_id, project_id, idempotency_key),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE TABLE candidate_claims (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      evidence_id TEXT NOT NULL,
+      state_key TEXT NOT NULL,
+      value_json TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'rejected')),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      FOREIGN KEY (workspace_id, project_id, evidence_id)
+        REFERENCES evidence_events(workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, id, evidence_id)
+    ) STRICT;
+
+    CREATE TABLE accepted_project_state (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      candidate_id TEXT NOT NULL UNIQUE,
+      evidence_id TEXT NOT NULL,
+      state_key TEXT NOT NULL,
+      value_json TEXT NOT NULL,
+      version INTEGER NOT NULL CHECK (version > 0),
+      accepted_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      FOREIGN KEY (workspace_id, project_id, candidate_id)
+        REFERENCES candidate_claims(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, candidate_id, evidence_id)
+        REFERENCES candidate_claims(workspace_id, project_id, id, evidence_id),
+      FOREIGN KEY (workspace_id, project_id, evidence_id)
+        REFERENCES evidence_events(workspace_id, project_id, id),
+      UNIQUE (project_id, state_key, version),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE TABLE candidate_context_targets (
+      candidate_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      targeted_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, candidate_id)
+        REFERENCES candidate_claims(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, candidate_id, context_id)
+    ) STRICT;
+
+    CREATE TABLE accepted_context_entries (
+      accepted_state_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, accepted_state_id)
+        REFERENCES accepted_project_state(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, context_id, accepted_state_id)
+    ) STRICT;
+
+    CREATE TABLE active_connection_targets (
+      connection_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      project_workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      surface TEXT NOT NULL,
+      selection_version TEXT NOT NULL,
+      selected_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, user_id, connection_id)
+        REFERENCES integration_connections(workspace_id, user_id, id),
+      FOREIGN KEY (project_workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE TABLE context_entry_exclusions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      accepted_state_id TEXT NOT NULL UNIQUE,
+      reason TEXT NOT NULL CHECK (length(reason) <= 500),
+      removed_by_user_id TEXT NOT NULL,
+      removed_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id, accepted_state_id)
+        REFERENCES accepted_context_entries(workspace_id, project_id, context_id, accepted_state_id),
+      FOREIGN KEY (removed_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
+    ) STRICT;
+
+    CREATE TABLE file_objects (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+      content_sha256 TEXT NOT NULL CHECK (length(content_sha256) = 64),
+      byte_size INTEGER NOT NULL CHECK (byte_size BETWEEN 1 AND 26214400),
+      verified_media_type TEXT NOT NULL CHECK (verified_media_type IN (
+        'application/json', 'application/pdf',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/png', 'image/jpeg', 'image/webp',
+        'text/csv', 'text/plain', 'text/markdown', 'text/tab-separated-values'
+      )),
+      storage_key TEXT NOT NULL UNIQUE,
+      storage_version_id TEXT,
+      storage_etag TEXT,
+      scan_provider TEXT NOT NULL CHECK (scan_provider = 'aws_guardduty_s3'),
+      scan_status TEXT NOT NULL CHECK (scan_status IN (
+        'pending_upload', 'scanning', 'clean', 'threats_found',
+        'unsupported', 'scan_failed', 'storage_failed'
+      )),
+      scan_updated_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (workspace_id, id),
+      UNIQUE (workspace_id, content_sha256)
+    ) STRICT;
+
+    CREATE TABLE file_context_references (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      file_object_id TEXT NOT NULL,
+      logical_file_id TEXT NOT NULL,
+      version INTEGER NOT NULL CHECK (version > 0),
+      display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 180),
+      source_host TEXT NOT NULL CHECK (length(source_host) BETWEEN 1 AND 80),
+      uploader_user_id TEXT NOT NULL,
+      access_scope TEXT NOT NULL CHECK (access_scope = 'inherit_context'),
+      referenced_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, file_object_id)
+        REFERENCES file_objects(workspace_id, id),
+      FOREIGN KEY (uploader_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+      UNIQUE (workspace_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id, file_object_id),
+      UNIQUE (workspace_id, project_id, context_id, logical_file_id, version),
+      UNIQUE (workspace_id, project_id, context_id, file_object_id)
+    ) STRICT;
+
+    CREATE TABLE file_reference_exclusions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      file_reference_id TEXT NOT NULL UNIQUE,
+      reason TEXT NOT NULL CHECK (length(reason) <= 500),
+      removed_by_user_id TEXT NOT NULL,
+      removed_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id, file_reference_id)
+        REFERENCES file_context_references(workspace_id, project_id, context_id, id),
+      FOREIGN KEY (removed_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
+    ) STRICT;
+
+    CREATE TABLE file_upload_intents (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      initiated_by_user_id TEXT NOT NULL,
+      display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 180),
+      claimed_media_type TEXT NOT NULL CHECK (claimed_media_type IN (
+        'application/json', 'application/pdf',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/png', 'image/jpeg', 'image/webp',
+        'text/csv', 'text/plain', 'text/markdown', 'text/tab-separated-values'
+      )),
+      declared_byte_size INTEGER NOT NULL CHECK (declared_byte_size BETWEEN 1 AND 26214400),
+      declared_sha256 TEXT NOT NULL CHECK (length(declared_sha256) = 64),
+      staging_storage_key TEXT NOT NULL UNIQUE,
+      replaces_reference_id TEXT,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      FOREIGN KEY (initiated_by_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+      FOREIGN KEY (workspace_id, project_id, context_id, replaces_reference_id)
+        REFERENCES file_context_references(workspace_id, project_id, context_id, id),
+      UNIQUE (workspace_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id, initiated_by_user_id)
+    ) STRICT;
+
+    CREATE TABLE file_upload_completions (
+      intent_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      staging_storage_version_id TEXT NOT NULL CHECK (
+        length(staging_storage_version_id) BETWEEN 1 AND 1024
+      ),
+      file_reference_id TEXT NOT NULL UNIQUE,
+      completed_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id, intent_id)
+        REFERENCES file_upload_intents(workspace_id, project_id, context_id, id),
+      FOREIGN KEY (workspace_id, project_id, context_id, file_reference_id)
+        REFERENCES file_context_references(workspace_id, project_id, context_id, id),
+      UNIQUE (intent_id, workspace_id, project_id, context_id, file_reference_id)
+    ) STRICT;
+
+    CREATE TABLE host_file_save_offers (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      connection_workspace_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
+      request_hash TEXT NOT NULL CHECK (length(request_hash) = 64),
+      target_selection_version TEXT NOT NULL CHECK (
+        length(target_selection_version) BETWEEN 1 AND 200
+      ),
+      display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 180),
+      declared_media_type TEXT CHECK (declared_media_type IS NULL OR declared_media_type IN (
+        'application/json', 'application/pdf',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/png', 'image/jpeg', 'image/webp',
+        'text/csv', 'text/plain', 'text/markdown', 'text/tab-separated-values'
+      )),
+      declared_byte_size INTEGER CHECK (
+        declared_byte_size IS NULL OR declared_byte_size BETWEEN 1 AND 26214400
+      ),
+      declared_sha256 TEXT CHECK (declared_sha256 IS NULL OR length(declared_sha256) = 64),
+      source_host TEXT NOT NULL CHECK (length(source_host) BETWEEN 1 AND 80),
+      conversation_reference TEXT CHECK (
+        conversation_reference IS NULL OR length(conversation_reference) BETWEEN 1 AND 200
+      ),
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      FOREIGN KEY (connection_workspace_id, user_id, connection_id)
+        REFERENCES integration_connections(workspace_id, user_id, id),
+      UNIQUE (workspace_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id, user_id),
+      UNIQUE (connection_workspace_id, connection_id, idempotency_key)
+    ) STRICT;
+
+    CREATE TABLE host_file_save_decisions (
+      offer_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      decided_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      decision TEXT NOT NULL CHECK (decision IN (
+        'save_file_only', 'save_and_suggest_context', 'cancelled'
+      )),
+      decision_version TEXT NOT NULL CHECK (length(decision_version) = 64),
+      decided_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id, offer_id, decided_by_user_id)
+        REFERENCES host_file_save_offers(workspace_id, project_id, context_id, id, user_id),
+      UNIQUE (
+        workspace_id, project_id, context_id, offer_id, decided_by_user_id, decision
+      )
+    ) STRICT;
+
+    CREATE TABLE capture_save_previews (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      connection_workspace_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      client_classification TEXT NOT NULL CHECK (client_classification IN ('chatgpt', 'claude')),
+      exact_payload_json TEXT NOT NULL CHECK (length(exact_payload_json) BETWEEN 2 AND 65536),
+      payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+      replacement_snapshot_json TEXT NOT NULL CHECK (
+        length(replacement_snapshot_json) BETWEEN 2 AND 65536
+      ),
+      exact_preview_json TEXT NOT NULL CHECK (length(exact_preview_json) BETWEEN 2 AND 131072),
+      preview_version TEXT NOT NULL CHECK (length(preview_version) = 64),
+      authority_token_hash TEXT NOT NULL CHECK (length(authority_token_hash) = 64),
+      target_selection_version TEXT NOT NULL CHECK (
+        length(target_selection_version) BETWEEN 1 AND 200
+      ),
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id)
+        REFERENCES work_contexts(workspace_id, project_id, id),
+      FOREIGN KEY (connection_workspace_id, user_id, connection_id)
+        REFERENCES integration_connections(workspace_id, user_id, id),
+      UNIQUE (workspace_id, project_id, context_id, id)
+    ) STRICT;
+
+    CREATE TABLE artifacts (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE TABLE artifact_versions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      artifact_id TEXT NOT NULL,
+      version INTEGER NOT NULL CHECK (version > 0),
+      parent_version_id TEXT,
+      title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+      artifact_type TEXT NOT NULL CHECK (artifact_type IN (
+        'article', 'report', 'proposal', 'research', 'strategy', 'specification',
+        'plan', 'document', 'analysis', 'presentation', 'email_draft',
+        'marketing_copy', 'code', 'other'
+      )),
+      category TEXT NOT NULL CHECK (category IN (
+        'founder', 'product', 'engineering', 'marketing', 'sales', 'customer',
+        'team', 'operations', 'finance', 'legal', 'research', 'strategy',
+        'fundraising', 'partnerships', 'hiring', 'content', 'design', 'support',
+        'personal', 'other'
+      )),
+      tags_json TEXT NOT NULL CHECK (length(tags_json) BETWEEN 2 AND 4096),
+      content_storage_kind TEXT NOT NULL CHECK (content_storage_kind IN ('inline_text', 'object')),
+      content_text TEXT,
+      storage_key TEXT,
+      storage_version_id TEXT,
+      media_type TEXT NOT NULL,
+      content_sha256 TEXT NOT NULL CHECK (length(content_sha256) = 64),
+      content_utf8_bytes INTEGER NOT NULL CHECK (content_utf8_bytes BETWEEN 1 AND 2097152),
+      goal TEXT NOT NULL CHECK (length(goal) BETWEEN 1 AND 2000),
+      summary TEXT CHECK (summary IS NULL OR length(summary) BETWEEN 1 AND 2000),
+      decisions_json TEXT NOT NULL CHECK (length(decisions_json) BETWEEN 2 AND 32768),
+      decision_records_json TEXT NOT NULL CHECK (
+        length(decision_records_json) BETWEEN 2 AND 32768
+      ),
+      constraints_json TEXT NOT NULL CHECK (length(constraints_json) BETWEEN 2 AND 32768),
+      rejected_directions_json TEXT NOT NULL CHECK (
+        length(rejected_directions_json) BETWEEN 2 AND 32768
+      ),
+      open_questions_json TEXT NOT NULL CHECK (length(open_questions_json) BETWEEN 2 AND 32768),
+      next_steps_json TEXT NOT NULL CHECK (length(next_steps_json) BETWEEN 2 AND 32768),
+      relevant_context_json TEXT NOT NULL CHECK (
+        length(relevant_context_json) BETWEEN 2 AND 32768
+      ),
+      source_connection_workspace_id TEXT NOT NULL,
+      source_connection_id TEXT NOT NULL,
+      source_client_id TEXT NOT NULL,
+      source_provider TEXT NOT NULL CHECK (source_provider IN ('chatgpt', 'claude')),
+      saved_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
+      payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256) = 64),
+      saved_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, artifact_id)
+        REFERENCES artifacts(workspace_id, project_id, id),
+      FOREIGN KEY (parent_version_id) REFERENCES artifact_versions(id),
+      FOREIGN KEY (
+        source_connection_workspace_id, saved_by_user_id, source_connection_id, source_client_id
+      ) REFERENCES integration_connections(workspace_id, user_id, id, client_id),
+      CHECK (
+        (content_storage_kind = 'inline_text'
+          AND content_text IS NOT NULL
+          AND storage_key IS NULL
+          AND storage_version_id IS NULL
+          AND content_utf8_bytes <= 49152)
+        OR
+        (content_storage_kind = 'object'
+          AND content_text IS NULL
+          AND storage_key IS NOT NULL
+          AND storage_version_id IS NOT NULL)
+      ),
+      UNIQUE (workspace_id, project_id, artifact_id, version),
+      UNIQUE (source_connection_id, project_id, idempotency_key),
+      UNIQUE (workspace_id, project_id, id),
+      UNIQUE (workspace_id, project_id, artifact_id, id)
+    ) STRICT;
+
+    CREATE INDEX artifact_versions_current
+      ON artifact_versions (workspace_id, project_id, artifact_id, version DESC);
+    CREATE INDEX artifact_versions_search
+      ON artifact_versions (workspace_id, project_id, saved_at DESC, id DESC);
+
+    CREATE TABLE artifact_save_previews (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      connection_workspace_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      source_provider TEXT NOT NULL CHECK (source_provider IN ('chatgpt', 'claude')),
+      save_kind TEXT NOT NULL CHECK (save_kind IN ('create_artifact', 'new_version')),
+      artifact_id TEXT,
+      current_version INTEGER NOT NULL CHECK (current_version >= 0),
+      exact_payload_json TEXT NOT NULL CHECK (length(exact_payload_json) BETWEEN 2 AND 131072),
+      payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256) = 64),
+      exact_preview_json TEXT NOT NULL CHECK (length(exact_preview_json) BETWEEN 2 AND 196608),
+      preview_version TEXT NOT NULL CHECK (length(preview_version) = 64),
+      authority_token_hash TEXT NOT NULL CHECK (length(authority_token_hash) = 64),
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      FOREIGN KEY (workspace_id, project_id, artifact_id)
+        REFERENCES artifacts(workspace_id, project_id, id),
+      FOREIGN KEY (connection_workspace_id, user_id, connection_id, client_id)
+        REFERENCES integration_connections(workspace_id, user_id, id, client_id),
+      CHECK (
+        (save_kind = 'create_artifact' AND artifact_id IS NULL AND current_version = 0)
+        OR
+        (save_kind = 'new_version' AND artifact_id IS NOT NULL AND current_version > 0)
+      ),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX artifact_save_previews_expiry ON artifact_save_previews (expires_at);
+
+    CREATE TABLE artifact_read_receipts (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      connection_workspace_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      artifact_id TEXT NOT NULL,
+      version_id TEXT NOT NULL REFERENCES artifact_versions(id),
+      version INTEGER NOT NULL CHECK (version > 0),
+      lifecycle_version INTEGER NOT NULL CHECK (lifecycle_version >= 0),
+      title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200),
+      token_hash TEXT NOT NULL UNIQUE CHECK (length(token_hash) = 64),
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, artifact_id)
+        REFERENCES artifacts(workspace_id, project_id, id),
+      FOREIGN KEY (connection_workspace_id, user_id, connection_id, client_id)
+        REFERENCES integration_connections(workspace_id, user_id, id, client_id),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX artifact_read_receipts_expiry ON artifact_read_receipts (expires_at);
+
+    CREATE TABLE artifact_read_receipt_uses (
+      receipt_id TEXT PRIMARY KEY REFERENCES artifact_read_receipts(id) ON DELETE RESTRICT,
+      preview_id TEXT NOT NULL UNIQUE,
+      used_at TEXT NOT NULL
+    ) STRICT;
+
+    CREATE TABLE artifact_lifecycle_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      artifact_id TEXT NOT NULL,
+      version INTEGER NOT NULL CHECK (version > 0),
+      lifecycle_state TEXT NOT NULL CHECK (
+        lifecycle_state IN ('active', 'superseded', 'archived')
+      ),
+      replacement_artifact_id TEXT,
+      changed_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      changed_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, artifact_id)
+        REFERENCES artifacts(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, replacement_artifact_id)
+        REFERENCES artifacts(workspace_id, project_id, id),
+      CHECK ((lifecycle_state = 'superseded') = (replacement_artifact_id IS NOT NULL)),
+      CHECK (replacement_artifact_id IS NULL OR replacement_artifact_id <> artifact_id),
+      UNIQUE (workspace_id, project_id, artifact_id, version),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX artifact_lifecycle_current
+      ON artifact_lifecycle_events (workspace_id, project_id, artifact_id, version DESC);
+
+    CREATE TABLE artifact_decision_resolutions (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      decision_key TEXT NOT NULL CHECK (length(decision_key) BETWEEN 1 AND 200),
+      conflict_fingerprint TEXT NOT NULL CHECK (length(conflict_fingerprint) = 64),
+      selected_artifact_id TEXT NOT NULL,
+      selected_version_id TEXT NOT NULL,
+      selected_value_json TEXT NOT NULL CHECK (length(selected_value_json) BETWEEN 1 AND 8192),
+      resolved_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      resolved_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, selected_artifact_id, selected_version_id)
+        REFERENCES artifact_versions(workspace_id, project_id, artifact_id, id),
+      UNIQUE (workspace_id, project_id, conflict_fingerprint),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX artifact_decision_resolutions_lookup
+      ON artifact_decision_resolutions (workspace_id, project_id, decision_key, resolved_at DESC);
+
+    CREATE TABLE save_confirmation_receipts (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      connection_workspace_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      save_kind TEXT NOT NULL CHECK (save_kind IN ('artifact', 'project_information')),
+      receipt_json TEXT NOT NULL CHECK (length(receipt_json) BETWEEN 2 AND 65536),
+      saved_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id),
+      FOREIGN KEY (connection_workspace_id, user_id, connection_id, client_id)
+        REFERENCES integration_connections(workspace_id, user_id, id, client_id),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX save_confirmation_receipts_checkpoint
+      ON save_confirmation_receipts (connection_id, project_id, saved_at DESC, id DESC);
+
+    CREATE TABLE host_file_save_offer_authorities (
+      id TEXT PRIMARY KEY,
+      offer_id TEXT NOT NULL REFERENCES host_file_save_offers(id),
+      token_hash TEXT NOT NULL CHECK (length(token_hash) = 64),
+      created_at TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      UNIQUE (offer_id, token_hash)
+    ) STRICT;
+
+    CREATE TABLE host_file_save_transfer_intents (
+      intent_id TEXT PRIMARY KEY,
+      offer_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      initiated_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      decision TEXT NOT NULL CHECK (decision IN (
+        'save_file_only', 'save_and_suggest_context'
+      )),
+      transfer_path TEXT NOT NULL CHECK (transfer_path IN (
+        'host_capability', 'browser_fallback'
+      )),
+      idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
+      request_hash TEXT NOT NULL CHECK (length(request_hash) = 64),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (
+        workspace_id, project_id, context_id, offer_id, initiated_by_user_id, decision
+      ) REFERENCES host_file_save_decisions(
+        workspace_id, project_id, context_id, offer_id, decided_by_user_id, decision
+      ),
+      FOREIGN KEY (
+        workspace_id, project_id, context_id, intent_id, initiated_by_user_id
+      ) REFERENCES file_upload_intents(
+        workspace_id, project_id, context_id, id, initiated_by_user_id
+      ),
+      UNIQUE (workspace_id, project_id, context_id, offer_id, intent_id),
+      UNIQUE (offer_id, transfer_path, idempotency_key)
+    ) STRICT;
+
+    CREATE TABLE host_file_save_transfer_completions (
+      offer_id TEXT PRIMARY KEY,
+      intent_id TEXT NOT NULL UNIQUE,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      file_reference_id TEXT NOT NULL UNIQUE,
+      completed_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, context_id, offer_id, intent_id)
+        REFERENCES host_file_save_transfer_intents(
+          workspace_id, project_id, context_id, offer_id, intent_id
+        ),
+      FOREIGN KEY (intent_id, workspace_id, project_id, context_id, file_reference_id)
+        REFERENCES file_upload_completions(
+          intent_id, workspace_id, project_id, context_id, file_reference_id
+        ),
+      UNIQUE (offer_id, intent_id, workspace_id, project_id, context_id, file_reference_id)
+    ) STRICT;
+
+    CREATE TABLE host_file_save_transfer_availability (
+      offer_id TEXT PRIMARY KEY,
+      intent_id TEXT NOT NULL UNIQUE,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      context_id TEXT NOT NULL,
+      file_reference_id TEXT NOT NULL UNIQUE,
+      available_at TEXT NOT NULL,
+      FOREIGN KEY (offer_id, intent_id, workspace_id, project_id, context_id, file_reference_id)
+        REFERENCES host_file_save_transfer_completions(
+          offer_id, intent_id, workspace_id, project_id, context_id, file_reference_id
+        )
+    ) STRICT;
+
+    CREATE TABLE evidence_file_sources (
+      evidence_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      source_context_id TEXT NOT NULL,
+      file_reference_id TEXT NOT NULL,
+      file_object_id TEXT NOT NULL,
+      logical_file_id TEXT NOT NULL,
+      file_version INTEGER NOT NULL CHECK (file_version > 0),
+      content_sha256 TEXT NOT NULL CHECK (length(content_sha256) = 64),
+      extraction_version TEXT NOT NULL CHECK (extraction_version = 'pdfjs_embedded_text_v1'),
+      extraction_start_character INTEGER NOT NULL CHECK (extraction_start_character >= 0),
+      extraction_end_character INTEGER NOT NULL,
+      excerpt_sha256 TEXT NOT NULL CHECK (length(excerpt_sha256) = 64),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, evidence_id)
+        REFERENCES evidence_events(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, source_context_id, file_reference_id, file_object_id)
+        REFERENCES file_context_references(workspace_id, project_id, context_id, id, file_object_id),
+      CHECK (extraction_end_character > extraction_start_character),
+      CHECK (extraction_end_character - extraction_start_character <= 12000),
+      UNIQUE (workspace_id, project_id, evidence_id)
+    ) STRICT;
+
+    CREATE INDEX evidence_file_sources_reference_lookup
+      ON evidence_file_sources (
+        workspace_id, project_id, file_reference_id, created_at, evidence_id
+      );
+
+    CREATE INDEX file_reference_exclusions_lookup
+      ON file_reference_exclusions (workspace_id, project_id, context_id, removed_at, id);
+
+    CREATE INDEX file_upload_intents_expiry
+      ON file_upload_intents (workspace_id, initiated_by_user_id, expires_at, id);
+
+    CREATE INDEX host_file_save_transfer_intents_offer
+      ON host_file_save_transfer_intents (offer_id, created_at, intent_id);
+
+    CREATE INDEX file_objects_scan_queue
+      ON file_objects (workspace_id, scan_status, scan_updated_at, id);
+    CREATE INDEX file_context_references_lookup
+      ON file_context_references (workspace_id, project_id, context_id, referenced_at, id);
+    CREATE INDEX file_context_references_versions
+      ON file_context_references (
+        workspace_id, project_id, context_id, logical_file_id, version DESC, id
+      );
+
+    CREATE TABLE audit_events (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT,
+      action TEXT NOT NULL,
+      actor_type TEXT NOT NULL,
+      actor_id TEXT NOT NULL,
+      correlation_id TEXT NOT NULL,
+      safe_metadata_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+      FOREIGN KEY (workspace_id, project_id) REFERENCES projects(workspace_id, id)
+    ) STRICT;
+
+    CREATE TRIGGER evidence_events_no_update
+    BEFORE UPDATE ON evidence_events
+    BEGIN
+      SELECT RAISE(ABORT, 'evidence events are immutable');
+    END;
+
+    CREATE TRIGGER evidence_events_no_delete
+    BEFORE DELETE ON evidence_events
+    BEGIN
+      SELECT RAISE(ABORT, 'evidence events are immutable');
+    END;
+
+    CREATE TRIGGER audit_events_no_update
+    BEFORE UPDATE ON audit_events
+    BEGIN
+      SELECT RAISE(ABORT, 'audit events are append-only');
+    END;
+
+    CREATE TRIGGER audit_events_no_delete
+    BEFORE DELETE ON audit_events
+    BEGIN
+      SELECT RAISE(ABORT, 'audit events are append-only');
+    END;
+
+    CREATE TRIGGER projects_lifecycle_only_update
+    BEFORE UPDATE ON projects
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.created_at IS NOT OLD.created_at
+      OR ((NEW.archived_at IS NULL) IS NOT (NEW.archived_by_user_id IS NULL))
+    BEGIN
+      SELECT RAISE(ABORT, 'project identity is immutable');
+    END;
+
+    CREATE TRIGGER projects_no_delete
+    BEFORE DELETE ON projects
+    BEGIN
+      SELECT RAISE(ABORT, 'projects require privileged erasure');
+    END;
+
+    CREATE TRIGGER project_deletion_requests_validate_insert
+    BEFORE INSERT ON project_deletion_requests
+    WHEN NOT EXISTS (
+      SELECT 1 FROM projects project
+      WHERE project.workspace_id = NEW.workspace_id
+        AND project.id = NEW.project_id
+        AND project.archived_at IS NOT NULL
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'a project must be archived before deletion is requested');
+    END;
+
+    CREATE TRIGGER project_deletion_requests_validate_update
+    BEFORE UPDATE ON project_deletion_requests
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.project_id IS NOT OLD.project_id
+      OR NEW.requested_by_user_id IS NOT OLD.requested_by_user_id
+      OR NEW.requested_at IS NOT OLD.requested_at
+      OR NEW.not_before IS NOT OLD.not_before
+      OR OLD.cancelled_at IS NOT NULL
+      OR NEW.cancelled_at IS NULL
+      OR NEW.cancelled_by_user_id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'deletion request history is immutable');
+    END;
+
+    CREATE TRIGGER project_deletion_requests_no_delete
+    BEFORE DELETE ON project_deletion_requests
+    BEGIN
+      SELECT RAISE(ABORT, 'deletion request history is retained until privileged erasure');
+    END;
+
+    CREATE TRIGGER project_erasure_jobs_validate_update
+    BEFORE UPDATE ON project_erasure_jobs
+    WHEN OLD.status != 'prepared'
+      OR NEW.status != 'completed'
+      OR NEW.id IS NOT OLD.id
+      OR NEW.project_fingerprint IS NOT OLD.project_fingerprint
+      OR NEW.deletion_request_fingerprint IS NOT OLD.deletion_request_fingerprint
+      OR NEW.preview_version IS NOT OLD.preview_version
+      OR NEW.object_manifest_sha256 IS NOT OLD.object_manifest_sha256
+      OR NEW.object_key_count IS NOT OLD.object_key_count
+      OR NEW.object_version_count IS NOT OLD.object_version_count
+      OR NEW.shared_object_count IS NOT OLD.shared_object_count
+      OR NEW.started_at IS NOT OLD.started_at
+      OR NEW.project_id IS NOT NULL
+      OR NEW.completed_at IS NULL
+      OR NEW.active_data_deleted_at IS NULL
+      OR NEW.provider_backup_expires_at IS NULL
+      OR NEW.database_row_count < OLD.database_row_count
+    BEGIN
+      SELECT RAISE(ABORT, 'project erasure jobs permit one terminal transition');
+    END;
+
+    CREATE TRIGGER project_erasure_jobs_no_delete
+    BEFORE DELETE ON project_erasure_jobs
+    BEGIN
+      SELECT RAISE(ABORT, 'project erasure receipts are append-preserving');
+    END;
+
+    CREATE TRIGGER project_deletion_requests_erasure_started
+    BEFORE UPDATE ON project_deletion_requests
+    WHEN OLD.cancelled_at IS NULL
+      AND NEW.cancelled_at IS NOT NULL
+      AND EXISTS (
+        SELECT 1 FROM project_erasure_jobs
+        WHERE project_id = OLD.project_id AND status = 'prepared'
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'project erasure has started; cancellation is no longer safe');
+    END;
+
+    CREATE TRIGGER project_memberships_validate_update
+    BEFORE UPDATE ON project_memberships
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.project_id IS NOT OLD.project_id
+      OR NEW.user_id IS NOT OLD.user_id
+      OR NEW.created_by_user_id IS NOT OLD.created_by_user_id
+      OR NEW.created_at IS NOT OLD.created_at
+      OR OLD.ended_at IS NOT NULL
+      OR (NEW.ended_at IS NULL AND NEW.ended_by_user_id IS NOT NULL)
+      OR (NEW.ended_at IS NOT NULL AND NEW.ended_by_user_id IS NULL)
+      OR (
+        OLD.ended_at IS NULL AND OLD.role = 'owner'
+        AND (NEW.role <> 'owner' OR NEW.ended_at IS NOT NULL)
+        AND NOT EXISTS (
+          SELECT 1 FROM project_memberships membership
+          WHERE membership.project_id = OLD.project_id
+            AND membership.id <> OLD.id
+            AND membership.role = 'owner'
+          AND membership.ended_at IS NULL
+        )
+      )
+      OR (
+        OLD.ended_at IS NULL
+        AND (NEW.ended_at IS NOT NULL OR NEW.role = 'viewer')
+        AND EXISTS (
+          SELECT 1 FROM context_access_grants context_grant
+          WHERE context_grant.membership_id = OLD.id
+            AND context_grant.ended_at IS NULL
+          AND (NEW.ended_at IS NOT NULL OR context_grant.role <> 'viewer')
+        )
+      )
+      OR (
+        OLD.ended_at IS NULL AND NEW.ended_at IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM work_contexts context
+          WHERE context.workspace_id = OLD.workspace_id
+            AND context.project_id = OLD.project_id
+            AND context.created_by_user_id = OLD.user_id
+            AND context.visibility = 'personal'
+            AND context.archived_at IS NULL
+        )
+      )
+      OR (
+        OLD.ended_at IS NULL AND NEW.ended_at IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM work_contexts context
+          WHERE context.workspace_id = OLD.workspace_id
+            AND context.project_id = OLD.project_id
+            AND context.created_by_user_id = OLD.user_id
+            AND context.visibility = 'selected_members'
+            AND context.archived_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM context_access_grants context_grant
+              JOIN project_memberships membership
+                ON membership.workspace_id = context_grant.workspace_id
+               AND membership.project_id = context_grant.project_id
+               AND membership.id = context_grant.membership_id
+               AND membership.user_id = context_grant.user_id
+              WHERE context_grant.workspace_id = context.workspace_id
+                AND context_grant.project_id = context.project_id
+                AND context_grant.context_id = context.id
+                AND context_grant.user_id <> OLD.user_id
+                AND context_grant.role = 'manager'
+                AND context_grant.ended_at IS NULL
+                AND membership.ended_at IS NULL
+            )
+        )
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid membership rewrite or project would have no owner');
+    END;
+
+    CREATE TRIGGER project_memberships_no_delete
+    BEFORE DELETE ON project_memberships
+    BEGIN
+      SELECT RAISE(ABORT, 'project membership history is retained');
+    END;
+
+    CREATE TRIGGER project_invitations_validate_update
+    BEFORE UPDATE ON project_invitations
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.project_id IS NOT OLD.project_id
+      OR NEW.email IS NOT OLD.email
+      OR NEW.role IS NOT OLD.role
+      OR NEW.token_hash IS NOT OLD.token_hash
+      OR NEW.created_by_user_id IS NOT OLD.created_by_user_id
+      OR NEW.expires_at IS NOT OLD.expires_at
+      OR NEW.created_at IS NOT OLD.created_at
+      OR OLD.accepted_at IS NOT NULL
+      OR OLD.declined_at IS NOT NULL
+      OR OLD.revoked_at IS NOT NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'project invitation history is retained');
+    END;
+
+    CREATE TRIGGER project_invitations_no_delete
+    BEFORE DELETE ON project_invitations
+    BEGIN
+      SELECT RAISE(ABORT, 'project invitation history is retained');
+    END;
+
+    CREATE TRIGGER context_access_grants_validate_insert
+    BEFORE INSERT ON context_access_grants
+    WHEN NOT EXISTS (
+        SELECT 1 FROM work_contexts context
+        WHERE context.workspace_id = NEW.workspace_id
+          AND context.project_id = NEW.project_id
+          AND context.id = NEW.context_id
+          AND context.visibility = 'selected_members'
+      )
+      OR NOT EXISTS (
+        SELECT 1 FROM project_memberships membership
+        WHERE membership.workspace_id = NEW.workspace_id
+          AND membership.project_id = NEW.project_id
+          AND membership.user_id = NEW.user_id
+          AND membership.id = NEW.membership_id
+          AND membership.ended_at IS NULL
+          AND (membership.role <> 'viewer' OR NEW.role = 'viewer')
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'context grants require an active bounded membership');
+    END;
+
+    CREATE TRIGGER context_access_grants_validate_update
+    BEFORE UPDATE ON context_access_grants
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.project_id IS NOT OLD.project_id
+      OR NEW.context_id IS NOT OLD.context_id
+      OR NEW.membership_id IS NOT OLD.membership_id
+      OR NEW.user_id IS NOT OLD.user_id
+      OR NEW.granted_by_user_id IS NOT OLD.granted_by_user_id
+      OR NEW.created_at IS NOT OLD.created_at
+      OR OLD.ended_at IS NOT NULL
+      OR (NEW.ended_at IS NULL AND NEW.ended_by_user_id IS NOT NULL)
+      OR (NEW.ended_at IS NOT NULL AND NEW.ended_by_user_id IS NULL)
+      OR NOT EXISTS (
+        SELECT 1 FROM work_contexts context
+        WHERE context.workspace_id = NEW.workspace_id
+          AND context.project_id = NEW.project_id
+          AND context.id = NEW.context_id
+          AND context.visibility = 'selected_members'
+      )
+      OR NOT EXISTS (
+        SELECT 1 FROM project_memberships membership
+        WHERE membership.workspace_id = NEW.workspace_id
+          AND membership.project_id = NEW.project_id
+          AND membership.user_id = NEW.user_id
+          AND membership.id = NEW.membership_id
+          AND membership.ended_at IS NULL
+          AND (membership.role <> 'viewer' OR NEW.role = 'viewer')
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'context grant identity, bounds, and ended history are retained');
+    END;
+
+    CREATE TRIGGER context_access_grants_no_delete
+    BEFORE DELETE ON context_access_grants
+    BEGIN
+      SELECT RAISE(ABORT, 'context access grant history is retained');
+    END;
+
+    CREATE TRIGGER context_read_events_no_update
+    BEFORE UPDATE ON context_read_events
+    BEGIN
+      SELECT RAISE(ABORT, 'context read events are append-only');
+    END;
+
+    CREATE TRIGGER context_read_events_no_delete
+    BEFORE DELETE ON context_read_events
+    BEGIN
+      SELECT RAISE(ABORT, 'context read events are append-only');
+    END;
+
+    CREATE TRIGGER candidate_claims_status_only_update
+    BEFORE UPDATE ON candidate_claims
+    WHEN OLD.status <> 'pending'
+      OR NEW.status NOT IN ('accepted', 'rejected')
+      OR NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.project_id IS NOT OLD.project_id
+      OR NEW.evidence_id IS NOT OLD.evidence_id
+      OR NEW.state_key IS NOT OLD.state_key
+      OR NEW.value_json IS NOT OLD.value_json
+      OR NEW.summary IS NOT OLD.summary
+      OR NEW.created_at IS NOT OLD.created_at
+    BEGIN
+      SELECT RAISE(ABORT, 'candidate claims preserve submitted content and terminal status');
+    END;
+
+    CREATE TRIGGER candidate_claims_no_delete
+    BEFORE DELETE ON candidate_claims
+    BEGIN
+      SELECT RAISE(ABORT, 'candidate claims preserve history');
+    END;
+
+    CREATE TRIGGER accepted_project_state_no_update
+    BEFORE UPDATE ON accepted_project_state
+    BEGIN
+      SELECT RAISE(ABORT, 'accepted project state is versioned and immutable');
+    END;
+
+    CREATE TRIGGER accepted_project_state_no_delete
+    BEFORE DELETE ON accepted_project_state
+    BEGIN
+      SELECT RAISE(ABORT, 'accepted project state is versioned and immutable');
+    END;
+
+    CREATE TRIGGER context_history_events_no_update
+    BEFORE UPDATE ON context_history_events
+    BEGIN
+      SELECT RAISE(ABORT, 'context history is append-only');
+    END;
+
+    CREATE TRIGGER context_history_events_no_delete
+    BEFORE DELETE ON context_history_events
+    BEGIN
+      SELECT RAISE(ABORT, 'context history is append-only');
+    END;
+
+    CREATE TRIGGER candidate_context_targets_no_update
+    BEFORE UPDATE ON candidate_context_targets
+    BEGIN
+      SELECT RAISE(ABORT, 'candidate context targets are immutable');
+    END;
+
+    CREATE TRIGGER candidate_context_targets_no_delete
+    BEFORE DELETE ON candidate_context_targets
+    BEGIN
+      SELECT RAISE(ABORT, 'candidate context targets are immutable');
+    END;
+
+    CREATE TRIGGER accepted_context_entries_no_update
+    BEFORE UPDATE ON accepted_context_entries
+    BEGIN
+      SELECT RAISE(ABORT, 'accepted context entries are immutable');
+    END;
+
+    CREATE TRIGGER accepted_context_entries_no_delete
+    BEFORE DELETE ON accepted_context_entries
+    BEGIN
+      SELECT RAISE(ABORT, 'accepted context entries are immutable');
+    END;
+
+    CREATE TRIGGER context_entry_exclusions_no_update
+    BEFORE UPDATE ON context_entry_exclusions
+    BEGIN
+      SELECT RAISE(ABORT, 'context entry exclusions are immutable');
+    END;
+
+    CREATE TRIGGER context_entry_exclusions_no_delete
+    BEFORE DELETE ON context_entry_exclusions
+    BEGIN
+      SELECT RAISE(ABORT, 'context entry exclusions are immutable');
+    END;
+
+    CREATE TRIGGER file_objects_validate_update
+    BEFORE UPDATE ON file_objects
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.workspace_id IS NOT OLD.workspace_id
+      OR NEW.content_sha256 IS NOT OLD.content_sha256
+      OR NEW.byte_size IS NOT OLD.byte_size
+      OR NEW.verified_media_type IS NOT OLD.verified_media_type
+      OR NEW.storage_key IS NOT OLD.storage_key
+      OR NEW.scan_provider IS NOT OLD.scan_provider
+      OR NEW.created_at IS NOT OLD.created_at
+      OR (OLD.storage_version_id IS NOT NULL AND (
+        NEW.storage_version_id IS NOT OLD.storage_version_id
+        OR NEW.storage_etag IS NOT OLD.storage_etag
+      ))
+      OR (OLD.scan_status = 'pending_upload' AND NEW.scan_status NOT IN (
+        'pending_upload', 'scanning', 'storage_failed'
+      ))
+      OR (OLD.scan_status = 'storage_failed' AND NEW.scan_status NOT IN (
+        'storage_failed', 'pending_upload'
+      ))
+      OR (OLD.scan_status = 'scanning' AND NEW.scan_status NOT IN (
+        'scanning', 'clean', 'threats_found', 'unsupported', 'scan_failed'
+      ))
+      OR (OLD.scan_status IN ('clean', 'threats_found', 'unsupported', 'scan_failed')
+        AND NEW.scan_status IS NOT OLD.scan_status)
+      OR (NEW.scan_status NOT IN ('pending_upload', 'storage_failed')
+        AND NEW.storage_version_id IS NULL)
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid or immutable file object update');
+    END;
+
+    CREATE TRIGGER file_objects_no_delete
+    BEFORE DELETE ON file_objects
+    BEGIN
+      SELECT RAISE(ABORT, 'file objects preserve history');
+    END;
+
+    CREATE TRIGGER file_context_references_no_update
+    BEFORE UPDATE ON file_context_references
+    BEGIN
+      SELECT RAISE(ABORT, 'file context references are immutable');
+    END;
+
+    CREATE TRIGGER file_context_references_no_delete
+    BEFORE DELETE ON file_context_references
+    BEGIN
+      SELECT RAISE(ABORT, 'file context references are immutable');
+    END;
+
+    CREATE TRIGGER file_reference_exclusions_no_update
+    BEFORE UPDATE ON file_reference_exclusions
+    BEGIN
+      SELECT RAISE(ABORT, 'file reference exclusions are immutable');
+    END;
+
+    CREATE TRIGGER file_reference_exclusions_no_delete
+    BEFORE DELETE ON file_reference_exclusions
+    BEGIN
+      SELECT RAISE(ABORT, 'file reference exclusions are immutable');
+    END;
+
+    CREATE TRIGGER file_upload_intents_no_update
+    BEFORE UPDATE ON file_upload_intents
+    BEGIN
+      SELECT RAISE(ABORT, 'file upload intents are immutable');
+    END;
+
+    CREATE TRIGGER file_upload_intents_no_delete
+    BEFORE DELETE ON file_upload_intents
+    BEGIN
+      SELECT RAISE(ABORT, 'file upload intents are immutable');
+    END;
+
+    CREATE TRIGGER file_upload_completions_no_update
+    BEFORE UPDATE ON file_upload_completions
+    BEGIN
+      SELECT RAISE(ABORT, 'file upload completions are immutable');
+    END;
+
+    CREATE TRIGGER file_upload_completions_no_delete
+    BEFORE DELETE ON file_upload_completions
+    BEGIN
+      SELECT RAISE(ABORT, 'file upload completions are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_offers_no_update
+    BEFORE UPDATE ON host_file_save_offers
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save offers are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_decisions_no_update
+    BEFORE UPDATE ON host_file_save_decisions
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save decisions are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_decisions_no_delete
+    BEFORE DELETE ON host_file_save_decisions
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save decisions are immutable');
+    END;
+
+    CREATE TRIGGER capture_save_previews_no_update
+    BEFORE UPDATE ON capture_save_previews
+    BEGIN
+      SELECT RAISE(ABORT, 'capture save previews are immutable');
+    END;
+
+    CREATE TRIGGER artifacts_no_update
+    BEFORE UPDATE ON artifacts
+    BEGIN
+      SELECT RAISE(ABORT, 'artifacts are immutable');
+    END;
+
+    CREATE TRIGGER artifacts_no_delete
+    BEFORE DELETE ON artifacts
+    BEGIN
+      SELECT RAISE(ABORT, 'artifacts are immutable');
+    END;
+
+    CREATE TRIGGER artifact_versions_no_update
+    BEFORE UPDATE ON artifact_versions
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact versions are immutable');
+    END;
+
+    CREATE TRIGGER artifact_versions_no_delete
+    BEFORE DELETE ON artifact_versions
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact versions are immutable');
+    END;
+
+    CREATE TRIGGER artifact_save_previews_no_update
+    BEFORE UPDATE ON artifact_save_previews
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact save previews are immutable');
+    END;
+
+    CREATE TRIGGER artifact_read_receipts_no_update
+    BEFORE UPDATE ON artifact_read_receipts
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact read receipts are immutable');
+    END;
+
+    CREATE TRIGGER artifact_read_receipt_uses_no_update
+    BEFORE UPDATE ON artifact_read_receipt_uses
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact read receipt uses are immutable');
+    END;
+
+    CREATE TRIGGER artifact_read_receipt_uses_no_delete
+    BEFORE DELETE ON artifact_read_receipt_uses
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact read receipt uses are immutable');
+    END;
+
+    CREATE TRIGGER artifact_lifecycle_events_no_update
+    BEFORE UPDATE ON artifact_lifecycle_events
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact lifecycle events are immutable');
+    END;
+
+    CREATE TRIGGER artifact_lifecycle_events_no_delete
+    BEFORE DELETE ON artifact_lifecycle_events
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact lifecycle events are immutable');
+    END;
+
+    CREATE TRIGGER artifact_decision_resolutions_no_update
+    BEFORE UPDATE ON artifact_decision_resolutions
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact decision resolutions are immutable');
+    END;
+
+    CREATE TRIGGER artifact_decision_resolutions_no_delete
+    BEFORE DELETE ON artifact_decision_resolutions
+    BEGIN
+      SELECT RAISE(ABORT, 'artifact decision resolutions are immutable');
+    END;
+
+    CREATE TRIGGER save_confirmation_receipts_no_update
+    BEFORE UPDATE ON save_confirmation_receipts
+    BEGIN
+      SELECT RAISE(ABORT, 'save confirmation receipts are immutable');
+    END;
+
+    CREATE TRIGGER save_confirmation_receipts_no_delete
+    BEFORE DELETE ON save_confirmation_receipts
+    BEGIN
+      SELECT RAISE(ABORT, 'save confirmation receipts are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_offer_authorities_no_update
+    BEFORE UPDATE ON host_file_save_offer_authorities
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save offer authorities are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_transfer_intents_no_update
+    BEFORE UPDATE ON host_file_save_transfer_intents
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save transfer intents are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_transfer_intents_no_delete
+    BEFORE DELETE ON host_file_save_transfer_intents
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save transfer intents are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_transfer_completions_no_update
+    BEFORE UPDATE ON host_file_save_transfer_completions
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save transfer completions are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_transfer_completions_no_delete
+    BEFORE DELETE ON host_file_save_transfer_completions
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save transfer completions are immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_transfer_availability_no_update
+    BEFORE UPDATE ON host_file_save_transfer_availability
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save transfer availability is immutable');
+    END;
+
+    CREATE TRIGGER host_file_save_transfer_availability_no_delete
+    BEFORE DELETE ON host_file_save_transfer_availability
+    BEGIN
+      SELECT RAISE(ABORT, 'host file save transfer availability is immutable');
+    END;
+
+    CREATE TRIGGER evidence_file_sources_no_update
+    BEFORE UPDATE ON evidence_file_sources
+    BEGIN
+      SELECT RAISE(ABORT, 'evidence file sources are immutable');
+    END;
+
+    CREATE TRIGGER evidence_file_sources_no_delete
+    BEFORE DELETE ON evidence_file_sources
+    BEGIN
+      SELECT RAISE(ABORT, 'evidence file sources are immutable');
+    END;
+  `);
+}

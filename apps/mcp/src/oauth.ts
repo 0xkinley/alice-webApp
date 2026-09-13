@@ -1,5 +1,11 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { appendAuditEvent, authenticateUser, tenantScopeForConnection } from "@alice/domain";
+import {
+  appendAuditEvent,
+  authenticateUser,
+  createOAuthConsentTransaction,
+  oauthConsentTokenHash,
+  tenantScopeForConnection,
+} from "@alice/domain";
 import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/server";
 
 const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
@@ -39,15 +45,6 @@ function parseScope(value) {
   return [...new Set(scopes.filter((scope) => SUPPORTED_SCOPES.has(scope)))];
 }
 
-function describeScopes(scopes) {
-  const labels: string[] = [];
-  if (scopes.includes("mcp:read")) labels.push("read");
-  if (scopes.includes("mcp:write")) labels.push("candidate-write");
-  if (scopes.includes("offline_access")) labels.push("persistent refresh");
-  if (labels.length === 1) return `${labels[0]} access`;
-  return `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)} access`;
-}
-
 function validateRedirectUri(value) {
   try {
     const url = new URL(value);
@@ -60,7 +57,7 @@ function validateRedirectUri(value) {
   }
 }
 
-function authenticateClient(database, request) {
+async function authenticateClient(database, request) {
   let clientId = request.body.client_id;
   let clientSecret = request.body.client_secret;
   const authorization = request.get("authorization");
@@ -72,7 +69,9 @@ function authenticateClient(database, request) {
     clientSecret = decodeURIComponent(decoded.slice(separator + 1));
   }
 
-  const client = database.prepare("SELECT * FROM oauth_clients WHERE client_id = ?").get(clientId);
+  const client = await database
+    .prepare("SELECT * FROM oauth_clients WHERE client_id = ?")
+    .get(clientId);
   if (!client) return undefined;
   if (client.token_endpoint_auth_method === "none") return client;
   if (!clientSecret || !constantTimeEqual(sha256(clientSecret), client.client_secret_hash)) {
@@ -81,13 +80,13 @@ function authenticateClient(database, request) {
   return client;
 }
 
-function issueTokens(database, { clientId, connectionId, scopes, resource, userId }) {
+async function issueTokens(database, { clientId, connectionId, scopes, resource, userId }) {
   const accessToken = secret("alice_access");
   const refreshToken = secret("alice_refresh");
   const now = nowSeconds();
   const scope = scopes.filter((item) => item !== "offline_access").join(" ");
 
-  database
+  await database
     .prepare(
       `INSERT INTO oauth_access_tokens
         (token_hash, client_id, user_id, connection_id, scope, resource, expires_at)
@@ -102,7 +101,7 @@ function issueTokens(database, { clientId, connectionId, scopes, resource, userI
       resource,
       now + ACCESS_TOKEN_TTL_SECONDS,
     );
-  database
+  await database
     .prepare(
       `INSERT INTO oauth_refresh_tokens
         (token_hash, client_id, user_id, connection_id, scope, resource, expires_at)
@@ -127,15 +126,6 @@ function issueTokens(database, { clientId, connectionId, scopes, resource, userI
   };
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 function clientClassification(name) {
   const normalized = String(name).toLowerCase();
   if (normalized.includes("chatgpt") || normalized.includes("openai")) return "chatgpt";
@@ -143,7 +133,7 @@ function clientClassification(name) {
   return "unknown_mcp_client";
 }
 
-export function createOAuth({ database, publicUrl }) {
+export function createOAuth({ database, publicUrl, reviewUrl = publicUrl }) {
   const resource = new URL("/mcp", publicUrl).href;
   const issuer = new URL(publicUrl).origin;
   const metadata = {
@@ -161,7 +151,7 @@ export function createOAuth({ database, publicUrl }) {
 
   const verifier = {
     async verifyAccessToken(token) {
-      const row = database
+      const row = await database
         .prepare("SELECT * FROM oauth_access_tokens WHERE token_hash = ?")
         .get(sha256(token));
       if (!row || row.revoked_at || row.expires_at <= nowSeconds()) {
@@ -176,14 +166,14 @@ export function createOAuth({ database, publicUrl }) {
           "The access token is for another resource.",
         );
       }
-      const connection = tenantScopeForConnection(database, {
+      const connection = await tenantScopeForConnection(database, {
         userId: row.user_id,
         connectionId: row.connection_id,
       });
       if (!connection || connection.clientId !== row.client_id) {
         throw new OAuthError(OAuthErrorCode.InvalidToken, "The connection is revoked.");
       }
-      database
+      await database
         .prepare("UPDATE integration_connections SET last_used_at = ? WHERE id = ?")
         .run(new Date().toISOString(), row.connection_id);
       return {
@@ -197,7 +187,7 @@ export function createOAuth({ database, publicUrl }) {
     },
   };
 
-  function register(request, response) {
+  async function register(request, response) {
     const redirectUris = request.body.redirect_uris;
     const authMethod = request.body.token_endpoint_auth_method || "none";
     const registeredScopes = parseScope(request.body.scope);
@@ -219,7 +209,7 @@ export function createOAuth({ database, publicUrl }) {
 
     const clientId = secret("alice_client");
     const clientSecret = authMethod === "none" ? undefined : secret("alice_secret");
-    database
+    await database
       .prepare(
         `INSERT INTO oauth_clients
           (client_id, client_secret_hash, client_name, redirect_uris_json, token_endpoint_auth_method, created_at)
@@ -247,8 +237,8 @@ export function createOAuth({ database, publicUrl }) {
     });
   }
 
-  function authorizeForm(request, response) {
-    const client = database
+  async function authorizeForm(request, response) {
+    const client = await database
       .prepare("SELECT * FROM oauth_clients WHERE client_id = ?")
       .get(request.query.client_id);
     const redirectUris = client ? JSON.parse(client.redirect_uris_json) : [];
@@ -271,41 +261,93 @@ export function createOAuth({ database, publicUrl }) {
       return oauthError(response, 400, "invalid_target", "Unknown MCP resource.");
     }
 
-    const requestedScopes = parseScope(request.query.scope);
-
-    const fields = [
-      "client_id",
-      "redirect_uri",
-      "response_type",
-      "state",
-      "code_challenge",
-      "code_challenge_method",
-      "scope",
-      "resource",
-    ]
-      .map(
-        (name) =>
-          `<input type="hidden" name="${name}" value="${escapeHtml(request.query[name] || "")}">`,
-      )
-      .join("\n");
-
-    response.type("html").send(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Authorize alice.</title><style>body{font:16px system-ui;max-width:34rem;margin:4rem auto;padding:0 1rem}input,button{font:inherit;padding:.7rem;width:100%;box-sizing:border-box;margin:.4rem 0}small{color:#555}</style></head>
-<body><h1>Authorize alice.</h1><p><strong>${escapeHtml(client.client_name)}</strong> is requesting ${escapeHtml(describeScopes(requestedScopes))} to your private alice. workspace.</p>
-<p><small>Writes create pending candidates only. They cannot change trusted state.</small></p>
-<form method="post" action="/authorize">${fields}<label>Email<input type="email" name="email" required autocomplete="email"></label><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button type="submit">Authorize</button></form></body></html>`);
+    const consent = await createOAuthConsentTransaction(database, {
+      clientId: client.client_id,
+      redirectUri: String(request.query.redirect_uri),
+      ...(request.query.state ? { state: String(request.query.state) } : {}),
+      codeChallenge: String(request.query.code_challenge),
+      scopes: parseScope(request.query.scope),
+      resource: requestedResource,
+      mcpOrigin: issuer,
+      webOrigin: reviewUrl,
+    });
+    response.set("Cache-Control", "no-store").redirect(303, consent.consent_url);
   }
 
-  function authorize(request, response) {
-    const client = database
+  async function writeAuthorizationGrant({
+    client,
+    user,
+    redirectUri,
+    state,
+    codeChallenge,
+    scopes,
+    requestedResource,
+  }) {
+    const code = secret("alice_code");
+    const connectionId = secret("connection");
+    const connectedAt = new Date().toISOString();
+    await database
+      .prepare(
+        `INSERT INTO integration_connections
+          (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
+           first_connected_at, last_used_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        connectionId,
+        user.id,
+        user.workspace_id,
+        client.client_id,
+        clientClassification(client.client_name),
+        scopes.join(" "),
+        connectedAt,
+        connectedAt,
+      );
+    await database
+      .prepare(
+        `INSERT INTO oauth_authorization_codes
+          (code_hash, client_id, user_id, connection_id, redirect_uri, code_challenge,
+           scope, resource, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        sha256(code),
+        client.client_id,
+        user.id,
+        connectionId,
+        redirectUri,
+        codeChallenge,
+        scopes.join(" "),
+        requestedResource,
+        nowSeconds() + AUTHORIZATION_CODE_TTL_SECONDS,
+      );
+    await appendAuditEvent(database, {
+      workspaceId: user.workspace_id,
+      action: "integration_connection_authorized",
+      actorType: "human_user",
+      actorId: user.id,
+      correlationId: `connection_${connectionId}`,
+      metadata: {
+        connection_id: connectionId,
+        client_id: client.client_id,
+        scopes,
+      },
+    });
+    const redirect = new URL(redirectUri);
+    redirect.searchParams.set("code", code);
+    if (state) redirect.searchParams.set("state", state);
+    return redirect.href;
+  }
+
+  async function authorize(request, response) {
+    const client = await database
       .prepare("SELECT * FROM oauth_clients WHERE client_id = ?")
       .get(request.body.client_id);
     const redirectUris = client ? JSON.parse(client.redirect_uris_json) : [];
     if (!client || !redirectUris.includes(request.body.redirect_uri)) {
       return oauthError(response, 400, "invalid_request", "Unknown client or redirect URI.");
     }
-    const user = authenticateUser(database, request.body);
+    const user = await authenticateUser(database, request.body);
     if (!user) {
       return response
         .status(403)
@@ -320,73 +362,77 @@ export function createOAuth({ database, publicUrl }) {
       return oauthError(response, 400, "invalid_target", "Unknown MCP resource.");
     }
 
-    const code = secret("alice_code");
     const scopes = parseScope(request.body.scope);
-    const connectionId = secret("connection");
-    const connectedAt = new Date().toISOString();
-    database.exec("BEGIN IMMEDIATE");
-    try {
-      database
-        .prepare(
-          `INSERT INTO integration_connections
-            (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
-             first_connected_at, last_used_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          connectionId,
-          user.id,
-          user.workspace_id,
-          client.client_id,
-          clientClassification(client.client_name),
-          scopes.join(" "),
-          connectedAt,
-          connectedAt,
-        );
-      database
-        .prepare(
-          `INSERT INTO oauth_authorization_codes
-            (code_hash, client_id, user_id, connection_id, redirect_uri, code_challenge,
-             scope, resource, expires_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          sha256(code),
-          client.client_id,
-          user.id,
-          connectionId,
-          request.body.redirect_uri,
-          request.body.code_challenge,
-          scopes.join(" "),
-          resource,
-          nowSeconds() + AUTHORIZATION_CODE_TTL_SECONDS,
-        );
-      appendAuditEvent(database, {
-        workspaceId: user.workspace_id,
-        action: "integration_connection_authorized",
-        actorType: "human_user",
-        actorId: user.id,
-        correlationId: `connection_${connectionId}`,
-        metadata: {
-          connection_id: connectionId,
-          client_id: client.client_id,
-          scopes,
-        },
-      });
-      database.exec("COMMIT");
-    } catch (error) {
-      database.exec("ROLLBACK");
-      throw error;
-    }
-
-    const redirect = new URL(request.body.redirect_uri);
-    redirect.searchParams.set("code", code);
-    if (request.body.state) redirect.searchParams.set("state", request.body.state);
-    response.redirect(303, redirect.href);
+    const redirect = await database.transaction(() =>
+      writeAuthorizationGrant({
+        client,
+        user,
+        redirectUri: request.body.redirect_uri,
+        state: request.body.state,
+        codeChallenge: request.body.code_challenge,
+        scopes,
+        requestedResource,
+      }),
+    );
+    response.redirect(303, redirect);
   }
 
-  function token(request, response) {
-    const client = authenticateClient(database, request);
+  async function authorizeComplete(request, response) {
+    const tokenHash = oauthConsentTokenHash(request.query.request);
+    if (!tokenHash) {
+      return oauthError(response, 400, "invalid_request", "Connection request unavailable.");
+    }
+    const redirect = await database.transaction(async () => {
+      const transaction = await database
+        .prepare(
+          `SELECT consent.*, client.client_name, alice_user.id AS user_id,
+                  workspace.id AS workspace_id
+           FROM oauth_consent_transactions consent
+           JOIN oauth_clients client ON client.client_id = consent.client_id
+           JOIN users alice_user ON alice_user.id = consent.approved_user_id
+           JOIN workspaces workspace ON workspace.user_id = alice_user.id
+           WHERE consent.token_hash = ? FOR UPDATE`,
+        )
+        .get(tokenHash);
+      if (
+        !transaction ||
+        !transaction.approved_user_id ||
+        Number(transaction.expires_at) <= nowSeconds()
+      ) {
+        return undefined;
+      }
+      const redirectUris = JSON.parse(
+        (
+          await database
+            .prepare("SELECT redirect_uris_json FROM oauth_clients WHERE client_id = ?")
+            .get(transaction.client_id)
+        ).redirect_uris_json,
+      );
+      if (!redirectUris.includes(transaction.redirect_uri) || transaction.resource !== resource) {
+        return undefined;
+      }
+      const destination = await writeAuthorizationGrant({
+        client: { client_id: transaction.client_id, client_name: transaction.client_name },
+        user: { id: transaction.user_id, workspace_id: transaction.workspace_id },
+        redirectUri: transaction.redirect_uri,
+        state: transaction.oauth_state,
+        codeChallenge: transaction.code_challenge,
+        scopes: String(transaction.scope).split(" ").filter(Boolean),
+        requestedResource: transaction.resource,
+      });
+      await database
+        .prepare("DELETE FROM oauth_consent_transactions WHERE token_hash = ?")
+        .run(tokenHash);
+      return destination;
+    });
+    if (!redirect) {
+      return oauthError(response, 400, "invalid_request", "Connection request unavailable.");
+    }
+    response.set("Cache-Control", "no-store").redirect(303, redirect);
+  }
+
+  async function token(request, response) {
+    const client = await authenticateClient(database, request);
     if (!client) {
       response.set("WWW-Authenticate", 'Basic realm="alice token endpoint"');
       return oauthError(response, 401, "invalid_client", "Client authentication failed.");
@@ -394,72 +440,80 @@ export function createOAuth({ database, publicUrl }) {
 
     if (request.body.grant_type === "authorization_code") {
       const codeHash = sha256(String(request.body.code || ""));
-      const row = database
-        .prepare("SELECT * FROM oauth_authorization_codes WHERE code_hash = ?")
-        .get(codeHash);
       const challenge = sha256(String(request.body.code_verifier || ""));
       const encodedChallenge = Buffer.from(challenge, "hex").toString("base64url");
-      if (
-        !row ||
-        row.client_id !== client.client_id ||
-        row.redirect_uri !== request.body.redirect_uri ||
-        row.consumed_at ||
-        row.expires_at <= nowSeconds() ||
-        !constantTimeEqual(encodedChallenge, row.code_challenge)
-      ) {
-        return oauthError(response, 400, "invalid_grant", "Authorization code validation failed.");
-      }
-      database
-        .prepare("UPDATE oauth_authorization_codes SET consumed_at = ? WHERE code_hash = ?")
-        .run(new Date().toISOString(), codeHash);
-      return response.json(
-        issueTokens(database, {
+      const tokens = await database.transaction(async () => {
+        const row = await database
+          .prepare("SELECT * FROM oauth_authorization_codes WHERE code_hash = ? FOR UPDATE")
+          .get(codeHash);
+        if (
+          !row ||
+          row.client_id !== client.client_id ||
+          row.redirect_uri !== request.body.redirect_uri ||
+          row.consumed_at ||
+          row.expires_at <= nowSeconds() ||
+          !constantTimeEqual(encodedChallenge, row.code_challenge)
+        ) {
+          return undefined;
+        }
+        await database
+          .prepare("UPDATE oauth_authorization_codes SET consumed_at = ? WHERE code_hash = ?")
+          .run(new Date().toISOString(), codeHash);
+        return issueTokens(database, {
           clientId: client.client_id,
           connectionId: row.connection_id,
           scopes: row.scope.split(" "),
           resource: row.resource,
           userId: row.user_id,
-        }),
-      );
+        });
+      });
+      if (!tokens) {
+        return oauthError(response, 400, "invalid_grant", "Authorization code validation failed.");
+      }
+      return response.json(tokens);
     }
 
     if (request.body.grant_type === "refresh_token") {
       const refreshHash = sha256(String(request.body.refresh_token || ""));
-      const row = database
-        .prepare("SELECT * FROM oauth_refresh_tokens WHERE token_hash = ?")
-        .get(refreshHash);
-      if (
-        !row ||
-        row.client_id !== client.client_id ||
-        row.revoked_at ||
-        row.expires_at <= nowSeconds()
-      ) {
-        return oauthError(response, 400, "invalid_grant", "Refresh token validation failed.");
-      }
-      database
-        .prepare("UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE token_hash = ?")
-        .run(new Date().toISOString(), refreshHash);
-      return response.json(
-        issueTokens(database, {
+      const tokens = await database.transaction(async () => {
+        const row = await database
+          .prepare("SELECT * FROM oauth_refresh_tokens WHERE token_hash = ? FOR UPDATE")
+          .get(refreshHash);
+        if (
+          !row ||
+          row.client_id !== client.client_id ||
+          row.revoked_at ||
+          row.expires_at <= nowSeconds()
+        ) {
+          return undefined;
+        }
+        await database
+          .prepare("UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE token_hash = ?")
+          .run(new Date().toISOString(), refreshHash);
+        return issueTokens(database, {
           clientId: client.client_id,
           connectionId: row.connection_id,
           scopes: row.scope.split(" "),
           resource: row.resource,
           userId: row.user_id,
-        }),
-      );
+        });
+      });
+      if (!tokens) {
+        return oauthError(response, 400, "invalid_grant", "Refresh token validation failed.");
+      }
+      return response.json(tokens);
     }
 
     return oauthError(response, 400, "unsupported_grant_type", "Unsupported grant type.");
   }
 
-  function revoke(request, response) {
-    const client = authenticateClient(database, request);
+  async function revoke(request, response) {
+    const client = await authenticateClient(database, request);
     if (!client)
       return oauthError(response, 401, "invalid_client", "Client authentication failed.");
     const tokenHash = sha256(String(request.body.token || ""));
     const revokedAt = new Date().toISOString();
-    const connection = database
+    const connection = await database
       .prepare(
         `SELECT tokens.connection_id, connections.workspace_id, connections.user_id
          FROM (
@@ -471,22 +525,21 @@ export function createOAuth({ database, publicUrl }) {
       )
       .get(tokenHash, client.client_id, tokenHash, client.client_id);
     if (connection) {
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        database
+      await database.transaction(async () => {
+        await database
           .prepare(
             "UPDATE oauth_access_tokens SET revoked_at = ? WHERE connection_id = ? AND client_id = ?",
           )
           .run(revokedAt, connection.connection_id, client.client_id);
-        database
+        await database
           .prepare(
             "UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE connection_id = ? AND client_id = ?",
           )
           .run(revokedAt, connection.connection_id, client.client_id);
-        database
+        await database
           .prepare("UPDATE integration_connections SET revoked_at = ? WHERE id = ?")
           .run(revokedAt, connection.connection_id);
-        appendAuditEvent(database, {
+        await appendAuditEvent(database, {
           workspaceId: connection.workspace_id,
           action: "integration_connection_revoked",
           actorType: "human_user",
@@ -494,14 +547,20 @@ export function createOAuth({ database, publicUrl }) {
           correlationId: `connection_${connection.connection_id}`,
           metadata: { connection_id: connection.connection_id, client_id: client.client_id },
         });
-        database.exec("COMMIT");
-      } catch (error) {
-        database.exec("ROLLBACK");
-        throw error;
-      }
+      });
     }
     response.status(200).end();
   }
 
-  return { authorize, authorizeForm, metadata, register, resource, revoke, token, verifier };
+  return {
+    authorize,
+    authorizeComplete,
+    authorizeForm,
+    metadata,
+    register,
+    resource,
+    revoke,
+    token,
+    verifier,
+  };
 }

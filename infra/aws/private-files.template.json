@@ -1,0 +1,1435 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Credential-free alice. private-alpha foundation and staged Lambda services in eu-central-1. Creates billable resources only when explicitly deployed.",
+  "Parameters": {
+    "BucketName": {
+      "Type": "String",
+      "AllowedPattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$",
+      "Description": "Globally unique private file bucket name."
+    },
+    "DeployServices": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "Set true only after the ARM64 digest image is present and database migration 015 is applied."
+    },
+    "RunMigration": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "Temporarily creates the private Fargate migration task and paid interface endpoints. Disable immediately after one successful run."
+    },
+    "RunBackupVerification": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "Temporarily creates the private Fargate backup/restore verifier and paid interface endpoints. Disable immediately after one successful run."
+    },
+    "RunProjectErasure": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "Temporarily creates the private two-phase project-erasure task and paid interface endpoints. Disable immediately after verified completion."
+    },
+    "RunInvitationOperator": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "Temporarily creates a private direct-invoke Lambda for issuing one alpha invitation. Disable immediately after use."
+    },
+    "ImageUri": {
+      "Type": "String",
+      "Default": "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "AllowedPattern": "^[0-9]{12}\\.dkr\\.ecr\\.eu-central-1\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$",
+      "Description": "Immutable ARM64 alice. image digest in the repository output by this stack."
+    },
+    "OperatorImageUri": {
+      "Type": "String",
+      "Default": "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "AllowedPattern": "^[0-9]{12}\\.dkr\\.ecr\\.eu-central-1\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$",
+      "Description": "Immutable ARM64 image digest used only by the temporary invitation operator."
+    },
+    "BackupImageUri": {
+      "Type": "String",
+      "Default": "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "AllowedPattern": "^[0-9]{12}\\.dkr\\.ecr\\.eu-central-1\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$",
+      "Description": "Immutable ARM64 image digest used only by the temporary PostgreSQL backup/restore verifier."
+    },
+    "ErasureImageUri": {
+      "Type": "String",
+      "Default": "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "AllowedPattern": "^[0-9]{12}\\.dkr\\.ecr\\.eu-central-1\\.amazonaws\\.com/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$",
+      "Description": "Immutable ARM64 image digest used only by the temporary project-erasure operator."
+    },
+    "OriginsConfigured": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "Set true only on the final update with both exact generated Function URL origins."
+    },
+    "WebPublicUrl": {
+      "Type": "String",
+      "Default": "https://pending.invalid",
+      "AllowedPattern": "^https://(?:pending\\.invalid|[a-z0-9-]+\\.lambda-url\\.eu-central-1\\.on\\.aws)$"
+    },
+    "McpPublicUrl": {
+      "Type": "String",
+      "Default": "https://pending.invalid",
+      "AllowedPattern": "^https://(?:pending\\.invalid|[a-z0-9-]+\\.lambda-url\\.eu-central-1\\.on\\.aws)$"
+    },
+    "ResourcePrefix": {
+      "Type": "String",
+      "Default": "alice-private-alpha",
+      "AllowedPattern": "^[a-z][a-z0-9-]{2,31}$"
+    }
+  },
+  "Rules": {
+    "FrankfurtOnly": {
+      "Assertions": [
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "AWS::Region" }, "eu-central-1"] },
+          "AssertDescription": "This reviewed private-alpha stack is approved only for eu-central-1."
+        }
+      ]
+    },
+    "OriginsRequireServices": {
+      "RuleCondition": { "Fn::Equals": [{ "Ref": "OriginsConfigured" }, "true"] },
+      "Assertions": [
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "DeployServices" }, "true"] },
+          "AssertDescription": "Public origins cannot be enabled before both services exist."
+        },
+        {
+          "Assert": {
+            "Fn::Not": [{ "Fn::Equals": [{ "Ref": "WebPublicUrl" }, "https://pending.invalid"] }]
+          },
+          "AssertDescription": "The exact generated web Function URL is required."
+        },
+        {
+          "Assert": {
+            "Fn::Not": [{ "Fn::Equals": [{ "Ref": "McpPublicUrl" }, "https://pending.invalid"] }]
+          },
+          "AssertDescription": "The exact generated MCP Function URL is required."
+        }
+      ]
+    },
+    "MigrationExcludesServices": {
+      "RuleCondition": { "Fn::Equals": [{ "Ref": "RunMigration" }, "true"] },
+      "Assertions": [
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "DeployServices" }, "false"] },
+          "AssertDescription": "The privileged migration task and runtime services cannot coexist."
+        }
+      ]
+    },
+    "BackupVerificationIsExclusive": {
+      "RuleCondition": { "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "true"] },
+      "Assertions": [
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "DeployServices" }, "false"] },
+          "AssertDescription": "The privileged backup verifier and runtime services cannot coexist."
+        },
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "RunMigration" }, "false"] },
+          "AssertDescription": "Migration and backup verification cannot run together."
+        },
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Equals": [
+                  { "Ref": "BackupImageUri" },
+                  "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                ]
+              }
+            ]
+          },
+          "AssertDescription": "A real immutable ECR image digest is required for backup verification."
+        }
+      ]
+    },
+    "ProjectErasureIsExclusive": {
+      "RuleCondition": { "Fn::Equals": [{ "Ref": "RunProjectErasure" }, "true"] },
+      "Assertions": [
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "RunMigration" }, "false"] },
+          "AssertDescription": "Project erasure and migration cannot run together."
+        },
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "false"] },
+          "AssertDescription": "Project erasure and backup verification cannot run together."
+        },
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "RunInvitationOperator" }, "false"] },
+          "AssertDescription": "Project erasure and the invitation operator cannot run together."
+        },
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Equals": [
+                  { "Ref": "ErasureImageUri" },
+                  "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                ]
+              }
+            ]
+          },
+          "AssertDescription": "A real immutable ECR image digest is required for project erasure."
+        }
+      ]
+    },
+    "InvitationOperatorRequiresHostedServices": {
+      "RuleCondition": {
+        "Fn::Equals": [{ "Ref": "RunInvitationOperator" }, "true"]
+      },
+      "Assertions": [
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "DeployServices" }, "true"] },
+          "AssertDescription": "The invitation operator is only available alongside the hosted services."
+        },
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "OriginsConfigured" }, "true"] },
+          "AssertDescription": "The invitation operator requires the exact hosted web origin."
+        },
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Equals": [
+                  { "Ref": "OperatorImageUri" },
+                  "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                ]
+              }
+            ]
+          },
+          "AssertDescription": "A real immutable ECR image digest is required for the invitation operator."
+        }
+      ]
+    },
+    "ImageRequiredForWorkloads": {
+      "RuleCondition": {
+        "Fn::Or": [
+          { "Fn::Equals": [{ "Ref": "RunMigration" }, "true"] },
+          { "Fn::Equals": [{ "Ref": "RunProjectErasure" }, "true"] },
+          { "Fn::Equals": [{ "Ref": "DeployServices" }, "true"] }
+        ]
+      },
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Equals": [
+                  { "Ref": "ImageUri" },
+                  "000000000000.dkr.ecr.eu-central-1.amazonaws.com/pending@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                ]
+              }
+            ]
+          },
+          "AssertDescription": "A real immutable ECR image digest is required for migration, project erasure, or services."
+        }
+      ]
+    }
+  },
+  "Conditions": {
+    "BackupVerificationEnabled": {
+      "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "true"]
+    },
+    "ProjectErasureEnabled": {
+      "Fn::Equals": [{ "Ref": "RunProjectErasure" }, "true"]
+    },
+    "PrivilegedDatabaseOperatorEnabled": {
+      "Fn::Or": [
+        { "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "true"] },
+        { "Fn::Equals": [{ "Ref": "RunProjectErasure" }, "true"] }
+      ]
+    },
+    "PrivateDatabaseTaskEnabled": {
+      "Fn::Or": [
+        { "Fn::Equals": [{ "Ref": "RunMigration" }, "true"] },
+        { "Fn::Equals": [{ "Ref": "RunBackupVerification" }, "true"] },
+        { "Fn::Equals": [{ "Ref": "RunProjectErasure" }, "true"] }
+      ]
+    },
+    "InvitationOperatorEnabled": {
+      "Fn::Equals": [{ "Ref": "RunInvitationOperator" }, "true"]
+    },
+    "ServicesEnabled": { "Fn::Equals": [{ "Ref": "DeployServices" }, "true"] },
+    "HostedOriginsSupplied": {
+      "Fn::And": [
+        {
+          "Fn::Not": [{ "Fn::Equals": [{ "Ref": "WebPublicUrl" }, "https://pending.invalid"] }]
+        },
+        {
+          "Fn::Not": [{ "Fn::Equals": [{ "Ref": "McpPublicUrl" }, "https://pending.invalid"] }]
+        }
+      ]
+    },
+    "PublicOriginsReady": {
+      "Fn::And": [
+        { "Fn::Equals": [{ "Ref": "DeployServices" }, "true"] },
+        { "Fn::Equals": [{ "Ref": "OriginsConfigured" }, "true"] }
+      ]
+    }
+  },
+  "Resources": {
+    "Vpc": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": "10.42.0.0/16",
+        "EnableDnsHostnames": true,
+        "EnableDnsSupport": true,
+        "InstanceTenancy": "default",
+        "Tags": [
+          { "Key": "Name", "Value": { "Fn::Sub": "${ResourcePrefix}-vpc" } },
+          { "Key": "alice:managed-by", "Value": "cloudformation" }
+        ]
+      }
+    },
+    "PrivateSubnetA": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "AvailabilityZone": { "Fn::Select": [0, { "Fn::GetAZs": "" }] },
+        "CidrBlock": "10.42.0.0/24",
+        "MapPublicIpOnLaunch": false,
+        "VpcId": { "Ref": "Vpc" },
+        "Tags": [{ "Key": "Name", "Value": { "Fn::Sub": "${ResourcePrefix}-private-a" } }]
+      }
+    },
+    "PrivateSubnetB": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "AvailabilityZone": { "Fn::Select": [1, { "Fn::GetAZs": "" }] },
+        "CidrBlock": "10.42.1.0/24",
+        "MapPublicIpOnLaunch": false,
+        "VpcId": { "Ref": "Vpc" },
+        "Tags": [{ "Key": "Name", "Value": { "Fn::Sub": "${ResourcePrefix}-private-b" } }]
+      }
+    },
+    "PrivateRouteTableA": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": { "Ref": "Vpc" },
+        "Tags": [{ "Key": "Name", "Value": { "Fn::Sub": "${ResourcePrefix}-private-a" } }]
+      }
+    },
+    "PrivateRouteTableB": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": { "Ref": "Vpc" },
+        "Tags": [{ "Key": "Name", "Value": { "Fn::Sub": "${ResourcePrefix}-private-b" } }]
+      }
+    },
+    "PrivateRouteTableAssociationA": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId": { "Ref": "PrivateRouteTableA" },
+        "SubnetId": { "Ref": "PrivateSubnetA" }
+      }
+    },
+    "PrivateRouteTableAssociationB": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId": { "Ref": "PrivateRouteTableB" },
+        "SubnetId": { "Ref": "PrivateSubnetB" }
+      }
+    },
+    "LambdaSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "alice. Lambda egress only to PostgreSQL and routed HTTPS endpoints",
+        "VpcId": { "Ref": "Vpc" },
+        "SecurityGroupEgress": [
+          {
+            "Description": "PostgreSQL to the private Aurora group",
+            "IpProtocol": "tcp",
+            "FromPort": 5432,
+            "ToPort": 5432,
+            "DestinationSecurityGroupId": { "Fn::GetAtt": ["DatabaseSecurityGroup", "GroupId"] }
+          },
+          {
+            "Description": "HTTPS; isolated route tables expose only the S3 gateway endpoint",
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "0.0.0.0/0"
+          }
+        ],
+        "Tags": [{ "Key": "Name", "Value": { "Fn::Sub": "${ResourcePrefix}-lambda" } }]
+      }
+    },
+    "DatabaseSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "alice. Aurora accepts PostgreSQL only from the Lambda group",
+        "VpcId": { "Ref": "Vpc" },
+        "SecurityGroupEgress": [],
+        "Tags": [{ "Key": "Name", "Value": { "Fn::Sub": "${ResourcePrefix}-database" } }]
+      }
+    },
+    "DatabaseIngressFromLambda": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "Description": "PostgreSQL from alice. Lambda functions",
+        "GroupId": { "Fn::GetAtt": ["DatabaseSecurityGroup", "GroupId"] },
+        "IpProtocol": "tcp",
+        "FromPort": 5432,
+        "ToPort": 5432,
+        "SourceSecurityGroupId": { "Fn::GetAtt": ["LambdaSecurityGroup", "GroupId"] }
+      }
+    },
+    "PrivateFilesBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketName": { "Ref": "BucketName" },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            { "ServerSideEncryptionByDefault": { "SSEAlgorithm": "AES256" } }
+          ]
+        },
+        "CorsConfiguration": {
+          "Fn::If": [
+            "HostedOriginsSupplied",
+            {
+              "CorsRules": [
+                {
+                  "Id": "alice-web-direct-upload",
+                  "AllowedHeaders": [
+                    "content-type",
+                    "x-amz-checksum-sha256",
+                    "x-amz-meta-alice-sha256",
+                    "x-amz-server-side-encryption"
+                  ],
+                  "AllowedMethods": ["PUT"],
+                  "AllowedOrigins": [
+                    { "Ref": "WebPublicUrl" },
+                    "https://web-sandbox.oaiusercontent.com",
+                    "https://*.web-sandbox.oaiusercontent.com",
+                    "https://*.claudemcpcontent.com"
+                  ],
+                  "ExposedHeaders": ["ETag", "x-amz-version-id"],
+                  "MaxAge": 600
+                }
+              ]
+            },
+            { "Ref": "AWS::NoValue" }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "expire-staging-current-versions",
+              "Status": "Enabled",
+              "Prefix": "staging/",
+              "ExpirationInDays": 2,
+              "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+            },
+            {
+              "Id": "expire-staging-history-and-markers",
+              "Status": "Enabled",
+              "Prefix": "staging/",
+              "ExpiredObjectDeleteMarker": true,
+              "NoncurrentVersionExpiration": { "NoncurrentDays": 1 }
+            }
+          ]
+        },
+        "OwnershipControls": { "Rules": [{ "ObjectOwnership": "BucketOwnerEnforced" }] },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "VersioningConfiguration": { "Status": "Enabled" },
+        "Tags": [
+          { "Key": "alice:data-classification", "Value": "private-alpha-files" },
+          { "Key": "alice:managed-by", "Value": "cloudformation" }
+        ]
+      }
+    },
+    "S3GatewayEndpoint": {
+      "Type": "AWS::EC2::VPCEndpoint",
+      "Properties": {
+        "ServiceName": { "Fn::Sub": "com.amazonaws.${AWS::Region}.s3" },
+        "VpcEndpointType": "Gateway",
+        "VpcId": { "Ref": "Vpc" },
+        "RouteTableIds": [{ "Ref": "PrivateRouteTableA" }, { "Ref": "PrivateRouteTableB" }],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowTemporaryEcrLayerDownloads",
+              "Effect": "Allow",
+              "Principal": "*",
+              "Action": "s3:GetObject",
+              "Resource": {
+                "Fn::Sub": "arn:${AWS::Partition}:s3:::prod-${AWS::Region}-starport-layer-bucket/*"
+              }
+            },
+            {
+              "Sid": "AllowPrivateFileBucket",
+              "Effect": "Allow",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                { "Fn::GetAtt": ["PrivateFilesBucket", "Arn"] },
+                { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "MigrationEndpointSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "Properties": {
+        "GroupDescription": "Temporary private endpoints for the one-off alice. migration task",
+        "VpcId": { "Ref": "Vpc" },
+        "SecurityGroupIngress": [
+          {
+            "Description": "HTTPS from the private workload security group",
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "SourceSecurityGroupId": { "Fn::GetAtt": ["LambdaSecurityGroup", "GroupId"] }
+          }
+        ],
+        "Tags": [{ "Key": "Name", "Value": { "Fn::Sub": "${ResourcePrefix}-migration-endpoints" } }]
+      }
+    },
+    "MigrationEcrApiEndpoint": {
+      "Type": "AWS::EC2::VPCEndpoint",
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "Properties": {
+        "PrivateDnsEnabled": true,
+        "SecurityGroupIds": [{ "Fn::GetAtt": ["MigrationEndpointSecurityGroup", "GroupId"] }],
+        "ServiceName": { "Fn::Sub": "com.amazonaws.${AWS::Region}.ecr.api" },
+        "SubnetIds": [{ "Ref": "PrivateSubnetA" }, { "Ref": "PrivateSubnetB" }],
+        "VpcEndpointType": "Interface",
+        "VpcId": { "Ref": "Vpc" }
+      }
+    },
+    "MigrationEcrDkrEndpoint": {
+      "Type": "AWS::EC2::VPCEndpoint",
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "Properties": {
+        "PrivateDnsEnabled": true,
+        "SecurityGroupIds": [{ "Fn::GetAtt": ["MigrationEndpointSecurityGroup", "GroupId"] }],
+        "ServiceName": { "Fn::Sub": "com.amazonaws.${AWS::Region}.ecr.dkr" },
+        "SubnetIds": [{ "Ref": "PrivateSubnetA" }, { "Ref": "PrivateSubnetB" }],
+        "VpcEndpointType": "Interface",
+        "VpcId": { "Ref": "Vpc" }
+      }
+    },
+    "MigrationLogsEndpoint": {
+      "Type": "AWS::EC2::VPCEndpoint",
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "Properties": {
+        "PrivateDnsEnabled": true,
+        "SecurityGroupIds": [{ "Fn::GetAtt": ["MigrationEndpointSecurityGroup", "GroupId"] }],
+        "ServiceName": { "Fn::Sub": "com.amazonaws.${AWS::Region}.logs" },
+        "SubnetIds": [{ "Ref": "PrivateSubnetA" }, { "Ref": "PrivateSubnetB" }],
+        "VpcEndpointType": "Interface",
+        "VpcId": { "Ref": "Vpc" }
+      }
+    },
+    "MigrationSecretsEndpoint": {
+      "Type": "AWS::EC2::VPCEndpoint",
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "Properties": {
+        "PrivateDnsEnabled": true,
+        "SecurityGroupIds": [{ "Fn::GetAtt": ["MigrationEndpointSecurityGroup", "GroupId"] }],
+        "ServiceName": { "Fn::Sub": "com.amazonaws.${AWS::Region}.secretsmanager" },
+        "SubnetIds": [{ "Ref": "PrivateSubnetA" }, { "Ref": "PrivateSubnetB" }],
+        "VpcEndpointType": "Interface",
+        "VpcId": { "Ref": "Vpc" }
+      }
+    },
+    "GuardDutyMalwareRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "${ResourcePrefix}-guardduty-malware" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "malware-protection-plan.guardduty.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "scan-exact-private-bucket",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "AllowManagedRuleToSendS3EventsToGuardDuty",
+                  "Effect": "Allow",
+                  "Action": [
+                    "events:PutRule",
+                    "events:DeleteRule",
+                    "events:PutTargets",
+                    "events:RemoveTargets"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*"
+                  },
+                  "Condition": {
+                    "StringLike": {
+                      "events:ManagedBy": "malware-protection-plan.guardduty.amazonaws.com"
+                    }
+                  }
+                },
+                {
+                  "Sid": "AllowGuardDutyToMonitorEventBridgeManagedRule",
+                  "Effect": "Allow",
+                  "Action": ["events:DescribeRule", "events:ListTargetsByRule"],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*"
+                  }
+                },
+                {
+                  "Sid": "AllowPostScanTag",
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:PutObjectTagging",
+                    "s3:GetObjectTagging",
+                    "s3:PutObjectVersionTagging",
+                    "s3:GetObjectVersionTagging"
+                  ],
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                },
+                {
+                  "Sid": "AllowEnableS3EventBridgeEvents",
+                  "Effect": "Allow",
+                  "Action": ["s3:PutBucketNotification", "s3:GetBucketNotification"],
+                  "Resource": { "Fn::GetAtt": ["PrivateFilesBucket", "Arn"] }
+                },
+                {
+                  "Sid": "AllowPutValidationObject",
+                  "Effect": "Allow",
+                  "Action": "s3:PutObject",
+                  "Resource": {
+                    "Fn::Sub": "${PrivateFilesBucket.Arn}/malware-protection-resource-validation-object"
+                  }
+                },
+                {
+                  "Sid": "AllowCheckBucketOwnership",
+                  "Effect": "Allow",
+                  "Action": "s3:ListBucket",
+                  "Resource": { "Fn::GetAtt": ["PrivateFilesBucket", "Arn"] }
+                },
+                {
+                  "Sid": "AllowMalwareScan",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "PrivateFilesBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": { "Ref": "PrivateFilesBucket" },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                { "Fn::GetAtt": ["PrivateFilesBucket", "Arn"] },
+                { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+              ],
+              "Condition": { "Bool": { "aws:SecureTransport": "false" } }
+            },
+            {
+              "Sid": "NoReadUnlessGuardDutyMarkedClean",
+              "Effect": "Deny",
+              "NotPrincipal": {
+                "AWS": [
+                  { "Fn::GetAtt": ["GuardDutyMalwareRole", "Arn"] },
+                  {
+                    "Fn::Sub": "arn:${AWS::Partition}:sts::${AWS::AccountId}:assumed-role/${GuardDutyMalwareRole}/GuardDutyMalwareProtection"
+                  }
+                ]
+              },
+              "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+              "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" },
+              "Condition": {
+                "StringNotEquals": {
+                  "s3:ExistingObjectTag/GuardDutyMalwareScanStatus": "NO_THREATS_FOUND"
+                }
+              }
+            },
+            {
+              "Sid": "OnlyGuardDutyCanSetScanStatus",
+              "Effect": "Deny",
+              "NotPrincipal": {
+                "AWS": [
+                  { "Fn::GetAtt": ["GuardDutyMalwareRole", "Arn"] },
+                  {
+                    "Fn::Sub": "arn:${AWS::Partition}:sts::${AWS::AccountId}:assumed-role/${GuardDutyMalwareRole}/GuardDutyMalwareProtection"
+                  }
+                ]
+              },
+              "Action": ["s3:PutObjectTagging", "s3:PutObjectVersionTagging"],
+              "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" },
+              "Condition": {
+                "ForAnyValue:StringEquals": {
+                  "s3:RequestObjectTagKeys": "GuardDutyMalwareScanStatus"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "MalwareProtectionPlan": {
+      "Type": "AWS::GuardDuty::MalwareProtectionPlan",
+      "DependsOn": "PrivateFilesBucketPolicy",
+      "Properties": {
+        "Actions": { "Tagging": { "Status": "ENABLED" } },
+        "ProtectedResource": { "S3Bucket": { "BucketName": { "Ref": "PrivateFilesBucket" } } },
+        "Role": { "Fn::GetAtt": ["GuardDutyMalwareRole", "Arn"] },
+        "Tags": [{ "Key": "alice:environment", "Value": "private-alpha-production" }]
+      }
+    },
+    "DatabaseSubnetGroup": {
+      "Type": "AWS::RDS::DBSubnetGroup",
+      "Properties": {
+        "DBSubnetGroupDescription": "Two isolated alice. private-alpha subnets",
+        "SubnetIds": [{ "Ref": "PrivateSubnetA" }, { "Ref": "PrivateSubnetB" }],
+        "Tags": [{ "Key": "Name", "Value": { "Fn::Sub": "${ResourcePrefix}-database" } }]
+      }
+    },
+    "ApplicationDatabaseSecret": {
+      "Type": "AWS::SecretsManager::Secret",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "Description": "Generated alice_app password; operator uses it while creating the constrained role.",
+        "GenerateSecretString": {
+          "SecretStringTemplate": "{\"username\":\"alice_app\"}",
+          "GenerateStringKey": "password",
+          "PasswordLength": 40,
+          "ExcludePunctuation": true
+        },
+        "Name": { "Fn::Sub": "${ResourcePrefix}/database/application" }
+      }
+    },
+    "DatabaseCluster": {
+      "Type": "AWS::RDS::DBCluster",
+      "DeletionPolicy": "Snapshot",
+      "UpdateReplacePolicy": "Snapshot",
+      "Properties": {
+        "BackupRetentionPeriod": 7,
+        "CopyTagsToSnapshot": true,
+        "DatabaseName": "alice",
+        "DBClusterIdentifier": { "Fn::Sub": "${ResourcePrefix}-postgres" },
+        "DBSubnetGroupName": { "Ref": "DatabaseSubnetGroup" },
+        "DeletionProtection": true,
+        "EnableHttpEndpoint": false,
+        "EnableIAMDatabaseAuthentication": false,
+        "Engine": "aurora-postgresql",
+        "EngineLifecycleSupport": "open-source-rds-extended-support-disabled",
+        "EngineMode": "provisioned",
+        "EngineVersion": "17.4",
+        "ManageMasterUserPassword": true,
+        "MasterUsername": "alice_migrator",
+        "Port": 5432,
+        "PreferredBackupWindow": "01:00-01:30",
+        "PreferredMaintenanceWindow": "sun:02:00-sun:03:00",
+        "ServerlessV2ScalingConfiguration": {
+          "MinCapacity": 0,
+          "MaxCapacity": 1,
+          "SecondsUntilAutoPause": 600
+        },
+        "StorageEncrypted": true,
+        "StorageType": "aurora",
+        "VpcSecurityGroupIds": [{ "Fn::GetAtt": ["DatabaseSecurityGroup", "GroupId"] }],
+        "Tags": [
+          { "Key": "alice:data-classification", "Value": "private-alpha-database" },
+          { "Key": "alice:managed-by", "Value": "cloudformation" }
+        ]
+      }
+    },
+    "DatabaseWriter": {
+      "Type": "AWS::RDS::DBInstance",
+      "Properties": {
+        "DBClusterIdentifier": { "Ref": "DatabaseCluster" },
+        "DBInstanceClass": "db.serverless",
+        "DBInstanceIdentifier": { "Fn::Sub": "${ResourcePrefix}-writer" },
+        "Engine": "aurora-postgresql",
+        "PubliclyAccessible": false,
+        "PromotionTier": 0,
+        "Tags": [{ "Key": "alice:managed-by", "Value": "cloudformation" }]
+      }
+    },
+    "ContainerRepository": {
+      "Type": "AWS::ECR::Repository",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "EmptyOnDelete": false,
+        "EncryptionConfiguration": { "EncryptionType": "AES256" },
+        "ImageScanningConfiguration": { "ScanOnPush": true },
+        "ImageTagMutability": "IMMUTABLE",
+        "LifecyclePolicy": {
+          "LifecyclePolicyText": "{\"rules\":[{\"rulePriority\":1,\"description\":\"Retain five newest images\",\"selection\":{\"tagStatus\":\"any\",\"countType\":\"imageCountMoreThan\",\"countNumber\":5},\"action\":{\"type\":\"expire\"}}]}"
+        },
+        "RepositoryName": { "Fn::Sub": "${ResourcePrefix}/application" },
+        "Tags": [{ "Key": "alice:managed-by", "Value": "cloudformation" }]
+      }
+    },
+    "MigrationCluster": {
+      "Type": "AWS::ECS::Cluster",
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "Properties": {
+        "ClusterName": { "Fn::Sub": "${ResourcePrefix}-migration" },
+        "ClusterSettings": [{ "Name": "containerInsights", "Value": "disabled" }],
+        "Tags": [{ "Key": "alice:managed-by", "Value": "cloudformation" }]
+      }
+    },
+    "MigrationLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "DeletionPolicy": "Delete",
+      "UpdateReplacePolicy": "Delete",
+      "Properties": {
+        "LogGroupName": { "Fn::Sub": "/aws/ecs/${ResourcePrefix}-migration" },
+        "RetentionInDays": 3
+      }
+    },
+    "MigrationExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "${ResourcePrefix}-migration-execution" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "ecs-tasks.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+          }
+        ],
+        "Policies": [
+          {
+            "PolicyName": "read-exact-migration-secrets",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "secretsmanager:GetSecretValue",
+                  "Resource": {
+                    "Fn::If": [
+                      "PrivilegedDatabaseOperatorEnabled",
+                      [{ "Fn::GetAtt": ["DatabaseCluster", "MasterUserSecret.SecretArn"] }],
+                      [
+                        { "Ref": "ApplicationDatabaseSecret" },
+                        { "Fn::GetAtt": ["DatabaseCluster", "MasterUserSecret.SecretArn"] }
+                      ]
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ProjectErasureTaskRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "ProjectErasureEnabled",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "${ResourcePrefix}-project-erasure" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "ecs-tasks.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "erase-exact-private-object-versions",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:ListBucketVersions",
+                  "Resource": { "Fn::GetAtt": ["PrivateFilesBucket", "Arn"] },
+                  "Condition": {
+                    "StringLike": {
+                      "s3:prefix": ["objects/*", "staging/*"]
+                    }
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:DeleteObjectVersion",
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "MigrationTaskDefinition": {
+      "Type": "AWS::ECS::TaskDefinition",
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "DependsOn": [
+        "DatabaseWriter",
+        "MigrationEcrApiEndpoint",
+        "MigrationEcrDkrEndpoint",
+        "MigrationLogsEndpoint",
+        "MigrationSecretsEndpoint"
+      ],
+      "Properties": {
+        "Cpu": "256",
+        "ExecutionRoleArn": { "Fn::GetAtt": ["MigrationExecutionRole", "Arn"] },
+        "TaskRoleArn": {
+          "Fn::If": [
+            "ProjectErasureEnabled",
+            { "Fn::GetAtt": ["ProjectErasureTaskRole", "Arn"] },
+            { "Ref": "AWS::NoValue" }
+          ]
+        },
+        "Family": { "Fn::Sub": "${ResourcePrefix}-migration" },
+        "Memory": "512",
+        "NetworkMode": "awsvpc",
+        "RequiresCompatibilities": ["FARGATE"],
+        "RuntimePlatform": {
+          "CpuArchitecture": "ARM64",
+          "OperatingSystemFamily": "LINUX"
+        },
+        "ContainerDefinitions": [
+          {
+            "Name": "alice-migration",
+            "Essential": true,
+            "Image": {
+              "Fn::If": [
+                "ProjectErasureEnabled",
+                { "Ref": "ErasureImageUri" },
+                {
+                  "Fn::If": [
+                    "BackupVerificationEnabled",
+                    { "Ref": "BackupImageUri" },
+                    { "Ref": "ImageUri" }
+                  ]
+                }
+              ]
+            },
+            "Command": {
+              "Fn::If": [
+                "ProjectErasureEnabled",
+                ["npm", "run", "project:erase:container"],
+                {
+                  "Fn::If": [
+                    "BackupVerificationEnabled",
+                    ["npm", "run", "db:backup:verify:container"],
+                    ["npm", "run", "db:migrate:container"]
+                  ]
+                }
+              ]
+            },
+            "Environment": [
+              {
+                "Name": "ALICE_DATABASE_HOST",
+                "Value": { "Fn::GetAtt": ["DatabaseCluster", "Endpoint.Address"] }
+              },
+              { "Name": "ALICE_APPLICATION_DATABASE_ROLE", "Value": "alice_app" },
+              { "Name": "ALICE_DATABASE_SSLMODE", "Value": "verify-full" },
+              { "Name": "AWS_REGION", "Value": { "Ref": "AWS::Region" } },
+              { "Name": "PGSSLROOTCERT", "Value": "/app/certs/eu-central-1-bundle.pem" },
+              {
+                "Fn::If": [
+                  "ProjectErasureEnabled",
+                  { "Name": "ALICE_S3_BUCKET", "Value": { "Ref": "PrivateFilesBucket" } },
+                  { "Ref": "AWS::NoValue" }
+                ]
+              },
+              {
+                "Fn::If": [
+                  "ProjectErasureEnabled",
+                  { "Name": "ALICE_PROVIDER_BACKUP_RETENTION_DAYS", "Value": "7" },
+                  { "Ref": "AWS::NoValue" }
+                ]
+              }
+            ],
+            "Secrets": {
+              "Fn::If": [
+                "PrivilegedDatabaseOperatorEnabled",
+                [
+                  {
+                    "Name": "ALICE_MIGRATION_DATABASE_PASSWORD",
+                    "ValueFrom": {
+                      "Fn::Sub": "${DatabaseCluster.MasterUserSecret.SecretArn}:password::"
+                    }
+                  }
+                ],
+                [
+                  {
+                    "Name": "ALICE_MIGRATION_DATABASE_PASSWORD",
+                    "ValueFrom": {
+                      "Fn::Sub": "${DatabaseCluster.MasterUserSecret.SecretArn}:password::"
+                    }
+                  },
+                  {
+                    "Name": "ALICE_APPLICATION_DATABASE_PASSWORD",
+                    "ValueFrom": { "Fn::Sub": "${ApplicationDatabaseSecret}:password::" }
+                  }
+                ]
+              ]
+            },
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": { "Ref": "MigrationLogGroup" },
+                "awslogs-region": { "Ref": "AWS::Region" },
+                "awslogs-stream-prefix": "migration"
+              }
+            }
+          }
+        ],
+        "Tags": [{ "Key": "alice:managed-by", "Value": "cloudformation" }]
+      }
+    },
+    "WebExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "${ResourcePrefix}-web" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "lambda.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+          }
+        ],
+        "Policies": [
+          {
+            "PolicyName": "web-exact-version-file-access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "UploadStagingAndVerifiedObjects",
+                  "Effect": "Allow",
+                  "Action": "s3:PutObject",
+                  "Resource": [
+                    { "Fn::Sub": "${PrivateFilesBucket.Arn}/staging/*" },
+                    { "Fn::Sub": "${PrivateFilesBucket.Arn}/objects/*" }
+                  ]
+                },
+                {
+                  "Sid": "ObserveExactScanTag",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObjectTagging", "s3:GetObjectVersionTagging"],
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                },
+                {
+                  "Sid": "ReadExactCleanVersions",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "McpExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "${ResourcePrefix}-mcp" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "lambda.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+          }
+        ],
+        "Policies": [
+          {
+            "PolicyName": "mcp-exact-version-file-access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "UploadAppStagingAndVerifiedObjects",
+                  "Effect": "Allow",
+                  "Action": "s3:PutObject",
+                  "Resource": [
+                    { "Fn::Sub": "${PrivateFilesBucket.Arn}/staging/*" },
+                    { "Fn::Sub": "${PrivateFilesBucket.Arn}/objects/*" }
+                  ]
+                },
+                {
+                  "Sid": "ObserveExactScanTag",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObjectTagging", "s3:GetObjectVersionTagging"],
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                },
+                {
+                  "Sid": "ReadExactCleanVersions",
+                  "Effect": "Allow",
+                  "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                  "Resource": { "Fn::Sub": "${PrivateFilesBucket.Arn}/*" }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "InvitationOperatorExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Condition": "InvitationOperatorEnabled",
+      "Properties": {
+        "RoleName": { "Fn::Sub": "${ResourcePrefix}-invitation-operator" },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "lambda.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+          }
+        ]
+      }
+    },
+    "InvitationOperatorLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Condition": "InvitationOperatorEnabled",
+      "DeletionPolicy": "Delete",
+      "UpdateReplacePolicy": "Delete",
+      "Properties": {
+        "LogGroupName": { "Fn::Sub": "/aws/lambda/${ResourcePrefix}-invitation-operator" },
+        "RetentionInDays": 1
+      }
+    },
+    "InvitationOperatorFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Condition": "InvitationOperatorEnabled",
+      "DependsOn": ["DatabaseWriter", "InvitationOperatorLogGroup"],
+      "Properties": {
+        "Architectures": ["arm64"],
+        "Code": { "ImageUri": { "Ref": "OperatorImageUri" } },
+        "Description": "Temporary private direct-invoke operator for one alpha invitation",
+        "Environment": {
+          "Variables": {
+            "NODE_ENV": "production",
+            "HOST": "0.0.0.0",
+            "PORT": "8789",
+            "AWS_LWA_PORT": "8789",
+            "AWS_LWA_READINESS_CHECK_PROTOCOL": "tcp",
+            "AWS_LWA_ASYNC_INIT": "true",
+            "AWS_LWA_INVOKE_MODE": "buffered",
+            "ALICE_WEB_URL": { "Ref": "WebPublicUrl" },
+            "ALICE_DATABASE_URL": {
+              "Fn::Sub": [
+                "postgresql://alice_app:{{resolve:secretsmanager:${ApplicationSecret}:SecretString:password}}@${DatabaseHost}:5432/alice?sslmode=verify-full",
+                {
+                  "ApplicationSecret": { "Ref": "ApplicationDatabaseSecret" },
+                  "DatabaseHost": { "Fn::GetAtt": ["DatabaseCluster", "Endpoint.Address"] }
+                }
+              ]
+            }
+          }
+        },
+        "EphemeralStorage": { "Size": 512 },
+        "FunctionName": { "Fn::Sub": "${ResourcePrefix}-invitation-operator" },
+        "ImageConfig": { "Command": ["node", "scripts/alpha-invitation-operator.mjs"] },
+        "MemorySize": 256,
+        "PackageType": "Image",
+        "Role": { "Fn::GetAtt": ["InvitationOperatorExecutionRole", "Arn"] },
+        "Timeout": 30,
+        "VpcConfig": {
+          "Ipv6AllowedForDualStack": false,
+          "SecurityGroupIds": [{ "Fn::GetAtt": ["LambdaSecurityGroup", "GroupId"] }],
+          "SubnetIds": [{ "Ref": "PrivateSubnetA" }, { "Ref": "PrivateSubnetB" }]
+        },
+        "Tags": [{ "Key": "alice:managed-by", "Value": "cloudformation" }]
+      }
+    },
+    "WebLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Condition": "ServicesEnabled",
+      "DeletionPolicy": "Delete",
+      "UpdateReplacePolicy": "Delete",
+      "Properties": {
+        "LogGroupName": { "Fn::Sub": "/aws/lambda/${ResourcePrefix}-web" },
+        "RetentionInDays": 14
+      }
+    },
+    "McpLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Condition": "ServicesEnabled",
+      "DeletionPolicy": "Delete",
+      "UpdateReplacePolicy": "Delete",
+      "Properties": {
+        "LogGroupName": { "Fn::Sub": "/aws/lambda/${ResourcePrefix}-mcp" },
+        "RetentionInDays": 14
+      }
+    },
+    "WebFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Condition": "ServicesEnabled",
+      "DependsOn": ["DatabaseWriter", "S3GatewayEndpoint", "WebLogGroup"],
+      "Properties": {
+        "Architectures": ["arm64"],
+        "Code": { "ImageUri": { "Ref": "ImageUri" } },
+        "Description": "alice. authenticated private-alpha web application",
+        "Environment": {
+          "Variables": {
+            "NODE_ENV": "production",
+            "HOST": "0.0.0.0",
+            "PORT": "8788",
+            "AWS_LWA_PORT": "8788",
+            "AWS_LWA_READINESS_CHECK_PROTOCOL": "tcp",
+            "AWS_LWA_ASYNC_INIT": "true",
+            "AWS_LWA_INVOKE_MODE": "buffered",
+            "ALICE_WEB_URL": {
+              "Fn::If": ["PublicOriginsReady", { "Ref": "WebPublicUrl" }, "https://pending.invalid"]
+            },
+            "ALICE_MCP_URL": {
+              "Fn::If": ["PublicOriginsReady", { "Ref": "McpPublicUrl" }, "https://pending.invalid"]
+            },
+            "ALICE_DATABASE_URL": {
+              "Fn::Sub": [
+                "postgresql://alice_app:{{resolve:secretsmanager:${ApplicationSecret}:SecretString:password}}@${DatabaseHost}:5432/alice?sslmode=verify-full",
+                {
+                  "ApplicationSecret": { "Ref": "ApplicationDatabaseSecret" },
+                  "DatabaseHost": { "Fn::GetAtt": ["DatabaseCluster", "Endpoint.Address"] }
+                }
+              ]
+            },
+            "ALICE_FILE_STORAGE": "aws_s3",
+            "ALICE_S3_BUCKET": { "Ref": "PrivateFilesBucket" },
+            "ALICE_S3_REGION": { "Ref": "AWS::Region" }
+          }
+        },
+        "EphemeralStorage": { "Size": 512 },
+        "FunctionName": { "Fn::Sub": "${ResourcePrefix}-web" },
+        "ImageConfig": { "Command": ["npm", "run", "start:web"] },
+        "MemorySize": 512,
+        "PackageType": "Image",
+        "Role": { "Fn::GetAtt": ["WebExecutionRole", "Arn"] },
+        "Timeout": 60,
+        "VpcConfig": {
+          "Ipv6AllowedForDualStack": false,
+          "SecurityGroupIds": [{ "Fn::GetAtt": ["LambdaSecurityGroup", "GroupId"] }],
+          "SubnetIds": [{ "Ref": "PrivateSubnetA" }, { "Ref": "PrivateSubnetB" }]
+        },
+        "Tags": [{ "Key": "alice:managed-by", "Value": "cloudformation" }]
+      }
+    },
+    "McpFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Condition": "ServicesEnabled",
+      "DependsOn": ["DatabaseWriter", "S3GatewayEndpoint", "McpLogGroup"],
+      "Properties": {
+        "Architectures": ["arm64"],
+        "Code": { "ImageUri": { "Ref": "ImageUri" } },
+        "Description": "alice. authenticated Streamable HTTP MCP server",
+        "Environment": {
+          "Variables": {
+            "NODE_ENV": "production",
+            "HOST": "0.0.0.0",
+            "PORT": "8787",
+            "AWS_LWA_PORT": "8787",
+            "AWS_LWA_READINESS_CHECK_PROTOCOL": "tcp",
+            "AWS_LWA_ASYNC_INIT": "true",
+            "AWS_LWA_INVOKE_MODE": "buffered",
+            "ALICE_PUBLIC_URL": {
+              "Fn::If": ["PublicOriginsReady", { "Ref": "McpPublicUrl" }, "https://pending.invalid"]
+            },
+            "ALICE_WEB_URL": {
+              "Fn::If": ["PublicOriginsReady", { "Ref": "WebPublicUrl" }, "https://pending.invalid"]
+            },
+            "ALICE_DATABASE_URL": {
+              "Fn::Sub": [
+                "postgresql://alice_app:{{resolve:secretsmanager:${ApplicationSecret}:SecretString:password}}@${DatabaseHost}:5432/alice?sslmode=verify-full",
+                {
+                  "ApplicationSecret": { "Ref": "ApplicationDatabaseSecret" },
+                  "DatabaseHost": { "Fn::GetAtt": ["DatabaseCluster", "Endpoint.Address"] }
+                }
+              ]
+            },
+            "ALICE_FILE_STORAGE": "aws_s3",
+            "ALICE_S3_BUCKET": { "Ref": "PrivateFilesBucket" },
+            "ALICE_S3_REGION": { "Ref": "AWS::Region" }
+          }
+        },
+        "EphemeralStorage": { "Size": 512 },
+        "FunctionName": { "Fn::Sub": "${ResourcePrefix}-mcp" },
+        "ImageConfig": { "Command": ["npm", "run", "start:mcp"] },
+        "MemorySize": 1024,
+        "PackageType": "Image",
+        "Role": { "Fn::GetAtt": ["McpExecutionRole", "Arn"] },
+        "Timeout": 60,
+        "VpcConfig": {
+          "Ipv6AllowedForDualStack": false,
+          "SecurityGroupIds": [{ "Fn::GetAtt": ["LambdaSecurityGroup", "GroupId"] }],
+          "SubnetIds": [{ "Ref": "PrivateSubnetA" }, { "Ref": "PrivateSubnetB" }]
+        },
+        "Tags": [{ "Key": "alice:managed-by", "Value": "cloudformation" }]
+      }
+    },
+    "WebFunctionUrl": {
+      "Type": "AWS::Lambda::Url",
+      "Condition": "ServicesEnabled",
+      "Properties": {
+        "AuthType": "NONE",
+        "InvokeMode": "BUFFERED",
+        "TargetFunctionArn": { "Fn::GetAtt": ["WebFunction", "Arn"] }
+      }
+    },
+    "McpFunctionUrl": {
+      "Type": "AWS::Lambda::Url",
+      "Condition": "ServicesEnabled",
+      "Properties": {
+        "AuthType": "NONE",
+        "InvokeMode": "BUFFERED",
+        "TargetFunctionArn": { "Fn::GetAtt": ["McpFunction", "Arn"] }
+      }
+    },
+    "WebUrlInvokePermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Condition": "PublicOriginsReady",
+      "Properties": {
+        "Action": "lambda:InvokeFunctionUrl",
+        "FunctionName": { "Ref": "WebFunction" },
+        "FunctionUrlAuthType": "NONE",
+        "Principal": "*"
+      }
+    },
+    "WebUrlFunctionPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Condition": "PublicOriginsReady",
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": { "Ref": "WebFunction" },
+        "InvokedViaFunctionUrl": true,
+        "Principal": "*"
+      }
+    },
+    "McpUrlInvokePermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Condition": "PublicOriginsReady",
+      "Properties": {
+        "Action": "lambda:InvokeFunctionUrl",
+        "FunctionName": { "Ref": "McpFunction" },
+        "FunctionUrlAuthType": "NONE",
+        "Principal": "*"
+      }
+    },
+    "McpUrlFunctionPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Condition": "PublicOriginsReady",
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": { "Ref": "McpFunction" },
+        "InvokedViaFunctionUrl": true,
+        "Principal": "*"
+      }
+    }
+  },
+  "Outputs": {
+    "ApplicationDatabaseSecretArn": {
+      "Value": { "Ref": "ApplicationDatabaseSecret" },
+      "Description": "Operator-only source for creating the constrained alice_app database role."
+    },
+    "BucketName": { "Value": { "Ref": "PrivateFilesBucket" } },
+    "ContainerRepositoryUri": {
+      "Value": { "Fn::GetAtt": ["ContainerRepository", "RepositoryUri"] }
+    },
+    "DatabaseEndpoint": { "Value": { "Fn::GetAtt": ["DatabaseCluster", "Endpoint.Address"] } },
+    "DatabaseMasterSecretArn": {
+      "Value": { "Fn::GetAtt": ["DatabaseCluster", "MasterUserSecret.SecretArn"] }
+    },
+    "GuardDutyPlanArn": { "Value": { "Fn::GetAtt": ["MalwareProtectionPlan", "Arn"] } },
+    "InvitationOperatorFunctionName": {
+      "Condition": "InvitationOperatorEnabled",
+      "Value": { "Ref": "InvitationOperatorFunction" },
+      "Description": "Temporary direct-invoke operator; remove immediately after issuing the invitation."
+    },
+    "MigrationClusterName": {
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "Value": { "Ref": "MigrationCluster" }
+    },
+    "MigrationSecurityGroupId": {
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "Value": { "Fn::GetAtt": ["LambdaSecurityGroup", "GroupId"] }
+    },
+    "MigrationSubnetA": {
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "Value": { "Ref": "PrivateSubnetA" }
+    },
+    "MigrationSubnetB": {
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "Value": { "Ref": "PrivateSubnetB" }
+    },
+    "MigrationTaskDefinitionArn": {
+      "Condition": "PrivateDatabaseTaskEnabled",
+      "Value": { "Ref": "MigrationTaskDefinition" }
+    },
+    "McpFunctionUrl": {
+      "Condition": "ServicesEnabled",
+      "Value": { "Fn::GetAtt": ["McpFunctionUrl", "FunctionUrl"] }
+    },
+    "WebFunctionUrl": {
+      "Condition": "ServicesEnabled",
+      "Value": { "Fn::GetAtt": ["WebFunctionUrl", "FunctionUrl"] }
+    }
+  }
+}

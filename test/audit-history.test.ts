@@ -1,18 +1,28 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { openDatabase } from "@alice/database";
-import { createProject, createUserSession, registerUser, revokeUserSession } from "@alice/domain";
+import { openSqliteTestDatabase } from "@alice/database/testing";
+import {
+  createProject,
+  createUserSession,
+  issueAlphaInvitation,
+  registerUser,
+  revokeUserSession,
+} from "@alice/domain";
 
-test("appends safe audit history for identity, session, and project actions", () => {
-  const database = openDatabase(":memory:");
+test("appends safe audit history for identity, session, and project actions", async () => {
+  const database = openSqliteTestDatabase();
   const password = "audit history private password";
-  const user = registerUser(database, { email: "audit@alice.example", password });
-  const session = createUserSession(database, user.id);
-  const project = createProject(database, user.id, {
-    name: "Audited project",
-    brief: "Verify append-only history.",
+  const invitation = await issueAlphaInvitation(database, { email: "audit@alice.example" });
+  const user = await registerUser(database, {
+    email: "audit@alice.example",
+    password,
+    invitationToken: invitation.token,
   });
-  revokeUserSession(database, session.token);
+  const session = await createUserSession(database, user.id);
+  const project = await createProject(database, user.id, {
+    name: "Audited project",
+  });
+  await revokeUserSession(database, session.token);
 
   const events = database
     .prepare(
@@ -38,11 +48,15 @@ test("appends safe audit history for identity, session, and project actions", ()
   database.close();
 });
 
-test("database guards reject audit mutation and deletion", () => {
-  const database = openDatabase(":memory:");
-  const user = registerUser(database, {
+test("database guards reject audit mutation and deletion", async () => {
+  const database = openSqliteTestDatabase();
+  const invitation = await issueAlphaInvitation(database, {
+    email: "immutable-audit@alice.example",
+  });
+  const user = await registerUser(database, {
     email: "immutable-audit@alice.example",
     password: "immutable audit private password",
+    invitationToken: invitation.token,
   });
   assert.ok(user);
   assert.throws(

@@ -1,0 +1,260 @@
+{
+  "version": "2026-09-06.1",
+  "as_of_date": "2026-09-06",
+  "contract": "alice.host-invocation-denominator.v1",
+  "method": {
+    "id": "consented_synthetic_trials_v1",
+    "scope": "Controlled compatibility cohorts only; never ordinary private-alpha or population usage.",
+    "eligibility": "A user explicitly starts a synthetic trial for one exact surface before the host turn.",
+    "numerator": "eligible trials with a received MCP read attempt, whether that attempt succeeds or fails",
+    "denominator": "all explicitly started eligible trials in the exact surface cohort",
+    "outcomes": ["successful_read", "failed_read", "no_call"],
+    "retention": [
+      "opaque trial ID",
+      "exact surface and run IDs",
+      "outcome class",
+      "aggregate counts",
+      "aggregate percentage"
+    ],
+    "prohibited_retention": [
+      "prompt",
+      "model response",
+      "conversation content",
+      "project content",
+      "file bytes",
+      "credentials",
+      "authorization codes",
+      "access tokens",
+      "refresh tokens"
+    ]
+  },
+  "status_definitions": {
+    "measurable": "A dated live run contains a valid consented synthetic cohort for this exact surface.",
+    "provider_blocked": "A dated live attempt could not create an eligible cohort through the exact surface's supported path. No percentage is claimed.",
+    "untested": "No qualifying dated denominator attempt exists for this exact surface. No percentage is claimed."
+  },
+  "surface_denominators": [
+    { "surface_id": "claude_web", "status": "untested", "live_run_id": null },
+    { "surface_id": "claude_desktop", "status": "untested", "live_run_id": null },
+    { "surface_id": "claude_ios", "status": "untested", "live_run_id": null },
+    { "surface_id": "claude_android", "status": "untested", "live_run_id": null },
+    { "surface_id": "claude_code", "status": "untested", "live_run_id": null },
+    { "surface_id": "chatgpt_web", "status": "untested", "live_run_id": null },
+    { "surface_id": "chatgpt_desktop", "status": "untested", "live_run_id": null }
+  ],
+  "live_runs": [],
+  "policy_cases": [
+    {
+      "id": "accept_mixed_explicit_cohort",
+      "expected_policy_result": "pass",
+      "candidate": {
+        "method": "consented_synthetic_trials_v1",
+        "surface_id": "claude_desktop",
+        "user_consent": true,
+        "synthetic_fixture": true,
+        "eligibility_declared_before_turn": true,
+        "isolated_test_connection": true,
+        "retained_trial_fields": ["trial_id", "outcome"],
+        "trials": [
+          { "trial_id": "trial_001", "outcome": "successful_read" },
+          { "trial_id": "trial_002", "outcome": "failed_read" },
+          { "trial_id": "trial_003", "outcome": "successful_read" },
+          { "trial_id": "trial_004", "outcome": "no_call" }
+        ],
+        "counts": {
+          "eligible_trials": 4,
+          "successful_read": 2,
+          "failed_read": 1,
+          "no_call": 1,
+          "observed_call_trials": 3
+        },
+        "invocation_rate_percent": 75
+      }
+    },
+    {
+      "id": "accept_zero_invocation_cohort",
+      "expected_policy_result": "pass",
+      "candidate": {
+        "method": "consented_synthetic_trials_v1",
+        "surface_id": "chatgpt_web",
+        "user_consent": true,
+        "synthetic_fixture": true,
+        "eligibility_declared_before_turn": true,
+        "isolated_test_connection": true,
+        "retained_trial_fields": ["trial_id", "outcome"],
+        "trials": [
+          { "trial_id": "trial_101", "outcome": "no_call" },
+          { "trial_id": "trial_102", "outcome": "no_call" }
+        ],
+        "counts": {
+          "eligible_trials": 2,
+          "successful_read": 0,
+          "failed_read": 0,
+          "no_call": 2,
+          "observed_call_trials": 0
+        },
+        "invocation_rate_percent": 0
+      }
+    },
+    {
+      "id": "reject_ordinary_host_turns",
+      "expected_policy_result": "fail",
+      "candidate": {
+        "method": "ordinary_host_turns",
+        "surface_id": "chatgpt_web",
+        "user_consent": true,
+        "synthetic_fixture": false,
+        "eligibility_declared_before_turn": false,
+        "isolated_test_connection": false,
+        "retained_trial_fields": ["trial_id", "outcome"],
+        "trials": [{ "trial_id": "trial_201", "outcome": "successful_read" }],
+        "counts": {
+          "eligible_trials": 1,
+          "successful_read": 1,
+          "failed_read": 0,
+          "no_call": 0,
+          "observed_call_trials": 1
+        },
+        "invocation_rate_percent": 100
+      }
+    },
+    {
+      "id": "reject_received_attempt_denominator",
+      "expected_policy_result": "fail",
+      "candidate": {
+        "method": "consented_synthetic_trials_v1",
+        "surface_id": "claude_web",
+        "user_consent": true,
+        "synthetic_fixture": true,
+        "eligibility_declared_before_turn": true,
+        "isolated_test_connection": true,
+        "retained_trial_fields": ["trial_id", "outcome"],
+        "trials": [
+          { "trial_id": "trial_301", "outcome": "successful_read" },
+          { "trial_id": "trial_302", "outcome": "no_call" }
+        ],
+        "counts": {
+          "eligible_trials": 1,
+          "successful_read": 1,
+          "failed_read": 0,
+          "no_call": 1,
+          "observed_call_trials": 1
+        },
+        "invocation_rate_percent": 100
+      }
+    },
+    {
+      "id": "reject_inferred_missing_trial",
+      "expected_policy_result": "fail",
+      "candidate": {
+        "method": "consented_synthetic_trials_v1",
+        "surface_id": "chatgpt_desktop",
+        "user_consent": true,
+        "synthetic_fixture": true,
+        "eligibility_declared_before_turn": true,
+        "isolated_test_connection": true,
+        "retained_trial_fields": ["trial_id", "outcome"],
+        "trials": [{ "trial_id": "trial_401", "outcome": "successful_read" }],
+        "counts": {
+          "eligible_trials": 2,
+          "successful_read": 1,
+          "failed_read": 1,
+          "no_call": 0,
+          "observed_call_trials": 2
+        },
+        "invocation_rate_percent": 100
+      }
+    },
+    {
+      "id": "reject_cross_surface_inheritance",
+      "expected_policy_result": "fail",
+      "candidate": {
+        "method": "consented_synthetic_trials_v1",
+        "surface_id": "claude_ios",
+        "inherited_from_surface_id": "claude_web",
+        "user_consent": true,
+        "synthetic_fixture": true,
+        "eligibility_declared_before_turn": true,
+        "isolated_test_connection": true,
+        "retained_trial_fields": ["trial_id", "outcome"],
+        "trials": [{ "trial_id": "trial_501", "outcome": "successful_read" }],
+        "counts": {
+          "eligible_trials": 1,
+          "successful_read": 1,
+          "failed_read": 0,
+          "no_call": 0,
+          "observed_call_trials": 1
+        },
+        "invocation_rate_percent": 100
+      }
+    },
+    {
+      "id": "reject_prompt_retention",
+      "expected_policy_result": "fail",
+      "candidate": {
+        "method": "consented_synthetic_trials_v1",
+        "surface_id": "claude_web",
+        "user_consent": true,
+        "synthetic_fixture": true,
+        "eligibility_declared_before_turn": true,
+        "isolated_test_connection": true,
+        "retained_trial_fields": ["trial_id", "outcome", "prompt"],
+        "trials": [
+          { "trial_id": "trial_601", "outcome": "successful_read", "prompt": "private content" }
+        ],
+        "counts": {
+          "eligible_trials": 1,
+          "successful_read": 1,
+          "failed_read": 0,
+          "no_call": 0,
+          "observed_call_trials": 1
+        },
+        "invocation_rate_percent": 100
+      }
+    },
+    {
+      "id": "reject_missing_consent",
+      "expected_policy_result": "fail",
+      "candidate": {
+        "method": "consented_synthetic_trials_v1",
+        "surface_id": "claude_code",
+        "user_consent": false,
+        "synthetic_fixture": true,
+        "eligibility_declared_before_turn": true,
+        "isolated_test_connection": true,
+        "retained_trial_fields": ["trial_id", "outcome"],
+        "trials": [{ "trial_id": "trial_701", "outcome": "no_call" }],
+        "counts": {
+          "eligible_trials": 1,
+          "successful_read": 0,
+          "failed_read": 0,
+          "no_call": 1,
+          "observed_call_trials": 0
+        },
+        "invocation_rate_percent": 0
+      }
+    },
+    {
+      "id": "reject_non_synthetic_cohort",
+      "expected_policy_result": "fail",
+      "candidate": {
+        "method": "consented_synthetic_trials_v1",
+        "surface_id": "claude_android",
+        "user_consent": true,
+        "synthetic_fixture": false,
+        "eligibility_declared_before_turn": true,
+        "isolated_test_connection": true,
+        "retained_trial_fields": ["trial_id", "outcome"],
+        "trials": [{ "trial_id": "trial_801", "outcome": "failed_read" }],
+        "counts": {
+          "eligible_trials": 1,
+          "successful_read": 0,
+          "failed_read": 1,
+          "no_call": 0,
+          "observed_call_trials": 1
+        },
+        "invocation_rate_percent": 100
+      }
+    }
+  ]
+}

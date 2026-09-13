@@ -1,18 +1,27 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { openDatabase } from "@alice/database";
-import { getProjectContext, registerUser } from "@alice/domain";
+import { openSqliteTestDatabase } from "@alice/database/testing";
+import {
+  getProjectContext,
+  issueAlphaInvitation,
+  provisionInitialWorkContexts,
+  registerUser,
+} from "@alice/domain";
 
 const fixturePath = resolve(import.meta.dirname, "../evals/cross-host-context.json");
 const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
 const timestamp = "2026-08-30T10:00:00.000Z";
 
-function seedCase(evaluationCase) {
-  const database = openDatabase(":memory:");
-  const identity = registerUser(database, {
+async function seedCase(evaluationCase) {
+  const database = openSqliteTestDatabase();
+  const invitation = await issueAlphaInvitation(database, {
+    email: `${evaluationCase.host}@context-eval.alice.example`,
+  });
+  const identity = await registerUser(database, {
     email: `${evaluationCase.host}@context-eval.alice.example`,
     password: "context evaluation fixture password",
+    invitationToken: invitation.token,
   });
   database
     .prepare(
@@ -27,6 +36,13 @@ function seedCase(evaluationCase) {
       timestamp,
       timestamp,
     );
+  await provisionInitialWorkContexts(database, {
+    userId: identity.id,
+    workspaceId: identity.workspace_id,
+    projectId: fixture.project.id,
+    createdAt: timestamp,
+    providerAvailability: { chatgpt: true, claude: true },
+  });
   database
     .prepare(
       `INSERT INTO oauth_clients
@@ -52,8 +68,9 @@ function seedCase(evaluationCase) {
       .prepare(
         `INSERT INTO evidence_events
           (id, workspace_id, project_id, exact_payload_json, actor_type, connection_id,
-           client_id, client_classification, tool_name, idempotency_key, payload_hash, created_at)
-         VALUES (?, ?, ?, ?, 'mcp_host', 'evaluation-connection', 'evaluation-client', ?,
+           connection_workspace_id, client_id, client_classification, tool_name,
+           idempotency_key, payload_hash, created_at)
+         VALUES (?, ?, ?, ?, 'mcp_host', 'evaluation-connection', ?, 'evaluation-client', ?,
                  'save_project_update', ?, ?, ?)`,
       )
       .run(
@@ -61,6 +78,7 @@ function seedCase(evaluationCase) {
         identity.workspace_id,
         fixture.project.id,
         JSON.stringify({ fixture_decision: decision.id, value: decision.value }),
+        identity.workspace_id,
         evaluationCase.host,
         `accepted-${decision.id}`,
         `payload-hash-${decision.id}`,
@@ -108,8 +126,9 @@ function seedCase(evaluationCase) {
       .prepare(
         `INSERT INTO evidence_events
           (id, workspace_id, project_id, exact_payload_json, actor_type, connection_id,
-           client_id, client_classification, tool_name, idempotency_key, payload_hash, created_at)
-         VALUES (?, ?, ?, ?, 'mcp_host', 'evaluation-connection', 'evaluation-client', ?,
+           connection_workspace_id, client_id, client_classification, tool_name,
+           idempotency_key, payload_hash, created_at)
+         VALUES (?, ?, ?, ?, 'mcp_host', 'evaluation-connection', ?, 'evaluation-client', ?,
                  'save_project_update', ?, ?, ?)`,
       )
       .run(
@@ -117,6 +136,7 @@ function seedCase(evaluationCase) {
         identity.workspace_id,
         fixture.project.id,
         JSON.stringify({ fixture_pending: pending.id, value: pending.value }),
+        identity.workspace_id,
         evaluationCase.host,
         pending.id,
         `payload-hash-${pending.id}`,
@@ -144,17 +164,17 @@ function seedCase(evaluationCase) {
   return { database, identity };
 }
 
-function scoreCase(evaluationCase) {
+async function scoreCase(evaluationCase) {
   const failures = [];
-  const { database, identity } = seedCase(evaluationCase);
+  const { database, identity } = await seedCase(evaluationCase);
   const request = {
     userId: identity.id,
     projectId: fixture.project.id,
     task: evaluationCase.prompt,
     contextBudget: 16_000,
   };
-  const context = getProjectContext(database, request);
-  const repeated = getProjectContext(database, request);
+  const context = await getProjectContext(database, request);
+  const repeated = await getProjectContext(database, request);
   const acceptedByKey = new Map(
     context.accepted_decisions.map((decision) => [decision.state_key, decision]),
   );
@@ -207,6 +227,7 @@ function scoreCase(evaluationCase) {
     }
   }
 
+  database.close();
   return failures;
 }
 
@@ -221,11 +242,13 @@ if (new Set(fixture.cases.map(({ host }) => host)).size !== 2) {
   structuralErrors.push("The cross-host evaluation must cover distinct ChatGPT and Claude cases.");
 }
 
-const results = fixture.cases.map((evaluationCase) => ({
-  host: evaluationCase.host,
-  id: evaluationCase.id,
-  failures: scoreCase(evaluationCase),
-}));
+const results = await Promise.all(
+  fixture.cases.map(async (evaluationCase) => ({
+    host: evaluationCase.host,
+    id: evaluationCase.id,
+    failures: await scoreCase(evaluationCase),
+  })),
+);
 const failed = results.filter(({ failures }) => failures.length > 0);
 if (structuralErrors.length > 0 || failed.length > 0) {
   for (const error of structuralErrors) console.error(`Fixture error: ${error}`);

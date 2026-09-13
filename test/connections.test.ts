@@ -1,0 +1,286 @@
+import assert from "node:assert/strict";
+import { after, before, test } from "node:test";
+import { openSqliteTestDatabase } from "@alice/database/testing";
+import { createUserSession } from "@alice/domain";
+import { createApp } from "../apps/web/src/app.ts";
+import { createTestIdentity, getProjectDefaultContext } from "./helpers.ts";
+
+let baseUrl;
+let cookie;
+let created;
+let disconnectedCookie;
+let owner;
+let other;
+let server;
+
+before(async () => {
+  const database = openSqliteTestDatabase();
+  owner = await createTestIdentity(database, {
+    email: "connection-owner@alice.example",
+    projectId: "project_connection_owner",
+  });
+  other = await createTestIdentity(database, {
+    email: "connection-other@alice.example",
+    projectId: "project_connection_other",
+  });
+  const disconnected = await createTestIdentity(database, {
+    email: "connection-new@alice.example",
+    projectId: "project_connection_new",
+  });
+  const now = new Date().toISOString();
+  database
+    .prepare(
+      `INSERT INTO oauth_clients
+        (client_id, client_name, redirect_uris_json, token_endpoint_auth_method, created_at)
+       VALUES (?, ?, '[]', 'none', ?)`,
+    )
+    .run("client_owner_chatgpt", "ChatGPT web", now);
+  database
+    .prepare(
+      `INSERT INTO oauth_clients
+        (client_id, client_name, redirect_uris_json, token_endpoint_auth_method, created_at)
+       VALUES (?, ?, '[]', 'none', ?)`,
+    )
+    .run("client_other_claude", "Claude Desktop", now);
+  database
+    .prepare(
+      `INSERT INTO oauth_clients
+        (client_id, client_name, redirect_uris_json, token_endpoint_auth_method, created_at)
+       VALUES (?, ?, '[]', 'none', ?)`,
+    )
+    .run("client_owner_claude", "Claude web", now);
+  for (const [identity, connectionId, clientId, classification] of [
+    [owner, "connection_owner", "client_owner_chatgpt", "chatgpt"],
+    [other, "connection_other", "client_other_claude", "claude"],
+  ]) {
+    database
+      .prepare(
+        `INSERT INTO integration_connections
+          (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
+           first_connected_at, last_used_at)
+         VALUES (?, ?, ?, ?, ?, 'mcp:read mcp:write', ?, ?)`,
+      )
+      .run(connectionId, identity.id, identity.workspace_id, clientId, classification, now, now);
+  }
+  database
+    .prepare(
+      `INSERT INTO integration_connections
+        (id, user_id, workspace_id, client_id, client_classification, granted_scopes,
+         first_connected_at, last_used_at)
+       VALUES ('connection_owner_claude', ?, ?, 'client_owner_claude', 'claude',
+               'mcp:read mcp:write', ?, ?)`,
+    )
+    .run(owner.id, owner.workspace_id, now, now);
+  database
+    .prepare(
+      `INSERT INTO oauth_access_tokens
+        (token_hash, client_id, user_id, connection_id, scope, resource, expires_at)
+       VALUES ('owner-token-hash', 'client_owner_chatgpt', ?, 'connection_owner',
+               'mcp:read mcp:write', 'http://127.0.0.1/mcp', 9999999999)`,
+    )
+    .run(owner.id);
+
+  created = await createApp({
+    database,
+    mcpPublicUrl: "https://mcp.alice.example",
+    publicUrl: "http://127.0.0.1",
+  });
+  server = created.app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const session = await createUserSession(database, owner.id);
+  cookie = `alice_session=${encodeURIComponent(session.token)}`;
+  const disconnectedSession = await createUserSession(database, disconnected.id);
+  disconnectedCookie = `alice_session=${encodeURIComponent(disconnectedSession.token)}`;
+});
+
+after(async () => {
+  await new Promise((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+  created.database.close();
+});
+
+test("connection center exposes only the current user's safe connection metadata", async () => {
+  const response = await fetch(`${baseUrl}/connections`, { headers: { cookie } });
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /<aside class="app-sidebar"/);
+  assert.match(html, /AI provider status/);
+  assert.match(html, /ChatGPT/);
+  assert.match(html, /Claude/);
+  assert.equal(html.match(/provider-light connected/g)?.length, 2);
+  assert.doesNotMatch(html, />Connect ChatGPT/);
+  assert.doesNotMatch(html, />Connect Claude/);
+  assert.match(html, /Advanced connection settings/);
+
+  const projectBeforeTarget = await fetch(`${baseUrl}/projects/${owner.project_id}`, {
+    headers: { cookie },
+  });
+  const projectBeforeTargetHtml = await projectBeforeTarget.text();
+  assert.match(projectBeforeTargetHtml, /Connected to ChatGPT/);
+  assert.match(projectBeforeTargetHtml, /Connected to Claude/);
+  assert.equal(projectBeforeTargetHtml.match(/provider-light connected/g)?.length, 2);
+  assert.doesNotMatch(projectBeforeTargetHtml, /Active in ChatGPT|Active in Claude/);
+
+  const advanced = await fetch(`${baseUrl}/connections/advanced`, { headers: { cookie } });
+  assert.equal(advanced.status, 200);
+  const advancedHtml = await advanced.text();
+  assert.match(advancedHtml, /ChatGPT web/);
+  assert.match(advancedHtml, /Claude web/);
+  assert.match(advancedHtml, /Every project you can access is discoverable/);
+  assert.doesNotMatch(advancedHtml, /Active project and work context|Confirm active target/);
+  assert.match(advancedHtml, /https:\/\/mcp\.alice\.example\/mcp/);
+  assert.match(advancedHtml, /Connected<\/dt><dd><time datetime="[^"]+" data-local-time>/);
+  assert.match(advancedHtml, /Last used<\/dt><dd><time datetime="[^"]+" data-local-time>/);
+  assert.doesNotMatch(advancedHtml, /Connected<\/dt><dd>[^<]*UTC|Last used<\/dt><dd>[^<]*UTC/);
+  assert.doesNotMatch(advancedHtml, /Claude Desktop/);
+  assert.doesNotMatch(advancedHtml, /owner-token-hash/);
+});
+
+test("disconnected providers each show one connect action", async () => {
+  const response = await fetch(`${baseUrl}/connections`, {
+    headers: { cookie: disconnectedCookie },
+  });
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, />Connect ChatGPT/);
+  assert.match(html, />Connect Claude/);
+  assert.equal(html.match(/provider-light connected/g)?.length || 0, 0);
+  assert.match(html, /href="https:\/\/chatgpt\.com\/plugins"/);
+  assert.match(
+    html,
+    /href="https:\/\/claude\.ai\/customize\/connectors\?modal=add-custom-connector&amp;connectorName=alice\.&amp;connectorUrl=https%3A%2F%2Fmcp\.alice\.example%2Fmcp"/,
+  );
+  assert.match(html, /target="_blank" rel="noopener noreferrer"/);
+  assert.match(html, /data-copy-mcp-address="https:\/\/mcp\.alice\.example\/mcp"/);
+  assert.match(html, /The address is copied\. Paste it and choose Connect/);
+  assert.match(html, /Copy the address above, paste it and choose Connect/);
+});
+
+test("connection management exposes no active-target mutation", async () => {
+  const general = await getProjectDefaultContext(created.database, owner.project_id);
+  const response = await fetch(`${baseUrl}/connections/connection_owner/target`, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      target: `${owner.project_id}|${general.id}`,
+      apply_all: "yes",
+      expected_versions: JSON.stringify({
+        connection_owner: null,
+        connection_owner_claude: null,
+      }),
+    }),
+    redirect: "manual",
+  });
+  assert.equal(response.status, 404);
+
+  const accessPage = await fetch(
+    `${baseUrl}/projects/${encodeURIComponent(owner.project_id)}/access`,
+    { headers: { cookie } },
+  );
+  assert.equal(accessPage.status, 200);
+  const accessHtml = await accessPage.text();
+  assert.match(accessHtml, /Your AI connections/);
+  assert.doesNotMatch(accessHtml, /Visible context access|>General/);
+  assert.match(accessHtml, /ChatGPT web/);
+  assert.match(accessHtml, /Claude web/);
+  assert.doesNotMatch(accessHtml, /AI connection target changed/);
+  assert.doesNotMatch(accessHtml, /Claude Desktop|owner-token-hash/);
+  const targets = created.database
+    .prepare(
+      `SELECT connection_id, project_id, context_id, selection_version
+       FROM active_connection_targets ORDER BY connection_id`,
+    )
+    .all();
+  assert.deepEqual(targets, []);
+  assert.equal(
+    created.database
+      .prepare("SELECT COUNT(*) AS count FROM context_history_events WHERE action = ?")
+      .get("active_target_selected").count,
+    0,
+  );
+
+  const page = await fetch(`${baseUrl}/connections/advanced`, { headers: { cookie } });
+  assert.doesNotMatch(await page.text(), /Active target|General/);
+
+  const projectPage = await fetch(`${baseUrl}/projects/${owner.project_id}`, {
+    headers: { cookie },
+  });
+  const projectHtml = await projectPage.text();
+  assert.match(projectHtml, /Connected to ChatGPT/);
+  assert.match(projectHtml, /Connected to Claude/);
+  assert.equal(projectHtml.match(/provider-light connected/g)?.length, 2);
+  assert.doesNotMatch(projectHtml, /Work context|Project-wide|>General</);
+});
+
+test("connection center shows private immutable host-read receipts without package content", async () => {
+  const general = await getProjectDefaultContext(created.database, owner.project_id);
+  created.database
+    .prepare(
+      `INSERT INTO context_read_events
+        (id, user_id, connection_workspace_id, connection_id, client_id, client_name,
+         client_classification, requested_via, status, project_workspace_id, project_id,
+         context_id, package_version, package_utf8_bytes, created_at)
+       VALUES ('read_owner_success', ?, ?, 'connection_owner', 'client_owner_chatgpt',
+               'ChatGPT web', 'chatgpt', 'active_target', 'succeeded', ?, ?, ?,
+               'package-visible-version', 4321, ?)`,
+    )
+    .run(
+      owner.id,
+      owner.workspace_id,
+      owner.workspace_id,
+      owner.project_id,
+      general.id,
+      new Date().toISOString(),
+    );
+  const response = await fetch(`${baseUrl}/connections/advanced`, { headers: { cookie } });
+  const html = await response.text();
+  assert.match(html, /Your recent host reads/);
+  assert.match(html, /ChatGPT web/);
+  assert.match(html, /4321 bytes delivered/);
+  assert.doesNotMatch(html, /package-visible-version|UTF-8/);
+  assert.doesNotMatch(html, /task text|package content/);
+});
+
+test("foreign connection identifiers disclose nothing and perform no revocation", async () => {
+  const response = await fetch(`${baseUrl}/connections/connection_other/revoke`, {
+    method: "POST",
+    headers: { cookie },
+    redirect: "manual",
+  });
+  assert.equal(response.status, 404);
+  assert.equal(
+    created.database
+      .prepare("SELECT revoked_at FROM integration_connections WHERE id = 'connection_other'")
+      .get().revoked_at,
+    null,
+  );
+});
+
+test("authenticated revocation invalidates the user's connection and bearer tokens", async () => {
+  const response = await fetch(`${baseUrl}/connections/connection_owner/revoke`, {
+    method: "POST",
+    headers: { cookie },
+    redirect: "manual",
+  });
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("location"), "/connections");
+  assert.ok(
+    created.database
+      .prepare("SELECT revoked_at FROM integration_connections WHERE id = 'connection_owner'")
+      .get().revoked_at,
+  );
+  assert.ok(
+    created.database
+      .prepare("SELECT revoked_at FROM oauth_access_tokens WHERE token_hash = 'owner-token-hash'")
+      .get().revoked_at,
+  );
+  const projectPage = await fetch(`${baseUrl}/projects/${owner.project_id}`, {
+    headers: { cookie },
+  });
+  const projectHtml = await projectPage.text();
+  assert.match(projectHtml, /Not connected to ChatGPT/);
+  assert.match(projectHtml, /Connected to Claude/);
+  assert.equal(projectHtml.match(/provider-light connected/g)?.length, 1);
+});
