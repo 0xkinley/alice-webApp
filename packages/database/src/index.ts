@@ -286,6 +286,21 @@ export async function configureApplicationRole(
     await database.exec(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.save_confirmation_receipts FROM ${role}`,
     );
+    await database.exec(`REVOKE UPDATE ON TABLE ${schema}.migration_previews FROM ${role}`);
+    await database.exec(
+      `GRANT SELECT, INSERT, DELETE ON TABLE ${schema}.migration_previews TO ${role}`,
+    );
+    await database.exec(`REVOKE UPDATE, DELETE ON TABLE ${schema}.migration_sessions FROM ${role}`);
+    await database.exec(
+      `GRANT UPDATE (
+        status, status_version, observed_count, imported_count, exact_bytes_count,
+        content_only_count, reference_count, missing_count, external_count,
+        unsupported_count, alice_confirmed_count, error_summary, updated_at, completed_at
+      ) ON TABLE ${schema}.migration_sessions TO ${role}`,
+    );
+    await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.migration_events, ${schema}.migration_source_records FROM ${role}`,
+    );
     await database.exec(`REVOKE ALL ON TABLE ${schema}.project_erasure_jobs FROM ${role}`);
     await database.exec(
       `REVOKE INSERT, UPDATE, DELETE ON TABLE ${schema}.alice_schema_migrations FROM ${role}`,

@@ -43,6 +43,9 @@ const DELETE_TRIGGER_TABLES = [
   "host_file_save_transfer_availability",
   "host_file_save_transfer_completions",
   "host_file_save_transfer_intents",
+  "migration_events",
+  "migration_sessions",
+  "migration_source_records",
   "project_deletion_requests",
   "project_default_contexts",
   "project_invitations",
@@ -308,6 +311,15 @@ async function deleteProjectRows(database, input, plan) {
     deletedRows += result.changes;
   };
   const scoped = [plan.project.workspace_id, input.projectId];
+  await remove(
+    "DELETE FROM migration_source_records WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove("DELETE FROM migration_events WHERE workspace_id = ? AND project_id = ?", ...scoped);
+  await remove(
+    "DELETE FROM migration_sessions WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
   await remove(
     "DELETE FROM save_confirmation_receipts WHERE workspace_id = ? AND project_id = ?",
     ...scoped,

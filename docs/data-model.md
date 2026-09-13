@@ -90,6 +90,12 @@ Milestone 06 keeps uploaded objects and immutable metadata separate. Determinist
 
 Complete artifact snapshots may carry bounded `decision_records_json`: explicit validated decision keys paired with exact JSON values. The retained empty-array default keeps older application images able to insert artifact versions after the additive migration. `artifact_decision_resolutions` is append-only and project-scoped; it binds one human-selected current artifact/version/value to a SHA-256 fingerprint of an exact conflict set. A composite foreign key prevents selecting a version from another artifact or project. Resolution records do not change artifact versions or accepted state, and a new current version produces a different conflict fingerprint.
 
+### Project migration sources
+
+Migration `029_project_migrations.sql` adds four bounded records without creating a parallel project or truth system. `migration_previews` is short-lived user/connection authority state with exact normalized payload and preview hashes; it has no project reference. `migration_sessions` exists only after authenticated `Migrate`, is bound by composite workspace/project and source-connection foreign keys, and contains provider provenance, one immutable input hash/idempotency key, backend status/version, bounded fidelity counters, fixed content-free error summary, and timestamps. A unique source-connection/intent key prevents duplicate projects across separately generated retries.
+
+`migration_events` is append-only and content-free. It records ordered creation, source-ingestion, transition, and retry facts without imported content. `migration_source_records` is immutable, project/session-scoped, content-hashed `HOST_SNAPSHOT` evidence with `UNVERIFIED_HOST_DERIVED` authority, source/parser format, provider provenance, and explicit byte-capture state. It is not accepted state, an artifact version, or an operational project instruction. Exact files and artifacts continue through their existing storage, scan, preview, and human Save paths; candidate and accepted state continue through existing evidence/review paths.
+
 ## Integrations and audit
 
 ### Integration connections

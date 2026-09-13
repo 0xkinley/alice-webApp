@@ -1,6 +1,6 @@
 import { build } from "esbuild";
 
-for (const name of ["workspace-app", "save-app"]) {
+for (const name of ["workspace-app", "save-app", "migration-app"]) {
   await build({
     entryPoints: [`apps/mcp/ui/${name}.ts`],
     outfile: `apps/mcp/dist/${name}.js`,

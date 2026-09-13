@@ -5,5 +5,5 @@
     "noEmit": true
   },
   "references": [{ "path": "../../../packages/presentation" }],
-  "include": ["workspace-app.ts", "save-app.ts"]
+  "include": ["workspace-app.ts", "save-app.ts", "migration-app.ts"]
 }

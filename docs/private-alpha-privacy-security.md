@@ -10,6 +10,12 @@ This notice describes the currently implemented alice. private-alpha system and 
 
 The public, unauthenticated product copy is served at `/privacy-security`. This document is the durable source for its claims and the evidence boundaries behind them.
 
+## Source-only project migration disclosure
+
+Milestone 06.5 adds a source-only project-migration foundation that is not part of the current hosted checkpoint until a separately approved database migration and runtime deployment complete. When enabled, an explicit host request creates only a short-lived preview containing the proposed Alice name, optional provider project labels, and the bounded material actually supplied. Only the signed-in human's exact `Migrate` action creates the Alice project and retains that material as immutable content-hashed `UNVERIFIED_HOST_DERIVED` source data plus content-free session/events. Ignoring or allowing the preview to expire creates no project or durable migration source.
+
+This feature does not grant Alice access to a ChatGPT or Claude account, complete project, historical conversations, or files. It collects no provider password, browser cookie, or provider token, performs no provider request, and cannot rename, edit, move, or delete the source project. Users may separately select exact local files through Alice's existing private upload; unknown provider-export archives are not silently parsed, and unrelated account history should be filtered locally before upload. Migration sources are included in the Owner's project export and removed only with the Alice copy through the existing project-erasure workflow. Deleting the Alice copy sends no provider-side deletion request.
+
 ## Prohibited private-alpha data
 
 Do not enter sensitive, regulated, or client-confidential information until the corresponding technical, contractual, and operational controls have been verified. Prohibited examples include:

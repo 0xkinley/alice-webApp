@@ -19,6 +19,7 @@ import {
   CaptureSavePreviewUserError,
   commitArtifactSavePreview,
   commitCaptureSavePreview,
+  commitProjectMigrationPreview,
   ContextBudgetError,
   createProjectFileUploadIntent,
   createArtifactSavePreview,
@@ -26,6 +27,7 @@ import {
   createHostFileSaveOffer,
   createHostFileSaveOffers,
   createCaptureSavePreview,
+  createProjectMigrationPreview,
   decideHostFileSaveOffer,
   decideHostFileSaveOffers,
   finalizeHostFileSaveTransfer,
@@ -33,6 +35,7 @@ import {
   getAliceArtifact,
   getSaveConfirmationReceipt,
   getProjectContext,
+  getProjectMigrationStatus,
   HostFileSaveOfferUserError,
   listProjects,
   projectDestinationForConnection,
@@ -56,6 +59,7 @@ import {
   commitAliceCaptureSaveSchema,
   commitAliceHostFileSaveSchema,
   commitAliceHostFilesSaveSchema,
+  commitAliceProjectMigrationSchema,
   createAliceWorkspaceProjectSchema,
   finalizeHostFileTransferSchema,
   finalizeAliceWorkspaceFileUploadSchema,
@@ -65,11 +69,15 @@ import {
   getAliceWorkspaceFileStatusSchema,
   getProjectContextOutputSchema,
   getProjectContextSchema,
+  getProjectMigrationStatusSchema,
   hostFileSaveOfferSchema,
   hostFilesSaveOfferSchema,
   listProjectsOutputSchema,
   listProjectsSchema,
   openAliceWorkspaceSchema,
+  previewProjectMigrationOutputSchema,
+  previewProjectMigrationSchema,
+  projectMigrationStatusOutputSchema,
   readProjectFileTextOutputSchema,
   readProjectFileTextSchema,
   readProjectFilePdfTextOutputSchema,
@@ -91,6 +99,11 @@ function authenticatedConnectionId(context) {
   return context.http?.authInfo?.extra?.connectionId;
 }
 
+function authenticatedClientId(context): string {
+  const clientId = context.http?.authInfo?.clientId;
+  return typeof clientId === "string" ? clientId : "";
+}
+
 function oauthToolSecurity(scope) {
   return {
     _meta: { securitySchemes: [{ type: "oauth2", scopes: [scope] }] },
@@ -99,6 +112,7 @@ function oauthToolSecurity(scope) {
 
 const WORKSPACE_APP_URI = "ui://alice/workspace/v3.html";
 const SAVE_APP_URI = "ui://alice/save/v2.html";
+const MIGRATION_APP_URI = "ui://alice/migration/v1.html";
 
 function oauthAppToolMeta(
   scope,
@@ -112,7 +126,7 @@ function oauthAppToolMeta(
   };
 }
 
-async function appHtml(name: "workspace-app" | "save-app", title: string) {
+async function appHtml(name: "workspace-app" | "save-app" | "migration-app", title: string) {
   const bundleUrl = new URL(`./${name}.js`, import.meta.url);
   let script: string;
   try {
@@ -422,7 +436,7 @@ function createProtocolServer(
     reviewUrl: string;
   },
 ) {
-  const server = new McpServer({ name: "alice-mcp", version: "0.9.2" });
+  const server = new McpServer({ name: "alice-mcp", version: "0.10.0" });
   const resourceMeta = appResourceMeta({ fileStore, reviewUrl });
   const publicUrl = reviewUrl;
 
@@ -441,6 +455,27 @@ function createProtocolServer(
           uri: WORKSPACE_APP_URI,
           mimeType: RESOURCE_MIME_TYPE,
           text: await appHtml("workspace-app", "alice. workspace"),
+          _meta: resourceMeta,
+        },
+      ],
+    }),
+  );
+
+  registerAppResource(
+    server as unknown as Parameters<typeof registerAppResource>[0],
+    "alice. project migration",
+    MIGRATION_APP_URI,
+    {
+      title: "alice. project migration",
+      description: "One exact non-destructive migration preview and authenticated Migrate action.",
+      _meta: resourceMeta,
+    },
+    async () => ({
+      contents: [
+        {
+          uri: MIGRATION_APP_URI,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: await appHtml("migration-app", "alice. project migration"),
           _meta: resourceMeta,
         },
       ],
@@ -587,6 +622,156 @@ function createProtocolServer(
             ? new URL(`/projects/${encodeURIComponent(project.id)}/files`, publicUrl).href
             : null,
         },
+      };
+    },
+  );
+
+  server.registerTool(
+    "prepare_project_migration",
+    {
+      title: "Preview an Alice project migration",
+      description:
+        "Use only after the user explicitly asks to migrate the current ChatGPT or Claude project into Alice. Supply only material actually available in this conversation or explicitly provided by the user. This creates an expiring exact preview only: it creates no Alice project, migration session, artifact, candidate, accepted information, or provider mutation. Every supplied summary, instruction, message, artifact description, provider identifier, and name remains unverified host-derived data. Never claim this tool can enumerate a provider project, conversation history, or files. The original provider project always remains unchanged; only the authenticated human's Migrate action can create the Alice copy.",
+      inputSchema: previewProjectMigrationSchema,
+      outputSchema: previewProjectMigrationOutputSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["model"], MIGRATION_APP_URI),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
+        return { content: [{ type: "text", text: "Write access is unavailable." }], isError: true };
+      }
+      const result = await createProjectMigrationPreview(database, {
+        userId: authenticatedUserId(context),
+        connectionId: authenticatedConnectionId(context),
+        clientId: authenticatedClientId(context),
+        payload: input,
+      });
+      if (!result) {
+        return {
+          content: [{ type: "text", text: "Migration preview unavailable." }],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Nothing has been migrated. Present Alice's exact migration card for ${result.preview.alice_project_name}. The original ${result.preview.source_provider === "chatgpt" ? "ChatGPT" : "Claude"} project remains unchanged. Every supplied item is unverified host-derived data, and only the authenticated human's Migrate action creates the Alice project.`,
+          },
+        ],
+        structuredContent: result.preview,
+        _meta: {
+          "alice/migrationAuthority": { token: result.authority_token },
+          "alice/migrationPreview": result.exact_preview,
+        },
+      };
+    },
+  );
+
+  server.registerTool(
+    "alice_commit_project_migration",
+    {
+      title: "Create the exact Alice migration copy",
+      description:
+        "App-only authenticated human Migrate action. Atomically creates the ordinary Alice project, migration session, initial append-only event, and immutable unverified host snapshot shown in the exact unexpired preview. It never mutates the source provider project or accepted Alice state.",
+      inputSchema: commitAliceProjectMigrationSchema,
+      outputSchema: projectMigrationStatusOutputSchema,
+      _meta: oauthAppToolMeta("mcp:write", ["app"], MIGRATION_APP_URI),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input, context) => {
+      if (!context.http?.authInfo?.scopes.includes("mcp:write")) {
+        return { content: [{ type: "text", text: "Write access is unavailable." }], isError: true };
+      }
+      try {
+        const result = await commitProjectMigrationPreview(database, {
+          userId: authenticatedUserId(context),
+          connectionId: authenticatedConnectionId(context),
+          clientId: authenticatedClientId(context),
+          publicUrl,
+          previewId: input.preview_id,
+          previewVersion: input.preview_version,
+          authorityToken: input.authority_token,
+        });
+        if (!result) {
+          return {
+            content: [{ type: "text", text: "The exact migration preview is unavailable." }],
+            isError: true,
+          };
+        }
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Created ${result.project.name} in Alice from the supplied scope only. The original provider project remains unchanged, and imported source material remains unverified data.`,
+            },
+          ],
+          structuredContent: result,
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                error instanceof Error && error.message.includes("already exists")
+                  ? "An Alice project with that name already exists. Create a new migration preview with a different destination name."
+                  : "The exact migration could not be created. Nothing was migrated.",
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_project_migration_status",
+    {
+      title: "Get Alice project migration status",
+      description:
+        "Read backend-authoritative status and bounded observed-fidelity counts for one exact migration session in one exact authorized Alice project. Counts describe only supplied or explicitly uploaded material; they never prove complete provider-project fidelity or confirmed decisions. This read cannot advance migration state or mutate either Alice or the source provider.",
+      inputSchema: getProjectMigrationStatusSchema,
+      outputSchema: projectMigrationStatusOutputSchema,
+      _meta: oauthAppToolMeta("mcp:read", ["model", "app"], MIGRATION_APP_URI),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async (input, context) => {
+      const resolution = await resolveToolProject(database, context, input.project_id, "read");
+      if (resolution.status !== "ok") return projectResolutionError(resolution);
+      const result = await getProjectMigrationStatus(database, {
+        userId: authenticatedUserId(context),
+        connectionId: authenticatedConnectionId(context),
+        clientId: authenticatedClientId(context),
+        projectId: resolution.projectId,
+        migrationSessionId: input.migration_session_id,
+        publicUrl,
+      });
+      if (!result) {
+        return {
+          content: [{ type: "text", text: "That migration is unavailable in the exact project." }],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Migration status for ${result.project.name}: ${result.status}. Alice retained ${result.fidelity.imported} of ${result.fidelity.observed} supplied items, with ${result.fidelity.references} reference-only, ${result.fidelity.missing} missing, ${result.fidelity.external} external, and ${result.fidelity.unsupported} unsupported. These are supplied-scope counts, not proof of complete provider-project fidelity. The original remains unchanged.`,
+          },
+        ],
+        structuredContent: result,
       };
     },
   );

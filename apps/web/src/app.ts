@@ -30,6 +30,7 @@ import { createHostFileSaveOffersRouter } from "./host-file-save-offers.ts";
 import { createOAuthConsentRouter } from "./oauth-consent.ts";
 import { createProjectLifecycleRouter } from "./project-lifecycle.ts";
 import { createProjectMembershipRouter } from "./project-memberships.ts";
+import { createProjectMigrationsRouter } from "./project-migrations.ts";
 import { privateAlphaAboutBody } from "./public-site.ts";
 import { createReviewRouter } from "./review.ts";
 import { createSavedContextRouter } from "./saved-context.ts";
@@ -383,6 +384,7 @@ export async function createApp({
     },
   );
   app.use("/projects", createArtifactsRouter({ database, fileStore }));
+  app.use("/projects", createProjectMigrationsRouter({ database, fileStore, publicUrl }));
   app.use("/projects", createSavedContextRouter({ database, fileStore }));
   app.use("/artifact-save-previews", createArtifactSavePreviewsRouter({ database, fileStore }));
   app.use("/save-previews", createCaptureSavePreviewsRouter({ database, fileStore, publicUrl }));

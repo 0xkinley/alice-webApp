@@ -1,6 +1,6 @@
 # Project Migration Foundation
 
-Status: In progress for Milestone 06.5
+Status: Source foundation implemented and locally verified; hosted rollout and dated backup-expiry proof remain pending for Milestone 06.5
 
 ## Decision
 
@@ -122,6 +122,20 @@ or audit metadata.
 - Migration creation must be atomic with ordinary project creation. If project,
   session, initial event, source record, or audit insertion fails, no project shell
   remains.
+
+## Implemented source foundation — 2026-09-13
+
+Migration `029_project_migrations.sql` and the SQLite test mirror now implement the four audited records with composite tenant keys, bounded fields/counters, append-preserving triggers, and constrained runtime grants. `migration_sessions` also retains the normalized input SHA-256 and a connection-scoped intent idempotency key. Two distinct previews for the same exact intent therefore serialize under a transaction advisory lock and resolve to one project/session; reuse with a changed payload fails closed.
+
+`packages/domain/src/project-migrations.ts` implements preview, authenticated commit, authorized status, and backend transition operations. The commit reuses ordinary `createProject` inside one transaction, so Owner membership, the hidden default, project audit, migration session, initial event, immutable host snapshot, and migration audit either all commit or none do. The exact supplied-material JSON is stored once and hashed. Status then advances through `CREATED` → `INGESTING` → `VERIFYING` → `COMPLETE` or `PARTIAL`. Only fixed content-free codes may persist a partial/failed summary; `PARTIAL` and `FAILED` may retry through allowed version-checked transitions without changing prior events or source records.
+
+MCP `0.10.0` adds model-visible `prepare_project_migration`, app-only `alice_commit_project_migration`, and model/app `get_project_migration_status` with portable resource `ui://alice/migration/v1.html`. Raw Migrate authority exists only in tool-result `_meta`. The card renders the exact destination and supplied values with escaping, has one `Migrate` control and no Cancel action, then renders backend status/fidelity and Open in Alice. The authenticated web route `/projects/:projectId/migrations/:migrationSessionId` reauthorizes the current user and renders the same boundary inside the ordinary project shell.
+
+Project export now includes authorized migration sessions, events, and exact immutable source records. The privileged project-erasure dependency set removes source records, events, and sessions in order before deleting the Alice project. No new provider client, credential, network call, account enumerator, project mutator, storage service, candidate path, accepted-state path, collaboration model, or deletion mechanism was added.
+
+Later enrichment is capability-gated by the existing project shell: a permitted human may select exact local files through the current private scan-gated upload and use the existing artifact/Save/review flows. The migration UI does not parse provider archives or unknown schemas, says so visibly, and instructs users to filter unrelated account history locally. The initial host tool deliberately rejects `exact_bytes`; Alice counts exact bytes only when the existing upload path actually possesses them. A dedicated provider-export parser is not implemented because no stable validated ChatGPT or Claude export contract has been established for this alpha.
+
+Local verification currently covers no-action preview, private authority, exact commit, connection/tenant/project denial, prompt-injection retention as data, trusted-state isolation, same-preview and distinct-preview idempotency, conflicting reuse, partial/failure/retry, immutable source/event/session fields, bounded status, export, project erasure, unknown-input failure, ChatGPT-like interactive behavior, Claude-like and text-only model output, real PostgreSQL 17 migration/role/concurrency, and logical backup/restore. The final repository gate and hosted change-set review are recorded separately before any deployment.
 
 ## Authority model
 

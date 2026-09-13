@@ -19,6 +19,7 @@ export const consumptionContractVersion = "2.4";
 export const fileTextReadContractVersion = "1.0";
 export const pdfFileReadContractVersion = "1.0";
 export const pdfExtractionVersion = "pdfjs_embedded_text_v1";
+export const migrationContractVersion = "1.0";
 
 export const consumptionValidationLimits = Object.freeze({
   taskCharacters: 2_000,
@@ -120,12 +121,77 @@ export const createAliceWorkspaceProjectSchema = z
   })
   .strict();
 
+export const migrationCaptureStates = [
+  "exact_bytes",
+  "content_only",
+  "reference",
+  "missing",
+  "external",
+] as const;
+
+const migrationSuppliedMaterialSchema = z
+  .object({
+    kind: z.enum(["summary", "instruction", "message", "artifact_description", "other"]),
+    content: z.string().trim().min(1).max(12_000),
+    speaker: z.string().trim().min(1).max(120).optional(),
+    occurred_at: z.string().trim().min(1).max(64).optional(),
+    capture_state: z
+      .enum(["content_only", "reference", "missing", "external"])
+      .default("content_only"),
+  })
+  .strict();
+
+export const previewProjectMigrationSchema = z
+  .object({
+    alice_project_name: z.string().trim().min(1).max(120),
+    provider_project_id: z.string().trim().min(1).max(240).optional(),
+    provider_project_name: z.string().trim().min(1).max(240).optional(),
+    supplied_material: z.array(migrationSuppliedMaterialSchema).min(1).max(40),
+    idempotency_key: z
+      .string()
+      .trim()
+      .min(8)
+      .max(captureValidationLimits.idempotencyKeyCharacters)
+      .regex(boundedIdentifierPattern),
+  })
+  .strict()
+  .refine(
+    (payload) => Buffer.byteLength(JSON.stringify(payload), "utf8") <= 131_072,
+    "Migration preview payload exceeds 131072 UTF-8 bytes.",
+  );
+
 const saveAuthorityTokenSchema = z
   .string()
   .trim()
   .min(40)
   .max(160)
   .regex(/^alice_(?:file_)?save_[A-Za-z0-9_-]+$/);
+
+const migrationAuthorityTokenSchema = z
+  .string()
+  .trim()
+  .min(40)
+  .max(160)
+  .regex(/^alice_migrate_[A-Za-z0-9_-]+$/);
+
+export const commitAliceProjectMigrationSchema = z
+  .object({
+    preview_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
+    preview_version: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[0-9a-f]{64}$/),
+    authority_token: migrationAuthorityTokenSchema,
+  })
+  .strict();
+
+export const getProjectMigrationStatusSchema = z
+  .object({
+    project_id: mcpProjectReferenceSchema,
+    migration_session_id: z.string().trim().min(1).max(240).regex(boundedIdentifierPattern),
+  })
+  .strict();
 
 export const commitAliceCaptureSaveSchema = z
   .object({
@@ -956,6 +1022,62 @@ const fileArtifactSchema = z
     handling: z.literal("reference_only_untrusted"),
     text_read_tool: z.literal("read_project_file_text").nullable(),
     pdf_read_tool: z.literal("read_project_file_pdf_text").nullable(),
+  })
+  .strict();
+
+const migrationFidelitySchema = z
+  .object({
+    observed: z.number().int().nonnegative(),
+    imported: z.number().int().nonnegative(),
+    exact_bytes: z.number().int().nonnegative(),
+    content_only: z.number().int().nonnegative(),
+    references: z.number().int().nonnegative(),
+    missing: z.number().int().nonnegative(),
+    external: z.number().int().nonnegative(),
+    unsupported: z.number().int().nonnegative(),
+    alice_confirmed: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const previewProjectMigrationOutputSchema = z
+  .object({
+    contract_version: z.literal(migrationContractVersion),
+    preview_id: z.string(),
+    preview_version: z.string(),
+    status: z.literal("preview_only"),
+    source_provider: z.enum(["chatgpt", "claude"]),
+    provider_project_name: z.string().nullable(),
+    alice_project_name: z.string(),
+    supplied_item_count: z.number().int().positive(),
+    source_authority: z.literal("UNVERIFIED_HOST_DERIVED"),
+    original_unchanged: z.literal(true),
+    project_created: z.literal(false),
+    trusted_state_changed: z.literal(false),
+    expires_at: z.string(),
+  })
+  .strict();
+
+export const projectMigrationStatusOutputSchema = z
+  .object({
+    contract_version: z.literal(migrationContractVersion),
+    migration_session_id: z.string(),
+    project: z.object({ name: z.string(), url: z.string() }).strict(),
+    source: z
+      .object({
+        provider: z.enum(["chatgpt", "claude"]),
+        project_name: z.string().nullable(),
+        authority: z.literal("UNVERIFIED_HOST_DERIVED"),
+      })
+      .strict(),
+    status: z.enum(["CREATED", "INGESTING", "VERIFYING", "COMPLETE", "PARTIAL", "FAILED"]),
+    status_version: z.number().int().positive(),
+    fidelity: migrationFidelitySchema,
+    error_summary: z.string().nullable(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    completed_at: z.string().nullable(),
+    original_unchanged: z.literal(true),
+    source_content_trust: z.literal("unverified_host_derived_data"),
   })
   .strict();
 

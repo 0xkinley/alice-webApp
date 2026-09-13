@@ -41,6 +41,7 @@ Responsibilities:
 
 - register and authenticate users with one private workspace each;
 - create and revisit tenant-scoped projects;
+- render authorized backend-owned project-migration status inside the ordinary project shell;
 - render the candidate review interface;
 - execute explicit human candidate acceptance, rejection, and supersession;
 - when private file storage is explicitly configured, validate bounded human uploads, preserve immutable replacement versions, expose fail-closed scan state, integrity-checked previews, metadata export, and short-lived exact-version downloads; and
@@ -57,9 +58,10 @@ Responsibilities:
 - OAuth metadata, dynamic client registration, authorization-code PKCE, refresh, and revocation;
 - authenticated Streamable HTTP MCP transport;
 - accepted-context retrieval; and
-- candidate-only capture into immutable evidence.
+- candidate-only capture into immutable evidence; and
+- a preview-only project-migration intent, app-only authenticated `Migrate`, and authorized read-only migration status.
 
-The MCP tool list contains no review or trusted-state mutation action. `save_project_update` returns a review URL at the configured web origin, but acceptance remains a separate authenticated human action.
+The MCP tool list contains no review or direct trusted-state mutation action. `save_project_update` returns a review URL at the configured web origin, but acceptance remains a separate authenticated human action. Migration's app-only `Migrate` creates an ordinary empty project shell plus immutable unverified source evidence; it never creates accepted project information or mutates a provider project.
 
 ## Runtime configuration
 
@@ -93,7 +95,7 @@ Both deployables use one versioned PostgreSQL database through a pooled asynchro
 
 The constrained runtime role cannot create schema, manage migrations, truncate tables, or rewrite immutable evidence, accepted history, and audit events. Host writes remain candidate-only, evidence remains immutable, accepted context is authenticated and provenance-bearing, and only the web review action changes trusted state.
 
-File objects, context references, direct-upload intents/completions, and PDF evidence-source links are likewise immutable through the runtime role. Only storage-version and scan-lifecycle columns may advance through database-enforced transitions. Remove-from-context appends an immutable file-reference exclusion; it does not grant the runtime role object/reference deletion or permanent erasure authority.
+File objects, context references, direct-upload intents/completions, PDF evidence-source links, migration events, and migration sources are likewise immutable through the runtime role. Only storage-version and scan-lifecycle columns and the enumerated migration-session transition columns may advance through database-enforced transitions. Remove-from-context appends an immutable file-reference exclusion; it does not grant the runtime role object/reference deletion or permanent erasure authority.
 
 Project membership and invitation history is also non-deletable through the runtime role. The role may update only bounded membership role/end columns and one invitation terminal outcome; database triggers reject identity rewrites, terminal-history rewrites, ended-membership rewrites, and removal or demotion of the final active Owner. Migration grants must be refreshed after adding these tables.
 

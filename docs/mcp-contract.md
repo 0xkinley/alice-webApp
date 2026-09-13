@@ -1,8 +1,8 @@
 # alice. MCP Contract
 
-Status: Project-name resolution, project-level consumption, capability-gated file reads, and capture contracts extended in Milestone 06
+Status: Project-name resolution, project-level consumption, capability-gated file reads, capture, and project-migration contracts extended through Milestone 06.5
 
-Decision date: 2026-08-28; project-routing amendments 2026-09-09 and 2026-09-10
+Decision date: 2026-08-28; project-routing amendments 2026-09-09 and 2026-09-10; migration amendment 2026-09-13
 
 ## Design principles
 
@@ -12,6 +12,16 @@ Decision date: 2026-08-28; project-routing amendments 2026-09-09 and 2026-09-10
 - A host-generated payload creates evidence and candidates, never trusted state.
 - Every write is idempotent, bounded, attributable, and audited.
 - Tool results are structured and also readable by the model.
+
+### `prepare_project_migration`, `alice_commit_project_migration`, and `get_project_migration_status`
+
+`prepare_project_migration` is model-visible only after an explicit request to migrate the current ChatGPT or Claude project. It accepts one proposed Alice project name, optional provider project identifiers/names, and one bounded list of material actually available to the host. The input cannot claim exact bytes: exact local files remain on Alice's existing human-selected, scan-gated file path. Host material is stored only in a 30-minute preview and is always labelled `HOST_SNAPSHOT` / `UNVERIFIED_HOST_DERIVED`. The response says that nothing has been migrated, the original remains unchanged, and the supplied scope is not proof of complete provider-project access.
+
+The initial call creates no project, session, source record, artifact, evidence candidate, accepted state, provider operation, or audit event. Its random authority is returned only in tool-result `_meta`. `alice_commit_project_migration` is app-only and requires that exact authority, preview version, user, connection, client, and unexpired payload. The authenticated human's `Migrate` action atomically calls ordinary project creation, creates one project-scoped session, stores one immutable content-hashed source record, appends content-free events/audit, removes the temporary preview, and advances backend-owned status. Closing, ignoring, expiry, tampering, and wrong authority create nothing.
+
+Idempotency is scoped to the authenticated source connection and intent key. Separately generated previews with the same normalized payload/key return the one existing session after commit; changed-payload reuse fails without another project. Status transitions are constrained to `CREATED`, `INGESTING`, `VERIFYING`, `COMPLETE`, `PARTIAL`, and `FAILED`; only fixed content-free failure codes may produce a persisted summary. A partial or failed session can retry without rewriting source records or earlier events.
+
+`get_project_migration_status` is model- and app-visible, read-only, and resolves one exact authorized Alice project before returning phase, status version, bounded supplied-scope fidelity counts, and an Open-in-Alice URL. It cannot advance state. `COMPLETE` means complete only for the supplied scope, never complete provider-project fidelity. Both structured output and model-visible text preserve the same ChatGPT/Claude, unverified-source, original-unchanged, and partial-fidelity boundaries.
 
 ### `search_alice`
 

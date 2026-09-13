@@ -469,11 +469,56 @@ export async function exportProjectData(database, input: { userId: string; proje
            'project_invitation_replaced', 'project_membership_role_changed',
            'project_member_removed', 'project_ownership_transferred', 'project_member_left',
            'project_archived', 'project_restored', 'project_deletion_requested',
-           'project_deletion_cancelled'
+           'project_deletion_cancelled', 'project_migration_started'
          )
        ORDER BY created_at, id`,
     )
     .all(view.project.workspace_id, view.project.id);
+  const migrationSessions = await database
+    .prepare(
+      `SELECT id, source_provider, provider_project_id, provider_project_name,
+              migration_version, status, status_version, observed_count, imported_count,
+              exact_bytes_count, content_only_count, reference_count, missing_count,
+              external_count, unsupported_count, alice_confirmed_count, error_summary,
+              created_at, updated_at, completed_at
+       FROM migration_sessions
+       WHERE workspace_id = ? AND project_id = ?
+       ORDER BY created_at, id`,
+    )
+    .all(view.project.workspace_id, view.project.id);
+  const migrations: any[] = [];
+  for (const session of migrationSessions) {
+    const [events, sourceRecords] = await Promise.all([
+      database
+        .prepare(
+          `SELECT event_sequence, event_type, previous_status, next_status,
+                  status_version, actor_type, actor_id, error_code, created_at
+           FROM migration_events
+           WHERE workspace_id = ? AND project_id = ? AND migration_session_id = ?
+           ORDER BY event_sequence, id`,
+        )
+        .all(view.project.workspace_id, view.project.id, session.id),
+      database
+        .prepare(
+          `SELECT source_type, authority, capture_state, source_provider,
+                  provider_project_id, provider_project_name, source_format,
+                  parser_version, exact_content, content_sha256, content_utf8_bytes,
+                  created_at
+           FROM migration_source_records
+           WHERE workspace_id = ? AND project_id = ? AND migration_session_id = ?
+           ORDER BY created_at, id`,
+        )
+        .all(view.project.workspace_id, view.project.id, session.id),
+    ]);
+    migrations.push({
+      ...session,
+      events,
+      source_records: sourceRecords.map((source) => ({
+        ...source,
+        exact_content: source.exact_content === null ? null : parseJson(source.exact_content),
+      })),
+    });
+  }
   return {
     format: "alice.project-export",
     version: 1,
@@ -487,6 +532,7 @@ export async function exportProjectData(database, input: { userId: string; proje
     members,
     invitations,
     lifecycle_events: lifecycleEvents,
+    migrations,
     contexts: exportedContexts,
   };
 }

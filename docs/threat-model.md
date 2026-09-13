@@ -150,6 +150,8 @@ Minimum controls:
 - capture only selected text and insert only a user-approved package
 - fail closed when the intended host surface cannot be identified
 
+Milestone 06.5 does not add a provider account adapter. A migration intent may contain only host-visible or user-supplied material and optional provider labels; those labels are provenance strings, not lookup authority. There is no provider credential, outbound provider request, project enumeration, cookie access, scraping, or source mutation. Exact local files remain a separate user-selected Alice upload, and provider-export archives/unknown schemas are not silently parsed. Account-wide unrelated history should be filtered locally before any relevant file is uploaded.
+
 ### Context poisoning
 
 Unreviewed or malicious content is presented as project truth.
@@ -162,6 +164,25 @@ Minimum controls:
 - conflicts and supersession remain visible
 
 Milestone 05 keeps accepted decisions, accepted open questions, reference-only artifacts, and unresolved-conflict notices in separate typed sections. Artifact targets are never fetched during assembly. Conflict notices expose no pending value or summary, label pending alternatives unreviewed, and retain both the accepted provenance chain and pending candidate/evidence references. Rejected candidates are excluded. This warns about disagreement without promoting host-generated content or introducing a read-side mutation.
+
+Milestone 06.5 migration snapshots remain immutable `UNVERIFIED_HOST_DERIVED` data even when they contain confident summaries, project instructions, decision language, or prompt injection. The migration tool cannot execute imported text, call another tool because of it, place it in accepted state, or classify it as Alice-confirmed. The preview and status UIs HTML-escape every supplied value. Turning any source into candidates, artifacts, exact files, or accepted state requires the existing independently authorized paths.
+
+### Duplicate or destructive project migration
+
+A retried host call, forged card, guessed session, or misleading provider identifier could create duplicate projects, disclose another migration, or imply that Alice moved/deleted the source.
+
+Minimum controls:
+
+- preview-only model tool and private app-only authority token;
+- exact user, connection, registered client, payload hash, preview version, and expiry binding;
+- one source-connection/intent idempotency constraint plus a transaction advisory lock;
+- ordinary project authorization on every status/retry read and transition;
+- immutable source records and append-only ordered events;
+- fixed content-free error summaries and bounded monotonic counters;
+- no provider credential, network request, or mutation path; and
+- explicit supplied-scope, partial-fidelity, unverified-source, and original-unchanged copy in both model-visible and interactive output.
+
+Deleting the Alice copy invokes only Alice's existing archive/request/privileged-erasure workflow. The ordered erasure dependency set removes migration source, event, and session rows before the project and contains no provider-side action.
 
 ### Wrong-artifact versioning and misleading title labels
 

@@ -33,13 +33,13 @@ SQLite's process-wide `BEGIN IMMEDIATE` assumption is removed.
 - OAuth authorization-code and refresh-token consumption lock the credential row before rotating or consuming it.
 - All state-changing domain operations keep their audit insert in the same PostgreSQL transaction.
 
-The PostgreSQL integration gate uses a real PostgreSQL 17 server. It verifies repeatable migration, twelve concurrent identical captures, conflicting retry reuse, concurrent supersession, byte-exact evidence text and hash, immutable DML rejection, and cross-tenant/mismatched-connection non-disclosure.
+The PostgreSQL integration gate uses a real PostgreSQL 17 server. It verifies repeatable schema migration, concurrent identical captures, conflicting retry reuse, concurrent supersession, byte-exact evidence text and hash, immutable DML rejection, and cross-tenant/mismatched-connection non-disclosure. Milestone 06.5 adds concurrent project-migration preview commits, one-session idempotency, backend transition locking, migration source/event immutability, project authorization, export, and privileged erasure coverage.
 
 ## Migration and runtime roles
 
 Schema changes are an explicit operator action. `npm run db:migrate` requires `ALICE_MIGRATION_DATABASE_URL` and `ALICE_APPLICATION_DATABASE_ROLE`; it applies missing numbered SQL files, records each filename/version once, then refreshes the constrained application grants. A deployable receives only `ALICE_DATABASE_URL`, never the migration credential.
 
-Runtime startup does not invoke DDL. It compares the database migration ledger with the repository's complete migration list and refuses to start if schema is missing, behind, ahead, or renamed. The application role has schema usage and ordinary table DML, but cannot create schema, manipulate the migration ledger, truncate tables, or update/delete immutable evidence, accepted history, and audit rows. Candidate deletion is also denied.
+Runtime startup does not invoke DDL. It compares the database migration ledger with the repository's complete migration list and refuses to start if schema is missing, behind, ahead, or renamed. The application role has schema usage and ordinary table DML, but cannot create schema, manipulate the migration ledger, truncate tables, or update/delete immutable evidence, accepted history, audit rows, migration source records, or migration events. It may update only the enumerated migration-session status/counter/error/timestamp columns, and database triggers enforce immutable identity, legal one-version transitions, monotonic bounded counters, fixed content-free errors, and append-preserving history. Candidate deletion is also denied.
 
 ## Backup and restore
 

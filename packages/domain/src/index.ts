@@ -134,6 +134,16 @@ export {
 } from "./project-lifecycle.ts";
 export { createProject, getProject } from "./projects.ts";
 export {
+  commitProjectMigrationPreview,
+  createProjectMigrationPreview,
+  getProjectMigrationStatus,
+  MIGRATION_PREVIEW_LIFETIME_MS,
+  PROJECT_MIGRATION_VERSION,
+  ProjectMigrationUserError,
+  transitionProjectMigration,
+} from "./project-migrations.ts";
+export type { ProjectMigrationStatus } from "./project-migrations.ts";
+export {
   acceptProjectInvitation,
   createProjectInvitation,
   declineProjectInvitation,
