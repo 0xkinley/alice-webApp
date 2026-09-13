@@ -249,7 +249,7 @@ Notes:
 
 ## Milestone 06 — Private Alpha Foundations
 
-Status: In Progress
+Status: Complete
 
 Branch: `milestone-06-private-alpha-foundations`
 
@@ -278,7 +278,6 @@ Tasks:
 - [x] Add deterministic bounded PDF extraction and a provenance-bearing file-to-candidate suggestion flow. Every extracted statement remains untrusted candidate material until exact human confirmation; OCR and other binary extraction stay unsupported unless separately admitted. Do not add embeddings or model orchestration.
 - [x] Let authorized users remove an item from active context through an append-only exclusion or superseding version that preserves provenance and audit history. Keep remove-from-context, project archive, and permanent privacy deletion as distinct actions.
 - [x] Add reversible project archive/restore, permission-filtered Owner export, and exact deletion-request/cancellation workflows. Archive and a deletion request must preserve data and say so; normal roles remain unable to rewrite immutable evidence or audit history.
-- [ ] Implement policy-governed permanent project erasure with approved retention and backup-deletion timelines and a privileged path outside ordinary web/MCP roles. Verify PostgreSQL dependency deletion, every private object version, security/audit treatment, provider backup expiry, retries/reconciliation, and ordinary-role denial before making an erasure promise.
 - [x] Add project invitations and membership lifecycle with Owner, Editor, and Viewer capabilities, including explicit ownership transfer or safe project disposition before the last owner can leave.
 - [x] Add context-level access for all project members, selected project members, or a personal draft, with Viewer, Editor, and Manager capabilities bounded by the user's project role. Define and display whether project owners can administer restricted contexts.
 - [x] Extend deny-by-default authorization, database constraints, audits, and negative tests to every membership, invitation, project, context, active-selection, capture, review, export, archive, removal, and deletion path. Denied users must not learn restricted identifiers, names, counts, freshness, conflicts, artifacts, or provenance.
@@ -317,7 +316,7 @@ Success criteria:
 - Multiple users can collaborate only within explicit project and context permissions, and every user's AI connection remains separately authorized and revocable.
 - Every project and context path remains deny-by-default. Cross-tenant, non-member, insufficient-role, guessed-identifier, revoked-connection, and restricted-context tests disclose neither content nor metadata and perform no mutation.
 - Users can preview what alice. would send and can see whether a host actually retrieved it. Failed or skipped invocation is distinguishable from a successful read, and a host that cannot reliably offer save has an alice.-controlled review/confirmation path.
-- Users can distinguish active-context removal, project archive, export, and permanent deletion, and the implemented behavior matches the published retention and backup policy.
+- Users can distinguish active-context removal, project archive, export, and a deletion request. The product describes active-data deletion and provider-backup retention honestly and makes no permanent-erasure promise until the deferred provider-backup-expiry proof in Milestone 06.5 is complete.
 - Privacy/security copy makes alice. storage, collaborator access, AI-provider transfer, subprocessors, retention, and user controls understandable without making unverified promises about provider training, residency, or deletion.
 - The public site and authenticated product use one coherent Keel-directed visual system, the product owner has approved the copy, and first-time testers can identify the active project/context, connected hosts, saved context, files, collaborators, access level, and next safe action without terminal instructions.
 - A clean checkout and the hosted environment pass all verification gates, documentation and `MILESTONES.md` are current, CI passes, and the working tree is clean.
@@ -471,6 +470,52 @@ Notes:
 - Migration `028_artifact_decision_conflicts.sql` adds bounded explicit decision records to immutable artifact versions and append-only human conflict selections. Alice compares only the same validated key across current active artifact versions using canonical JSON; it shows every source artifact/version, provider, saved time, and exact value without semantic inference or a correctness claim. The embedded and web Save previews expose exact records before Save. Search, retrieval, the artifact browser, and text-only output expose deterministic conflict status and limitations. Resolution is a separate authenticated Owner/Editor web action bound to the complete current conflict fingerprint; it rewrites neither source nor accepted state, Viewers are denied, and MCP exposes no resolution mutation. Focused artifact coverage passes all 10 tests, and isolated PostgreSQL 17 coverage passes all 30 tests through migration `028`, including concurrency, constrained-role immutability, authorization, and erasure integration. The complete aggregate gate passes formatting, linting, typechecking, secret scanning, all four deterministic evaluations, all 177 fast tests, all 30 PostgreSQL tests, and both production builds; an independently migrated empty database reports 28 applied migrations and logical dump/restore matches all 51 protected tables. The additive empty-array default preserves rollback compatibility with production image `751998e`. No production data, AWS resource, provider account, URL, milestone count, or provider-backup-expiry task changes; production remains `751998e` and Milestone 06 remains 42 of 43 complete.
 - The artifact-integrity deployment preflight rejected its first review-only safe-stop change set before execution: disabling services also removed S3 upload CORS, which caused one direct bucket modification and six dynamic IAM, GuardDuty, bucket-policy, and gateway-endpoint entries beyond the ten allowed removals. The template now gates retained upload CORS on both exact hosted origins remaining supplied, independently of the public runtime/permission condition. Static, formatting, lint, type, secret, policy-evaluation, all 177 fast-test, focused infrastructure, and production-build checks pass; the unchanged PostgreSQL layer had already passed all 30 tests. Corrected review-only change set `m06-artifact-integrity-safe-stop-v2` contains exactly the ten expected removals with no modification or replacement and remains unexecuted pending action-time approval. Production still runs `751998e`; no hosted resource, data, URL, retention, migration, or provider state changed during this checkpoint.
 - The original product, data, permission, deletion, deployment, and privacy decisions are recorded in `docs/private-alpha-foundations.md`; the approved project-first amendment and compatibility plan are recorded in `docs/project-first-private-alpha-redesign.md`.
+
+- The product-owner-approved artifact-integrity deployment completed on 2026-09-13. The first unsafe review was never executed; corrected safe-stop, exact nine-resource private migration, exact nine-resource cleanup, six-resource private runtime, and final exact-origin stages all reached `UPDATE_COMPLETE`. The sole no-public-IP ARM64 task exited 0 with `PostgreSQL migrations current: 28 applied.` Both functions are Active/Successful on scan-clean digest `sha256:ebe34ae95f331497be1c8e10cc578ccf86a97af6960dc2db275543f9433ea767`. Re-created URLs were explicitly approved and are now `https://edujpfoycuy6l42muupbwoz2ta0hxoqi.lambda-url.eu-central-1.on.aws` for web and `https://kkhosiro7botc4mkla5ivfuud40ypiew.lambda-url.eu-central-1.on.aws` for MCP. Health/database, logged-out 303/401, exact OAuth/S256 metadata, bounded PUT-only CORS, IAM denials, 32-resource/no-temporary-resource, no-available-change-set, and USD 0 actual / USD 5 budget checks pass. Temporary transfer, parameter, registry-login, and local-image artifacts were removed and verified absent; production data, provider accounts, backups, erasure state, retention, and compatibility claims were unchanged.
+- Milestone 06 completed on 2026-09-13 after its source, tests, migrations, deployment, documentation, and cleanup gates passed. The remaining provider-backup-expiry proof is intentionally reassigned to Milestone 06.5 because its earliest valid verification time is `2026-09-16T10:03:48.640Z`; until it passes, alice. continues to describe deletion and retained provider backups without promising immediate permanent erasure.
+
+## Milestone 06.5 — Project Migration Foundation
+
+Status: Not Started
+
+Branch: `milestone-06point5-migration-foundation`
+
+Objective:
+
+Add an honest, non-destructive project-migration foundation that can start inside a supported ChatGPT or Claude surface without pretending MCP exposes the provider's complete project history, while completing the deferred provider-backup-expiry proof.
+
+Tasks:
+
+- [ ] After `2026-09-16T10:03:48.640Z`, complete the deferred provider-backup-expiry reconciliation for the already-erased synthetic project. Verify the restore window no longer contains the deleted state, preserve the privileged erasure receipt and ordinary-role denials, and update product/privacy copy before making any permanent-erasure promise.
+- [ ] Inspect and document the existing project/workspace, authentication, tenancy, MCP, artifact, file, retrieval, Save, erasure, and web-UI paths that the migration foundation will reuse. Do not create parallel project, storage, authority, or deletion systems.
+- [ ] Add a first-class project-scoped `MigrationSession` with a small status model, source provider, nullable provider project identifiers/names, migration version, bounded fidelity counters, timestamps, and content-free error summary. Only Alice-native human confirmations may be counted as confirmed; do not label host-derived decision candidates as confirmed decisions.
+- [ ] Add append-only, project-scoped migration events and an authorized status API/tool. The backend is authoritative for progress; the embedded card may poll or refresh but cannot own or advance migration state locally.
+- [ ] Add a preview-only MCP migration intent that can use an available host/provider name but treats every host-supplied summary, instruction, message, artifact description, or project identifier as immutable `HOST_SNAPSHOT` data with `UNVERIFIED_HOST_DERIVED` authority.
+- [ ] Require one explicit authenticated Alice `Migrate` action to create the Alice project shell and start the session. The initial model tool call creates no project, trusted state, artifact version, candidate acceptance, or provider mutation; ignoring, closing, or expiry does nothing.
+- [ ] Store the available initial snapshot through an immutable, content-hashed normalized source record that is idempotent across retries. Imported content is untrusted data, cannot execute tools, and remains distinct from explicit user-authored project instructions.
+- [ ] Reuse the existing files, exact artifacts, provenance, evidence/candidate/review, accepted-state, authorization, audit, export, archive, and erasure machinery for later user-authorized enrichment. Capture state must distinguish exact bytes from content-only, reference, missing, and external material.
+- [ ] Implement resumable `CREATED`, `INGESTING`, `VERIFYING`, `COMPLETE`, `PARTIAL`, and `FAILED` behavior with append-only evidence, deterministic idempotency, safe retry, bounded counts, and honest missing/unsupported-source reporting. A partial migration must remain usable and must never be presented as complete fidelity.
+- [ ] Add the smallest migration card and status/completion UI: exact Alice destination, source provider/name when available, explicit statement that the original remains unchanged, phase/status counts rather than fake precision, and a clear Open in Alice path.
+- [ ] Add capability-gated enrichment only for data the user can safely and explicitly provide through current supported paths, such as separately selected local files or a filtered provider export. Unknown formats fail visibly; account-wide unrelated history is not uploaded merely to discover one project.
+- [ ] Add deterministic capability, authorization, non-disclosure, idempotency, partial/failure/retry, immutable-source, prompt-injection, no-action, and ChatGPT-like/Claude-like/text-only tests. Verify that deleting the Alice copy never changes the source provider project.
+- [ ] Run the complete clean-checkout, PostgreSQL migration/role, backup/restore, evaluation, accessibility, production-build, deployment-plan, documentation, and clean-tree gates before any hosted mutation.
+
+Success criteria:
+
+- From a supported Alice surface, a user can request migration, see an exact non-destructive preview, and create an Alice project shell only by choosing the authenticated `Migrate` action.
+- Available host-supplied material is retained immutably with unverified authority and provenance; it never becomes trusted project state merely because a host or model supplied it.
+- Migration state is backend-authoritative, project-scoped, authorization-preserving, idempotent, resumable, and honest about partial fidelity, missing files, and unsupported provider capabilities.
+- The original ChatGPT or Claude project is never renamed, moved, edited, deleted, or otherwise mutated, and deleting the Alice copy has no provider-side effect.
+- Existing Alice Save, artifact, file, evidence, accepted-state, audit, export, archive, collaboration, and erasure boundaries remain the only authority and storage mechanisms.
+- The dated provider-backup-expiry proof passes before participant-facing copy claims permanent erasure.
+- All required repository and hosted verification gates pass, documentation is current, and the working tree is clean.
+
+Notes:
+
+- Current ChatGPT and Claude MCP surfaces do not provide Alice with authoritative access to an entire host project, all conversations, or all files. The first release therefore creates a trustworthy migration shell from only the material actually supplied and offers explicit user-authorized enrichment; it does not fake whole-project discovery.
+- The broader attached migration-engine proposal remains useful roadmap input, but provider-wide history enumeration, undocumented APIs, scraping, hidden session credentials, large defensive export parsers, automatic conversation surveillance, an internal LLM, embeddings, semantic claim/entity/slot reconstruction, temporal reasoning, strategic contradiction sweeps, and automatic supersession are deferred until supported acquisition paths and private-alpha evidence justify them.
+- False project truth is worse than an incomplete import. `HOST_SNAPSHOT` remains unverified evidence, imported content remains data rather than instruction, and `Host-generated does not mean alice.-verified` remains the controlling invariant.
+- Milestone 06.5 planning does not reduce the existing authenticated human Save boundary, add session-level write permission, or add automatic-save windows.
 
 ## Milestone 07 — Private Alpha
 
