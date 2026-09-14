@@ -1,12 +1,50 @@
 # Project Migration Foundation
 
-Status: Source foundation implemented and locally verified; hosted rollout and dated backup-expiry proof remain pending for Milestone 06.5
+Status: Controlled bootstrap/import source foundation implemented and locally verified; further migration implementation and hosted rollout paused pending the empirical provider-acquisition test; dated backup-expiry proof remains pending for Milestone 06.5
 
 ## Decision
 
-Alice will support a non-destructive migration bootstrap without claiming that an MCP call exposes a complete ChatGPT or Claude project. The first release creates an Alice project shell only after an authenticated human chooses `Migrate`, stores only the material actually supplied, labels host-derived material as unverified, and offers explicit user-authorized enrichment.
+Alice currently implements a non-destructive controlled project bootstrap/import, not a complete ChatGPT or Claude project migration. It creates an Alice project shell only after an authenticated human chooses `Migrate`, stores only the material actually supplied, labels host-derived material as unverified, and offers explicit user-authorized enrichment.
 
-The broader Project Migration Engine proposal is roadmap input, not evidence that current provider surfaces can enumerate every conversation, file, instruction, or artifact.
+The broader Project Migration Engine proposal is roadmap input, not evidence that current provider surfaces can enumerate every conversation, file, instruction, or artifact. Conversely, the absence of current evidence is not proof that the hosts cannot expose useful project structure; the capability test must establish that boundary empirically.
+
+Further migration implementation and hosted rollout are paused until the dated, surface-specific capability protocol in `provider-project-acquisition-capability-test.md` is complete. Alice will choose a direct, hybrid, or provider-export acquisition path from observed tool-call evidence, not model self-report or an assumption that exports are necessary.
+
+## Product boundary correction — 2026-09-14
+
+The implemented payload contains an Alice project name, optional provider project identifiers/names, and at most 40 flat supplied text items. An item has a kind (`summary`, `instruction`, `message`, `artifact_description`, or `other`), content, optional speaker/time, and a capture state. It contains no structured conversation collection, message relationship, file bytes, artifact object, project-instruction object, or provider inventory.
+
+On commit, Alice stores the complete supplied-material array as one immutable, content-hashed `HOST_SNAPSHOT`. It does not normalize that snapshot into independently addressable conversations, messages, files, artifacts, or instructions. Opening the resulting Alice project therefore shows the ordinary project shell and supplied-scope migration status; Change log, Files, and accepted project information remain empty until their existing explicit Alice flows are used.
+
+The preview's 30-minute duration is the lifetime of the human approval opportunity. It is not a request for, or preview of, the last 30 minutes of provider activity.
+
+`VERIFYING` currently denotes bounded processing/capture-state checks, not semantic correctness or truth verification. Fidelity counters count only items in the supplied payload: they cannot compare received material with the provider's complete inventory. Exact same intent/payload retries deduplicate; changed content under the same key fails closed. The foundation does not merge an earlier conversation snapshot with later messages.
+
+Consequently, neither an orchestration status of `COMPLETE` nor a fully retained supplied payload is evidence that a provider project was migrated completely. Product copy must use controlled bootstrap/import language until the acquisition, normalization, and continuation gates below pass.
+
+## Required information layers
+
+Alice preserves four distinct meanings:
+
+```text
+IMMUTABLE RAW SOURCE
+What exactly did the host or user supply?
+        ↓
+NORMALIZED IMPORTED STRUCTURE
+What projects, instructions, conversations, messages, files,
+artifacts, timestamps, ordering, and source relationships were present?
+        ↓
+DERIVED UNVERIFIED PROJECT CONTEXT
+What goals, decisions, requirements, current work, and open questions
+does Alice infer from those sources?
+        ↓
+HUMAN-ACCEPTED TRUSTED STATE
+What should future AI systems rely on?
+```
+
+The raw source is retained for provenance and replay. The normalized layer preserves structure before semantic interpretation. Derived context remains unverified. Only the existing Alice-native human authority path may change trusted state.
+
+Imported conversations and files are source material and do not require fact-by-fact approval merely to be retained. Future review should present a bounded, meaningful project-state proposal—such as goal, current direction, significant decisions, current artifact, recent changes, and open questions—for acceptance or editing. It must not require users to approve an unbounded list of extracted sentences.
 
 ## User flow
 
@@ -18,7 +56,7 @@ flowchart TD
     D -- No, close, ignore, or expire --> E[No Alice project or migration state is created]
     D -- Yes --> F[Create Alice project shell and MigrationSession]
     F --> G[Store supplied HOST_SNAPSHOT as immutable unverified evidence]
-    G --> H[Process supported user-authorized files or filtered exports]
+    G --> H[User may add supported material through existing explicit paths]
     H --> I{Fidelity result}
     I -- Complete for supplied scope --> J[Ready in Alice]
     I -- Missing or unsupported material --> K[Partially ready with exact limitations]
@@ -173,7 +211,7 @@ Counts describe observed material, not inferred accuracy. Host-derived decision 
 
 ## Supported acquisition boundary
 
-Milestone 06.5 may ingest only data obtained through a documented, user-authorized path that is available on the user's actual surface. Examples are material explicitly passed to the tool, separately selected local files, or a provider export filtered before unrelated account history is uploaded.
+Milestone 06.5 may ingest only data obtained through a documented, user-authorized path that is available on the user's actual surface. Current examples are material explicitly passed to the tool and separately selected local files. A filtered provider export is only a possible fallback; Alice must not design or build an export parser until the empirical capability test establishes that direct or hybrid host acquisition is insufficient and a specific export format has been validated.
 
 It must not depend on hidden provider APIs, browser cookies, password collection, provider-token extraction, scraping, or a claim that Alice can see the complete current host project. Unknown or changed export formats fail visibly rather than silently dropping content and reporting success.
 
@@ -190,6 +228,29 @@ The following are not part of the first foundation:
 - migration of provider authorization, scheduled tasks, shared-provider projects, or provider-side state.
 
 These may be reconsidered only after supported acquisition paths and private-alpha evidence exist. False project truth is more harmful than an honest partial import.
+
+## Acquisition and continuation gate
+
+Before another migration implementation phase or hosted rollout, run `provider-project-acquisition-capability-test.md` against the actual target ChatGPT and Claude accounts, regions, and surfaces. Observe the exact MCP tool arguments. Do not treat a model's description of its access as evidence.
+
+The test separates:
+
+- ambient host context already supplied to the model;
+- active host retrieval that the model or tool can request;
+- user-mediated material that must be attached, selected, or exported;
+- unavailable material.
+
+For every capability, record presence, expected-versus-observed completeness, metadata/relationship preservation, exact-byte possession, and repeated-run reliability. Unique markers make coverage deterministic. Cross-chat supersession and several file types remain in the reusable fixture even though semantic resolution is evaluated later.
+
+The acquisition result selects the smallest honest path:
+
+```text
+Reliable structured host access    -> direct MCP acquisition
+Reliable but partial host access   -> hybrid direct + user-mediated acquisition
+Current-conversation access only   -> controlled bootstrap + validated fallback
+```
+
+A future project-migration claim additionally requires normalized imported structure and a real cross-host continuation benchmark. The receiving model must identify the correct project and current state, retrieve the current artifact without being told which one is current, distinguish a superseded historical decision from the current decision, cite source material when needed, and continue useful work. A database session reaching `COMPLETE` is not this success condition.
 
 ## Failure, privacy, and recovery
 
