@@ -1,6 +1,6 @@
 # Provider Acquisition Probe Deployment Review
 
-Status: Phase 1 local implementation complete and verified; Stage A private foundation created and verified on 2026-09-17; artifact upload, private runtime, public enablement, and provider-account use require the later approvals below.
+Status: Phase 1 local implementation complete and verified; Stages A and B created and verified privately on 2026-09-17; public enablement and provider-account use require later explicit approval.
 
 Date: 2026-09-17
 
@@ -10,7 +10,7 @@ If the empirical provider-acquisition test is approved for hosted execution, dep
 
 Do not add the probe to `alice-private-alpha`, reuse its runtime image, database, buckets, users, OAuth clients, URLs, roles, or secrets, or deploy the Milestone 06.5 migration feature. The probe remains synthetic-only and diagnostic-only. Its one tool writes a captured test argument to disposable evidence storage; it cannot change Alice trusted state or a provider project.
 
-The product owner approved Phase 1 local implementation on 2026-09-17. A separate implementation review must occur before any AWS mutation. Further explicit approvals are required before public enablement, adding the URL to ChatGPT or Claude, creating provider fixtures, or running provider trials.
+The product owner approved Phase 1 local implementation and then the isolated Stage A and Stage B AWS mutations on 2026-09-17. Further explicit approvals are required before public enablement, adding the URL to ChatGPT or Claude, creating provider fixtures, or running provider trials.
 
 ## Fixed diagnostic contract
 
@@ -116,7 +116,7 @@ Required controls:
 - expose no public list, read, score, delete, session-create, or administration endpoint;
 - log only content-free request identifiers, response class, duration, and byte count;
 - verify before public enablement that the runtime adapter and error paths do not log URL paths, request bodies, headers, or tool arguments;
-- set reserved concurrency to a small bounded value and add a strict request-size rejection;
+- use ordinary unreserved concurrency under the existing Frankfurt account-wide limit of 10 and add a strict request-size rejection; do not request a quota increase or provisioned concurrency for this bounded proof;
 - remove both public permission resources as the first safe-stop action.
 
 Possession of a full unused Phase 1 session URL allows its one evidence submission to be consumed. A future Phase 2 URL would allow only its bounded ten-call/20-MiB sequence. That is an accepted, tightly bounded risk only because the fixture is synthetic, the URL is short-lived, and the function cannot read evidence or mutate Alice. It is not an appropriate authentication model for the Alice product.
@@ -213,7 +213,24 @@ The reviewed commit `ad9a9ac` was validated through the Frankfurt CloudFormation
 - Log group: `/aws/lambda/alice-acquisition-probe-runtime`, one-day retention, zero stored bytes at verification
 - Confirmed absent: probe Lambda, Function URL, both public permissions, deployment ZIP, sessions, records, outcomes, provider configuration, and changes to `alice-private-alpha`
 
-Stage A does not make the probe callable and creates no URL. Uploading the content-addressed ZIP or creating Stage B requires the next explicit approval.
+At the Stage A checkpoint the probe was not callable and no URL existed; uploading the content-addressed ZIP and creating Stage B still required the approval later recorded below.
+
+### Stage B execution receipt — 2026-09-17
+
+The product owner approved the private-runtime stage. The artifact was uploaded with `If-None-Match: *` and a signed SHA-256 checksum before each CloudFormation review. Public enablement remained false throughout.
+
+- The first reviewed change set, `stage-b-private-runtime-c3da6768`, contained exactly two additions: `ProbeFunction` and `ProbeFunctionUrl`. Lambda rejected the two-execution reservation because the Frankfurt account limit is 10 and AWS requires at least 10 executions to remain unreserved. CloudFormation removed the partial resources and returned the four-resource foundation to `UPDATE_ROLLBACK_COMPLETE`.
+- The bounded remediation omits only `ReservedConcurrentExecutions`, uses the existing account-wide limit of 10 as the aggregate cap, and requests neither a quota increase nor provisioned concurrency. Focused structural tests now require the reservation to remain absent. Change set `stage-b-private-runtime-unreserved-c3da6768` again contained exactly the two additions and reached `UPDATE_COMPLETE` at `2026-09-17T10:08:06.231000+00:00`.
+- The first private direct invocation then exposed an ESM packaging error, `Dynamic require of "tty" is not supported`, before request handling. No session or evidence object existed. The deterministic builder now emits `index.cjs`, resolves dependencies through the Node/CommonJS condition, and a test loads the built bundle as Node would before accepting the ZIP.
+- Corrected ZIP: 1,820,515 bytes; SHA-256 `bfbc0ee3339c1fc0043470ceecc6fe6041656ee3724e3fa1935c78d9e3ef3238`; S3 checksum `v7wO4zOcH8AENHDO7Mb+YEFlbuNyTj+hk1x42ePvMjg=`; exact key `artifacts/bfbc0ee3339c1fc0043470ceecc6fe6041656ee3724e3fa1935c78d9e3ef3238.zip`.
+- Change set `stage-b-commonjs-runtime-bfbc0ee3` changed the function code without replacement; CloudFormation also marked the unchanged Function URL reference as a conditional dependent. The function is `Active` with `Successful` last-update state and its deployed `CodeSha256` exactly matches the uploaded checksum.
+- A signed direct invocation of `/health` returned Lambda success and HTTP 200 with `service=alice-acquisition-probe`, `status=ok`, `alice_state_access=false`, and `call_mode=single-call-v1`.
+- The stack has exactly six resources: the four Stage A resources, one Node.js 24 ARM64 Lambda, and one buffered Function URL. The URL retains `AuthType=NONE` for the future compatibility stage, but the function has no resource policy, CloudFormation has zero `AWS::Lambda::Permission` resources, and an unsigned external request returns HTTP 403.
+- The bucket contains only the corrected content-addressed ZIP. The superseded broken ZIP was permanently deleted after the corrected function became active. There are zero `sessions/`, `records/`, or `outcomes/` objects. Eight one-day log events record only the packaging failure and platform metadata; inspection found no host, path, authorization, cookie, session, record, outcome, request-body, or tool-argument material.
+- `AllowedHost` remains `pending.invalid`, `EnablePublicAccess=false`, and there is no ChatGPT/Claude configuration, synthetic provider fixture, trial, normal Alice-state access, or change to `alice-private-alpha`.
+- The final local gate passes formatting, linting, application-plus-diagnostic typechecking, secret scanning, all four deterministic evaluations, all 189 fast tests, all 31 disposable PostgreSQL 17 tests, deterministic probe packaging, and both production builds. The disposable database container was removed.
+
+Stage B proves only that the isolated private runtime loads and returns its health contract. It does not authorize Stage C, create a usable provider URL, or produce acquisition evidence.
 
 ## Provider compatibility gate
 

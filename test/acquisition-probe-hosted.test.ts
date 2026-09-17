@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -278,6 +279,13 @@ test("Lambda ZIP is deterministic, content-addressed, and within the direct uplo
   assert.equal(buildA.manifest.runtime, "nodejs24.x");
   assert.equal(buildA.manifest.architecture, "arm64");
   assert.equal(buildA.manifest.handler, "index.handler");
+  assert.equal(buildA.manifest.entry, "index.cjs");
+  const loadableEntry = path.join(first, buildA.manifest.entry);
+  await writeFile(loadableEntry, buildA.bundle);
+  const builtRuntime = createRequire(import.meta.url)(loadableEntry) as {
+    handler?: unknown;
+  };
+  assert.equal(typeof builtRuntime.handler, "function");
   assert.ok(buildA.zip.length < 50 * 1024 * 1024);
 });
 
@@ -331,7 +339,7 @@ test("isolated CloudFormation grants only the reviewed runtime permissions", asy
   assert.equal(functionProperties.Handler, "index.handler");
   assert.equal(functionProperties.MemorySize, 256);
   assert.equal(functionProperties.Timeout, 30);
-  assert.equal(functionProperties.ReservedConcurrentExecutions, 2);
+  assert.equal("ReservedConcurrentExecutions" in functionProperties, false);
 
   const role = resources.ProbeExecutionRole?.Properties as {
     Policies: Array<{ PolicyDocument: { Statement: Array<Record<string, unknown>> } }>;

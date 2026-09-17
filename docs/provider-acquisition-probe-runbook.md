@@ -1,6 +1,6 @@
 # Provider Acquisition Probe Runbook
 
-Status: Phase 1 local implementation complete and verified; Stage A private foundation created and verified on 2026-09-17; artifact upload, private runtime, public enablement, and provider-account use remain unauthorized.
+Status: Phase 1 local implementation complete and verified; Stages A and B created and verified privately on 2026-09-17; public enablement and provider-account use remain unauthorized.
 
 ## Purpose and measurement boundary
 
@@ -120,6 +120,14 @@ npm run dev:acquisition-probe
 ```
 
 Localhost cannot be connected from ChatGPT or Claude web. A remote HTTPS deployment requires a separate reviewed design and explicit approval.
+
+## Hosted private-runtime checkpoint
+
+Stage B is deployed in the isolated `alice-acquisition-probe` stack but is deliberately not publicly invocable. The active artifact is `artifacts/bfbc0ee3339c1fc0043470ceecc6fe6041656ee3724e3fa1935c78d9e3ef3238.zip`; its S3 and Lambda SHA-256 value is `v7wO4zOcH8AENHDO7Mb+YEFlbuNyTj+hk1x42ePvMjg=`. The function uses Node.js 24, ARM64, 256 MiB, a 30-second timeout, ordinary unreserved concurrency under the account-wide limit of 10, and only the three documented probe environment variables.
+
+The Function URL exists with `AuthType=NONE`, but both public permission resources remain absent and the function has no resource policy. An external request therefore returns HTTP 403. Operators may verify `/health` only by direct signed Lambda invocation with `requestContext.domainName=pending.invalid`; the verified response is HTTP 200, `alice_state_access=false`, and `call_mode=single-call-v1`.
+
+Do not create a session, replace `AllowedHost`, add either public permission, or configure ChatGPT or Claude until Stage C receives separate explicit approval. The failed ESM artifact was deleted; its content-free one-day failure log is retained with the normal log-group expiry.
 
 ## Create one run session
 

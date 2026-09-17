@@ -82,10 +82,10 @@ export async function buildAcquisitionProbeLambda({
     entryPoints: ["diagnostics/acquisition-probe/src/lambda.ts"],
     bundle: true,
     write: false,
-    format: "esm",
+    format: "cjs",
     platform: "node",
     target: ["node24"],
-    conditions: ["node", "import"],
+    conditions: ["node", "require"],
     minify: true,
     legalComments: "none",
     sourcemap: false,
@@ -93,13 +93,13 @@ export async function buildAcquisitionProbeLambda({
   });
   const bundle = buildResult.outputFiles?.[0]?.contents;
   if (!bundle) throw new Error("The acquisition probe Lambda bundle was not produced.");
-  const zip = createDeterministicZip("index.mjs", bundle);
+  const zip = createDeterministicZip("index.cjs", bundle);
   const manifest = {
     contract: "alice_acquisition_probe_lambda_zip_v1",
     runtime: "nodejs24.x",
     architecture: "arm64",
     handler: "index.handler",
-    entry: "index.mjs",
+    entry: "index.cjs",
     bundle_bytes: bundle.length,
     bundle_sha256: sha256(bundle),
     zip_bytes: zip.length,
@@ -113,7 +113,7 @@ export async function buildAcquisitionProbeLambda({
       mode: 0o600,
     }),
   ]);
-  return { outputDirectory: output, zip, manifest };
+  return { outputDirectory: output, bundle, zip, manifest };
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : "";

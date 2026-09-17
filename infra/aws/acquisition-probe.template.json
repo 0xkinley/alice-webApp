@@ -243,7 +243,6 @@
         },
         "MemorySize": 256,
         "Timeout": 30,
-        "ReservedConcurrentExecutions": 2,
         "EphemeralStorage": { "Size": 512 },
         "TracingConfig": { "Mode": "PassThrough" },
         "LoggingConfig": {
