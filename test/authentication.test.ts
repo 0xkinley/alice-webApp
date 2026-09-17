@@ -35,7 +35,7 @@ test("publishes the private-alpha privacy and security boundary without authenti
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
   const html = await response.text();
-  assert.match(html, /version 2026-09-01\.1/);
+  assert.match(html, /version 2026-09-17\.1/);
   assert.match(html, /Do not use sensitive test data/);
   assert.match(html, /regulated, or client-confidential information/);
   assert.match(html, /What alice\. collects and why/);
@@ -46,7 +46,9 @@ test("publishes the private-alpha privacy and security boundary without authenti
   assert.match(html, /Application logs/);
   assert.match(html, /14 days/);
   assert.match(html, /automated backups are currently retained for seven days/);
-  assert.match(html, /provider-backup expiry remains unverified until after September 16, 2026/);
+  assert.match(html, /synthetic hosted project completed that full lifecycle/i);
+  assert.match(html, /maximum 21-day recovery window/);
+  assert.match(html, /does not cover separately retained manual snapshots/);
   assert.match(html, /Account-wide erasure is not yet implemented/);
   assert.match(html, /same private channel in which you received your alice\. invitation/);
   assert.match(html, /does not sell alpha data or use it for advertising/);

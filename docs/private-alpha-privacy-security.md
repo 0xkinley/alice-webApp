@@ -2,9 +2,9 @@
 
 Status: Published operational disclosure for the invite-only private alpha
 
-Notice version: `2026-09-01.1`
+Notice version: `2026-09-17.1`
 
-Effective date: 2026-09-01
+Effective date: 2026-09-17
 
 This notice describes the currently implemented alice. private-alpha system and its verified limits. It is not a general-audience privacy policy, a compliance certification, or a promise about controls that have not passed their live verification. The alpha is operated by the person who sent each tester their private invitation.
 
@@ -111,7 +111,7 @@ These controls reduce risk; they do not establish independent certification, per
 | Staging objects | Current objects expire after two days; noncurrent staging versions expire after one day |
 | Web and MCP application logs | Current CloudWatch log groups retain logs for 14 days |
 | Active or archived project data | Retained until an authorized project-erasure workflow completes; archive and remove-from-context are not erasure |
-| Aurora automated backups | Seven-day retention at the current hosted checkpoint |
+| Aurora automated backups | Seven-day retention at the current hosted checkpoint; one synthetic hosted project has passed active-data erasure and later backup-expiry verification under this configuration |
 | Manual snapshots | Not automatically covered by project erasure; any snapshot containing alpha data must have a recorded owner and deletion date |
 
 ## User controls and deletion limits
@@ -122,9 +122,15 @@ These controls reduce risk; they do not establish independent certification, per
 - **Remove from active context:** stops ordinary use of the entry or file reference while preserving immutable source, provenance, and history.
 - **Archive:** removes the project from ordinary web, review, file, context-package, invitation, and AI-connection paths while preserving its data.
 - **Project-deletion request:** requires archive first and starts a seven-day cancellation period. The request itself deletes nothing.
-- **Privileged erasure:** the working alpha target is operator removal of active PostgreSQL data and exact S3 versions within the seven days after cooling-off. With the current seven-day automated-backup retention, the calculated target is a maximum recovery window of 21 days after request. Hosted erasure and later provider-backup expiry have not passed their live proof, so this timeline is not a permanent-deletion promise.
+- **Privileged erasure:** the working alpha target is operator removal of active PostgreSQL data and exact S3 versions within the seven days after cooling-off. With the current seven-day automated-backup retention, the verified ordinary target is a maximum recovery window of 21 days after request. One synthetic hosted project completed active-data erasure and later aged out of every observed restorable Aurora point and snapshot. This is not immediate deletion and does not cover separately retained manual snapshots, exceptional legal or incident holds, shared immutable bytes still referenced by another project, copies already sent to an AI provider, or account-wide erasure.
 
 Account-wide erasure is not implemented. A project request covers only the named project. Shared immutable bytes remain if another authorized project still references them, while all target-project references are removed. A legal obligation or active security incident may require a documented preservation hold and notice to the requester.
+
+### Hosted provider-backup-expiry evidence — 2026-09-17
+
+The synthetic project's active PostgreSQL rows and exact S3 version were removed at `2026-09-09T10:03:48.640Z`; its calculated seven-day provider-backup expiry was `2026-09-16T10:03:48.640Z`. A read-only Aurora review on 2026-09-17 showed `EarliestRestorableTime` at September 10, 2026 05:12 GST (`2026-09-10T01:12Z`), later than active-data deletion. The seven visible system snapshots were created September 11 through September 17, also after deletion. The account showed zero manual snapshots, zero AWS Backup snapshots, zero replicated automated backups, and zero retained automated backups. The previously recorded privileged receipt, exact S3/database reconciliation, unrelated-data retention, and ordinary-path non-disclosure remain unchanged.
+
+This closes the dated backup-expiry proof for that fixture and validates the configured ordinary project-erasure timeline. It does not assert that deleted data never existed in a provider backup, that deletion is immediate, or that a future manual snapshot, documented preservation hold, shared object, external AI-provider copy, or account-wide record is covered by the project operator.
 
 ## Privacy and incident contact
 

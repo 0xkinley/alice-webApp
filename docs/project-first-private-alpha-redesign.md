@@ -23,7 +23,7 @@ The visual reference for this redesign is `https://ainotes.framer.website/`. ali
 - Evidence, accepted versions, provenance, audit history, file versions, and security receipts remain append-preserving until the separately privileged project-erasure workflow is eligible and executed.
 - Project, collaborator, provider, file, and legacy-record access remains deny-by-default. A redesign may hide internal structure but may not turn hidden structure into an authorization bypass.
 - File availability still requires exact bytes, type/size/hash validation, immutable storage, required security scans, an authorized project reference, and project visibility.
-- Provider backup expiry for the 2026-09-09 synthetic erasure remains unverified until the restore window advances past `2026-09-16T10:03:48.640Z`. Neither this redesign nor its copy may claim completed permanent deletion before that evidence is recorded.
+- Provider backup expiry for the 2026-09-09 synthetic erasure was still unverified when this redesign began. The dated 2026-09-17 read-only check later found every observed Aurora restore path newer than active-data deletion, with no manual, AWS Backup, replicated, or retained backups. The resulting claim remains limited to the verified ordinary project-erasure configuration and documented exceptions.
 
 ## Repository audit
 

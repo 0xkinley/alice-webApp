@@ -1,6 +1,6 @@
 # Project Migration Foundation
 
-Status: Controlled bootstrap/import source foundation implemented and locally verified; further migration implementation and hosted rollout paused pending the empirical provider-acquisition test; dated backup-expiry proof remains pending for Milestone 06.5
+Status: Controlled bootstrap/import source foundation implemented and locally verified; further migration implementation and hosted rollout paused pending the empirical provider-acquisition test; dated backup-expiry proof completed for Milestone 06.5
 
 ## Decision
 
@@ -265,4 +265,4 @@ A future project-migration claim additionally requires normalized imported struc
 
 Coverage must include authenticated-Migrate/no-action behavior, host-snapshot immutability, authority labels, tenant isolation, guessed identifiers, prompt injection, idempotent retry, partial and failed sessions, exact-versus-reference artifacts, unsupported provider capabilities, source-project non-mutation, Alice-copy deletion isolation, accessible card semantics, and equivalent model-visible text. The complete static, deterministic evaluation, fast, PostgreSQL migration/role, backup/restore, production-build, deployment-plan, documentation, and clean-tree gates remain required.
 
-The separate provider-backup-expiry proof after `2026-09-16T10:03:48.640Z` remains the first Milestone 06.5 task. Alice must not make a permanent-erasure promise before that evidence passes.
+The separate provider-backup-expiry proof passed on 2026-09-17 after Aurora's earliest restorable time and every visible system snapshot advanced past active-data deletion, with zero manual, AWS Backup, replicated, or retained backups. Any deletion claim remains scoped to the verified ordinary project-erasure configuration and its documented exceptions.
