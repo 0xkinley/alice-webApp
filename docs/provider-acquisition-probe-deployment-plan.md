@@ -22,7 +22,7 @@ The hosted probe must use this revised contract:
 - exact input schema: `{ "type": "object", "additionalProperties": true }`;
 - exact annotations: `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`, and `openWorldHint: false`;
 - exact pre-validation JSON-RPC argument snapshot plus one parsed duplicate for scoring;
-- one successful evidence submission per randomly generated 256-bit session URL;
+- Phase 1 allows one successful evidence submission per randomly generated 256-bit session URL;
 - synthetic fixture data only;
 - fixed hosted TTL of 24 hours, with immediate operator deletion after scoring;
 - no Alice user, project, migration, artifact, file, accepted-state, or database dependency;
@@ -35,6 +35,41 @@ The existing local prototype still contains that rejected description. This desi
 The Lambda-hosted request ceiling must be lower than the local 8 MiB ceiling. AWS documents a 6 MB maximum for synchronous Lambda invocation, so implementation should reject requests above 5 MiB before parsing and verify the complete fixture remains well below that limit.
 
 Any change to the tool name, description, schema, captured fields, prompts, fixture inventory, scoring, or TTL requires another review before use.
+
+## Call-count strategy
+
+One-call packaging is the first measured condition, not the Alice product requirement.
+
+### Phase 1 — single-call capability
+
+The initial implementation and 18-run experiment remain single-call:
+
+- one session accepts one successful evidence call;
+- each Phase 1 prompt explicitly requests exactly one call;
+- concurrent or later calls cannot overwrite the first record;
+- a second-call attempt is recorded as a content-free outcome and does not turn missing markers into an acquisition failure;
+- evidence capture, provider-visible success, response-loss retry, intentional additional-call attempt, and truncation are separate observations.
+
+Phase 1 can conclude `one-call complete` or `one-call incomplete`. It cannot conclude that acquisition is unsupported solely from incomplete packaging.
+
+### Phase 2 — bounded multi-call capability
+
+A provider/surface/leg must enter Phase 2 when it attempts an additional call, indicates chunking or truncation, reaches the request ceiling, or produces any incomplete Phase 1 repetition whose gap could be caused by packaging rather than access.
+
+Phase 2 is separately versioned and uses:
+
+- the identical tool name, title, neutral description, unrestricted schema, and annotations;
+- a leg-specific saved prompt that permits at most ten calls;
+- three fresh repetitions for each triggered provider/surface/leg;
+- at most ten append-only evidence records per session;
+- a 5 MiB ceiling per call and 20 MiB cumulative ceiling per session;
+- server-assigned monotonic sequence numbers and scoring both per call and over the receipt-ordered aggregate;
+- duplicate-marker detection within and across calls;
+- the same synthetic-only rule, 24-hour TTL, immediate exact-key deletion, and provider/account scoping.
+
+Phase 2 can conclude `multi-call complete` or `partial after bounded multi-call`. A diagnostic-mechanism compatibility failure remains a separate result. `Acquisition unsupported` is not available as a conclusion until every triggered bounded multi-call test is complete.
+
+The currently proposed implementation approval covers Phase 1 only. Phase 2 remains disabled and unimplemented until a trigger is observed. Because its experimental contract is fixed here, a trigger requires a focused implementation and test review, not another product-architecture exercise. The implementation must demonstrate an atomic ten-call/20-MiB cap and append-only sequence allocation without overwriting evidence before Phase 2 deployment.
 
 ## Proposed isolated resources
 
@@ -84,7 +119,7 @@ Required controls:
 - set reserved concurrency to a small bounded value and add a strict request-size rejection;
 - remove both public permission resources as the first safe-stop action.
 
-Possession of a full unused session URL allows its one evidence submission to be consumed. That is an accepted, tightly bounded risk only because the fixture is synthetic, the URL is short-lived and single-use, and the function cannot read evidence or mutate Alice. It is not an appropriate authentication model for the Alice product.
+Possession of a full unused Phase 1 session URL allows its one evidence submission to be consumed. A future Phase 2 URL would allow only its bounded ten-call/20-MiB sequence. That is an accepted, tightly bounded risk only because the fixture is synthetic, the URL is short-lived, and the function cannot read evidence or mutate Alice. It is not an appropriate authentication model for the Alice product.
 
 ### Lambda role
 
@@ -191,11 +226,11 @@ Record the compatibility observation in this form without including the secret U
 
 A registration, discovery, schema, plan, action, authentication, confirmation, or invocation failure proves only that this diagnostic mechanism is incompatible with the tested host configuration. It does not prove the host lacks project context or that acquisition itself is unsupported. Acquisition results may be classified only after the tool is successfully invoked and evidence capture is independently verified.
 
-Only after that compatibility evidence and a separate go-ahead may the synthetic project fixture be created or the 18 planned evidence submissions be run.
+Only after that compatibility evidence and a separate go-ahead may the synthetic project fixture be created or the 18 planned Phase 1 evidence submissions be run.
 
 ## Execution limits and cost guardrail
 
-The complete experiment is bounded to:
+Phase 1 is bounded to:
 
 - two providers, ChatGPT first and Claude second;
 - three acquisition legs per provider;
@@ -205,14 +240,18 @@ The complete experiment is bounded to:
 - 24-hour session expiry, four-hour maximum public window per provider, and seven-day maximum stack lifetime;
 - a $1 experiment stop ceiling within the existing $5 AWS budget.
 
+If Phase 2 is triggered, each approved provider/surface/leg adds at most three sessions and 30 successful calls. Even if all six provider/leg combinations trigger, the overall multi-call ceiling is 18 sessions and 180 successful calls. Phase 2 does not raise the $1 cost stop, 24-hour session TTL, four-hour public window per approved provider phase, or seven-day stack-lifetime limit.
+
 With no always-on compute, database, VPC, NAT, API Gateway, ECR, or custom domain, expected Lambda, S3, and log charges for this volume should be pennies and likely below $0.10. This is a planning estimate, not a billing guarantee. Stop before provider trials if the change set adds an unreviewed paid service, and stop the experiment if AWS actual or forecast cost attributable to the probe approaches $1.
 
 ## Evidence receipt versus host-visible success
 
-Single-use storage remains correct for contamination control, but two outcomes must be recorded independently for every attempted trial:
+Single-use Phase 1 storage remains correct for contamination control, but these outcomes must be recorded independently for every attempted trial:
 
 1. `evidence_captured`: whether the exact record exists in S3 with a valid receipt timestamp, argument hash, and session identity;
 2. `provider_observed_success`: whether the provider surface displayed or otherwise confirmed a successful tool response (`yes`, `no`, or `unknown`).
+3. `additional_call_attempted`: whether the host deliberately or apparently tried another tool invocation after the captured call (`yes`, `no`, or `unknown`).
+4. `truncation_or_chunking_observed`: whether the host or transport exposed truncation or a plan to continue in chunks (`yes`, `no`, or `unknown`).
 
 If the first write succeeds but the response is lost and the provider retries, the second call may receive `already used`. Score the captured record normally, mark `evidence_captured=yes`, record the host-visible response separately, and do not count that transport/response loss as an acquisition-content failure. Never overwrite the first record or run an automatic second evidence submission under the same trial identity.
 
@@ -226,6 +265,7 @@ Implementation is not ready for a deployment review until tests prove:
 - request bodies above 5 MiB are rejected before JSON parsing;
 - token generation, digest lookup, exact expiry, and non-disclosing errors;
 - one-call behavior under concurrent submissions using a conditional S3 write;
+- content-free recording of additional-call attempts and observed truncation/chunking without capturing a rejected second payload;
 - no path, header, body, argument, token, or evidence content appears in application logs;
 - the Lambda role cannot list storage, read records, create sessions, delete objects, or access production resources;
 - expired sessions are unusable before lifecycle deletion;
@@ -241,11 +281,12 @@ Implementation is not ready for a deployment review until tests prove:
 
 This document authorizes no mutation. The remaining approvals are deliberately separate:
 
-1. approve implementation of the neutral description, S3-backed diagnostic adapter, operator commands, deterministic ZIP, template, outcome fields, and tests;
+1. approve Phase 1 implementation of the neutral description, single-call S3-backed diagnostic adapter, operator commands, deterministic ZIP, template, outcome fields, trigger reporting, and tests;
 2. review the resulting diff, IAM policies, change set, immutable ZIP/code hashes, tests, cost estimate, and cleanup commands;
 3. approve creation of the private AWS foundation;
 4. approve bounded public compatibility testing;
-5. after compatibility succeeds, approve creation of synthetic provider projects and execution of the empirical trials.
+5. after compatibility succeeds, approve creation of synthetic provider projects and execution of the Phase 1 empirical trials;
+6. only if triggered, implement and review the already bounded Phase 2 mode before its trials.
 
 At every boundary, `Host-generated does not mean alice.-verified` remains controlling. Probe output is evidence about one tested host configuration; it is not trusted Alice state and is not automatically a migration design.
 

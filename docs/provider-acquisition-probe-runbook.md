@@ -6,7 +6,7 @@ Status: Local diagnostic preparation only; revised design review requires a code
 
 The probe measures:
 
-> What project information can ChatGPT or Claude, together with the tested host environment and model, make available to the model and marshal into one MCP tool call?
+> What project information can ChatGPT or Claude, together with the tested host environment and model, make available and reliably transfer through the controlled MCP tool—first in one call and, when required, across a bounded sequence of calls?
 
 It does not observe a raw provider project API. The model chooses whether to call the tool and constructs arguments that conform to the advertised schema. Results therefore describe the exact tested provider, account, surface, configuration, model when visible, prompt, and date. They must not be generalized to another surface or treated as proof of an undocumented provider API.
 
@@ -43,7 +43,7 @@ The current local prototype still advertises the superseded description `Send al
 
 Every run has an operator-created session with a random 256-bit URL token. Only the SHA-256 token digest is stored. The token is shown once to the operator in the temporary MCP URL and is never written into the evidence record.
 
-One session accepts at most one diagnostic tool call. The record contains only:
+The first-phase local prototype accepts at most one successful diagnostic tool call per session. Its record contains only:
 
 - diagnostic contract, record, and session identifiers;
 - receipt and expiry timestamps;
@@ -79,7 +79,7 @@ The generated fixture contains:
 - one optional valid DOCX for surfaces that support it;
 - one current working artifact;
 - five plausible negative markers that occur only in the local operator manifest;
-- exact identical prompts for ambient, active-retrieval, and user-mediated trials;
+- one fixed saved prompt for each acquisition leg, used without changes across that leg's three repetitions; the Ambient, Active retrieval, and User-mediated prompts intentionally differ from one another;
 - file and artifact SHA-256 values, relationships, ordering, and counts in `operator-only/manifest.json`.
 
 Upload only `provider-upload/`. Never upload `operator-only/`, `conversations/`, `prompts/`, the fixture README, or the manifest. Those files contain expected evidence or negative controls and would contaminate the experiment.
@@ -136,6 +136,23 @@ The command prints a session ID, expiry, and one secret MCP URL. Do not paste th
 
 Use the exact prompt file without edits for all three repetitions of a leg. Start a fresh eligible conversation or session for every trial so prior results do not contaminate ambient context. Complete ChatGPT before beginning Claude.
 
+## Single-call phase and multi-call trigger
+
+Phase 1 deliberately measures single-call packaging. Its saved prompts say to call the tool exactly once, and its session accepts exactly one successful evidence call. That is an experimental condition, not an Alice product requirement.
+
+Do not classify acquisition as unsupported merely because a Phase 1 payload is incomplete. A bounded multi-call phase is required for a provider/surface/leg when any of these occurs:
+
+- the provider attempts a second evidence call;
+- the provider states or visibly indicates that it is chunking or truncating the transfer;
+- a request reaches the 5 MiB hosted ceiling;
+- any of the three Phase 1 repetitions is incomplete and the missing material could reflect packaging rather than access.
+
+If a second call is attempted during Phase 1, retain and score the first record, record `additional_call_attempted=yes`, stop that trial, and do not describe the missing material as unavailable. A response-loss retry remains a separate transport outcome and is not by itself proof that the host intended complementary chunking.
+
+The triggered Phase 2 uses the same tool name, title, description, schema, and annotations but a separately versioned saved prompt that permits up to ten calls. Each triggered provider/surface/leg receives three fresh repetitions. Each session is limited to ten append-only records, 5 MiB per call, 20 MiB total, and the same 24-hour hosted TTL. The scorer reports every call and the aggregate in server receipt order, including duplicates across calls. Phase 2 can conclude `multi-call complete` or `partial after bounded multi-call`; it may not retroactively change the Phase 1 result.
+
+The current prototype implements Phase 1 only. Phase 2 is a predeclared follow-up condition, not authorization to implement or deploy it. Its implementation must prove an atomic call/byte cap and append-only ordering before use.
+
 ## Score without normalizing the evidence
 
 ```sh
@@ -143,7 +160,7 @@ npm run acquisition:score -- \
   --manifest .data/provider-acquisition-fixtures/FIXTURE/operator-only/manifest.json
 ```
 
-The scorer reports every run separately and retains the distribution across repetitions. It deterministically measures exact marker recall, negative-marker returns, duplicates, recovered marker order, JSON paths, and matching exact file/artifact byte hashes. It does not infer message roles, provider identifiers, timestamps, relationships, or whether a field was retrieved rather than reconstructed; those require manual review of the exact recorded arguments and observed host actions.
+The Phase 1 scorer reports every run separately and retains the distribution across repetitions. It deterministically measures exact marker recall, negative-marker returns, duplicates, recovered marker order, JSON paths, and matching exact file/artifact byte hashes. It does not infer message roles, provider identifiers, timestamps, relationships, or whether a field was retrieved rather than reconstructed; those require manual review of the exact recorded arguments and observed host actions. A future Phase 2 scorer must additionally preserve per-call results and score the append-only aggregate in receipt order.
 
 ## Delete or expire evidence
 

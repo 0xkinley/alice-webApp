@@ -8,7 +8,7 @@ Alice will not add another project-migration implementation phase or expose the 
 
 The test answers one question with observed evidence:
 
-> What project information can ChatGPT or Claude, together with the tested host environment and model, make available to the model and marshal into an MCP tool call today?
+> What project information can ChatGPT or Claude, together with the tested host environment and model, make available and reliably transfer through the controlled MCP tool—first in one call and, when required, across a bounded sequence of calls?
 
 The probe does not observe a raw provider project API. MCP calls are model-controlled and their arguments conform to the advertised tool schema. Model self-report is not evidence. Official documentation informs expectations, but only the exact arguments delivered to the controlled test tool establish observed capability. Results are dated and scoped to the tested provider, account type, region, client/surface, project state, host version, model when visible, exact prompt, and diagnostic contract.
 
@@ -54,6 +54,7 @@ Record one row set for every tested combination:
 | Tool contract | Exact advertised name, title, description, annotations, and schema |
 | Host interpretation | Displayed name/description, action classification, confirmation, and schema handling |
 | Compatibility outcome | Registration, discovery, authentication, plan/action, schema, invocation, transport, or success |
+| Call mode | `single-call-v1` or, only when triggered, `bounded-multi-call-v1` |
 
 Do not inherit a passing result from one surface, account, region, or provider to another.
 
@@ -136,6 +137,8 @@ Use the identical saved prompt for all three repetitions of a leg. Do not improv
 
 Use the exact same neutral MCP tool name, title, description, unrestricted schema, and annotations for every leg. The tool description must not tell the model to retrieve or send all available information; acquisition instructions belong only in the saved prompt for the relevant leg.
 
+Each acquisition leg has one fixed saved Phase 1 prompt, used identically across its three repetitions. The prompts intentionally differ between Ambient, Active retrieval, and User-mediated legs. Phase 1 asks for exactly one tool call so it measures one-call packaging rather than silently allowing different call strategies.
+
 ### A. Ambient host context
 
 From the defined entry position, ask the host to send only information already available in its current context to the controlled Alice capability tool. Do not ask it to search, retrieve, reopen, attach, or reconstruct other material.
@@ -195,11 +198,30 @@ actions required
 errors and nondeterministic behavior
 evidence captured successfully
 provider observed a successful tool response
+additional evidence call attempted
+truncation or chunking observed
 ```
 
-The last two outcomes are independent. If evidence is stored but the success response is lost and the provider retries, score the stored first call and record the provider-visible error separately. Do not treat response delivery as evidence completeness.
+These outcomes are independent. If evidence is stored but the success response is lost and the provider retries, score the stored first call and record the provider-visible error separately. Do not treat response delivery as evidence completeness or automatically interpret a retry as intentional chunking.
 
 Registration, authentication, plan/action, schema, confirmation, or invocation incompatibility describes the diagnostic mechanism on that exact host configuration. It is not evidence that the host lacks project context and must not be classified as acquisition failure.
+
+## Bounded multi-call follow-up
+
+One-call completeness and acquisition completeness are different measurements. Trigger `bounded-multi-call-v1` for a provider/surface/leg when the host attempts another evidence call, indicates truncation or chunking, reaches the request ceiling, or any Phase 1 repetition remains incomplete in a way that could reflect packaging rather than access.
+
+An additional-call attempt during Phase 1 stops that trial after preserving the first record. Record it as `single-call strategy incompatible`; do not report the unsubmitted remainder as unavailable. A response-loss retry is recorded separately from intentional complementary chunking.
+
+The triggered mode keeps the identical tool contract but uses a separately versioned leg prompt permitting at most ten calls. Run three fresh trials, with at most ten append-only records, 5 MiB per call, 20 MiB total, and a 24-hour session TTL. Score each record and the receipt-ordered aggregate. Report one of:
+
+```text
+one-call complete
+multi-call complete
+partial after bounded multi-call
+diagnostic mechanism incompatible
+```
+
+Do not select an acquisition path or label acquisition unsupported for a triggered provider/surface/leg until its bounded multi-call repetitions are complete.
 
 `Reliable` requires the agreed result across at least three independent trials. Report the distribution when counts differ; do not average away missing conversations, messages, files, or bytes.
 
