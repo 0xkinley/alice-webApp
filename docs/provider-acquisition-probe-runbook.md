@@ -1,6 +1,6 @@
 # Provider Acquisition Probe Runbook
 
-Status: Local diagnostic preparation only; deployment and provider-account use are not authorized.
+Status: Local diagnostic preparation only; revised design review requires a code change before use, and deployment and provider-account use are not authorized.
 
 ## Purpose and measurement boundary
 
@@ -31,11 +31,13 @@ There are no declared properties, required fields, conversation or file shapes, 
 
 ### 2. Tool description
 
-The complete model-visible description is:
+The approved design requires this complete model-visible description:
 
-> Send all information currently available for this diagnostic acquisition test.
+> Submit diagnostic acquisition evidence for this test.
 
-The description does not tell the model to use Alice's existing flat migration schema or invent a provider structure.
+The exact title is `Submit acquisition evidence`. The annotations remain `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`, and `openWorldHint: false`. The name, title, description, schema, and annotations are held byte-for-byte constant across Ambient, Active retrieval, and User-mediated trials so that only the saved user prompt and defined user actions change. The description does not instruct the model to maximize retrieval, use Alice's existing flat migration schema, or invent a provider structure.
+
+The current local prototype still advertises the superseded description `Send all information currently available for this diagnostic acquisition test.` It must not be used for provider trials. Updating the implementation and test assertion requires the next explicit implementation approval.
 
 ### 3. Diagnostic data written
 
@@ -49,6 +51,8 @@ One session accepts at most one diagnostic tool call. The record contains only:
 - the exact tool name;
 - the exact argument object serialized immediately from the parsed JSON-RPC request before MCP schema validation or application transformation, plus its SHA-256 and UTF-8 byte count;
 - a parsed duplicate of that same argument object for deterministic analysis.
+
+The operator report separately records whether evidence was captured and whether the provider observed a successful tool response. A stored first call followed by a provider retry and `already used` response is a response-delivery outcome, not an acquisition-content failure.
 
 The record does not contain HTTP headers, authorization headers, cookies, source IP addresses, user agents, Alice users, Alice projects, migration sessions, artifacts, files, accepted state, provider passwords, or hidden provider tokens. Only synthetic fixture data may be used. If real personal or confidential information appears in a call, stop, delete the session immediately, and do not include the record in a report.
 

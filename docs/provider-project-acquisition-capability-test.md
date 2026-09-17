@@ -51,6 +51,9 @@ Record one row set for every tested combination:
 | Entry position | New project conversation or existing conversation |
 | Trial | Independent trial number |
 | Exact prompt | Exact text and SHA-256 used for the repeated trial |
+| Tool contract | Exact advertised name, title, description, annotations, and schema |
+| Host interpretation | Displayed name/description, action classification, confirmation, and schema handling |
+| Compatibility outcome | Registration, discovery, authentication, plan/action, schema, invocation, transport, or success |
 
 Do not inherit a passing result from one surface, account, region, or provider to another.
 
@@ -131,6 +134,8 @@ Run each important leg at least three independent times. Start a fresh eligible 
 
 Use the identical saved prompt for all three repetitions of a leg. Do not improve or expand the prompt after seeing an incomplete first result; prompt revisions require a newly versioned test row set.
 
+Use the exact same neutral MCP tool name, title, description, unrestricted schema, and annotations for every leg. The tool description must not tell the model to retrieve or send all available information; acquisition instructions belong only in the saved prompt for the relevant leg.
+
 ### A. Ambient host context
 
 From the defined entry position, ask the host to send only information already available in its current context to the controlled Alice capability tool. Do not ask it to search, retrieve, reopen, attach, or reconstruct other material.
@@ -188,7 +193,13 @@ timestamps preserved
 original hashes matched
 actions required
 errors and nondeterministic behavior
+evidence captured successfully
+provider observed a successful tool response
 ```
+
+The last two outcomes are independent. If evidence is stored but the success response is lost and the provider retries, score the stored first call and record the provider-visible error separately. Do not treat response delivery as evidence completeness.
+
+Registration, authentication, plan/action, schema, confirmation, or invocation incompatibility describes the diagnostic mechanism on that exact host configuration. It is not evidence that the host lacks project context and must not be classified as acquisition failure.
 
 `Reliable` requires the agreed result across at least three independent trials. Report the distribution when counts differ; do not average away missing conversations, messages, files, or bytes.
 
