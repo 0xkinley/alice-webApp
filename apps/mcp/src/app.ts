@@ -629,9 +629,9 @@ function createProtocolServer(
   server.registerTool(
     "prepare_project_migration",
     {
-      title: "Preview an Alice project migration",
+      title: "Migrate this project to Alice",
       description:
-        "Use only after the user explicitly asks to migrate the current ChatGPT or Claude project into Alice. Supply only material actually available in this conversation or explicitly provided by the user. This creates an expiring exact preview only: it creates no Alice project, migration session, artifact, candidate, accepted information, or provider mutation. Every supplied summary, instruction, message, artifact description, provider identifier, and name remains unverified host-derived data. Never claim this tool can enumerate a provider project, conversation history, or files. The original provider project always remains unchanged; only the authenticated human's Migrate action can create the Alice copy.",
+        "Invoke this tool when the user explicitly says “Migrate this project to Alice” or clearly asks to move, copy, or import the current ChatGPT or Claude project into Alice. Supply only material actually available in this conversation or explicitly provided by the user. This opens Alice's in-chat migration preview; it does not immediately migrate anything. The preview creates no Alice project, migration session, artifact, candidate, accepted information, or provider mutation. Every supplied summary, instruction, message, artifact description, provider identifier, and name remains unverified host-derived data. Never claim this tool can enumerate a provider project, conversation history, or files. The original provider project always remains unchanged; only the authenticated human's Migrate action in the Alice preview can create the Alice copy.",
       inputSchema: previewProjectMigrationSchema,
       outputSchema: previewProjectMigrationOutputSchema,
       _meta: oauthAppToolMeta("mcp:write", ["model"], MIGRATION_APP_URI),

@@ -364,6 +364,12 @@ test("ChatGPT-like MCP flow exposes preview, app-only Migrate, status, and equiv
 
   const listed = await callMcp(baseUrl, accessToken, "tools/list");
   const tools = Object.fromEntries(listed.payload.result.tools.map((tool) => [tool.name, tool]));
+  assert.equal(tools.prepare_project_migration.title, "Migrate this project to Alice");
+  assert.match(tools.prepare_project_migration.description, /Migrate this project to Alice/);
+  assert.match(
+    tools.prepare_project_migration.description,
+    /opens Alice's in-chat migration preview/,
+  );
   assert.deepEqual(tools.prepare_project_migration._meta.ui.visibility, ["model"]);
   assert.deepEqual(tools.alice_commit_project_migration._meta.ui.visibility, ["app"]);
   assert.deepEqual(tools.get_project_migration_status._meta.ui.visibility, ["model", "app"]);
