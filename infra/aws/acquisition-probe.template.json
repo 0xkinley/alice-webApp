@@ -1,0 +1,309 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Isolated, disposable Phase 1 provider-acquisition diagnostic in eu-central-1. Review and approval are required before deployment.",
+  "Parameters": {
+    "BucketName": {
+      "Type": "String",
+      "AllowedPattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$",
+      "Description": "Globally unique private bucket for the probe ZIP, sessions, records, and content-free outcomes."
+    },
+    "ResourcePrefix": {
+      "Type": "String",
+      "Default": "alice-acquisition-probe",
+      "AllowedPattern": "^[a-z][a-z0-9-]{2,31}$"
+    },
+    "DeployRuntime": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "Creates the private Lambda and Function URL only after the reviewed ZIP is uploaded."
+    },
+    "EnablePublicAccess": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "Adds both public Function URL permissions only for an explicitly approved compatibility window."
+    },
+    "ArtifactKey": {
+      "Type": "String",
+      "Default": "pending",
+      "AllowedPattern": "^(?:pending|artifacts/[0-9a-f]{64}\\.zip)$",
+      "Description": "Content-addressed ZIP key emitted by the local deterministic build."
+    },
+    "AllowedHost": {
+      "Type": "String",
+      "Default": "pending.invalid",
+      "AllowedPattern": "^(?:pending\\.invalid|[a-z0-9-]+\\.lambda-url\\.eu-central-1\\.on\\.aws)$",
+      "Description": "Exact generated Function URL hostname, without scheme or path, set before public access."
+    }
+  },
+  "Rules": {
+    "FrankfurtOnly": {
+      "Assertions": [
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "AWS::Region" }, "eu-central-1"] },
+          "AssertDescription": "The acquisition probe is reviewed only for eu-central-1."
+        }
+      ]
+    },
+    "RuntimeRequiresArtifact": {
+      "RuleCondition": { "Fn::Equals": [{ "Ref": "DeployRuntime" }, "true"] },
+      "Assertions": [
+        {
+          "Assert": { "Fn::Not": [{ "Fn::Equals": [{ "Ref": "ArtifactKey" }, "pending"] }] },
+          "AssertDescription": "A content-addressed ZIP must exist before the runtime is created."
+        }
+      ]
+    },
+    "PublicAccessRequiresReviewedRuntime": {
+      "RuleCondition": { "Fn::Equals": [{ "Ref": "EnablePublicAccess" }, "true"] },
+      "Assertions": [
+        {
+          "Assert": { "Fn::Equals": [{ "Ref": "DeployRuntime" }, "true"] },
+          "AssertDescription": "Public permissions require the reviewed runtime."
+        },
+        {
+          "Assert": {
+            "Fn::Not": [{ "Fn::Equals": [{ "Ref": "AllowedHost" }, "pending.invalid"] }]
+          },
+          "AssertDescription": "The exact generated Function URL hostname is required before public access."
+        }
+      ]
+    }
+  },
+  "Conditions": {
+    "RuntimeEnabled": { "Fn::Equals": [{ "Ref": "DeployRuntime" }, "true"] },
+    "PublicAccessEnabled": { "Fn::Equals": [{ "Ref": "EnablePublicAccess" }, "true"] }
+  },
+  "Resources": {
+    "ProbeBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Delete",
+      "UpdateReplacePolicy": "Delete",
+      "Properties": {
+        "BucketName": { "Ref": "BucketName" },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": { "SSEAlgorithm": "AES256" }
+            }
+          ]
+        },
+        "OwnershipControls": {
+          "Rules": [{ "ObjectOwnership": "BucketOwnerEnforced" }]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "ExpireDiagnosticSessions",
+              "Status": "Enabled",
+              "Prefix": "sessions/",
+              "ExpirationInDays": 2,
+              "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+            },
+            {
+              "Id": "ExpireDiagnosticRecords",
+              "Status": "Enabled",
+              "Prefix": "records/",
+              "ExpirationInDays": 2,
+              "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+            },
+            {
+              "Id": "ExpireDiagnosticOutcomes",
+              "Status": "Enabled",
+              "Prefix": "outcomes/",
+              "ExpirationInDays": 2,
+              "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+            }
+          ]
+        },
+        "Tags": [
+          { "Key": "alice:purpose", "Value": "provider-acquisition-diagnostic" },
+          { "Key": "alice:temporary", "Value": "true" }
+        ]
+      }
+    },
+    "ProbeBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": { "Ref": "ProbeBucket" },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                { "Fn::GetAtt": ["ProbeBucket", "Arn"] },
+                { "Fn::Sub": "${ProbeBucket.Arn}/*" }
+              ],
+              "Condition": { "Bool": { "aws:SecureTransport": "false" } }
+            },
+            {
+              "Sid": "RequireNoOverwriteForRecordsAndOutcomes",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:PutObject",
+              "Resource": [
+                { "Fn::Sub": "${ProbeBucket.Arn}/records/*" },
+                { "Fn::Sub": "${ProbeBucket.Arn}/outcomes/*" }
+              ],
+              "Condition": { "StringNotEqualsIfExists": { "s3:if-none-match": "*" } }
+            }
+          ]
+        }
+      }
+    },
+    "ProbeLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "DeletionPolicy": "Delete",
+      "UpdateReplacePolicy": "Delete",
+      "Properties": {
+        "LogGroupName": { "Fn::Sub": "/aws/lambda/${ResourcePrefix}-runtime" },
+        "RetentionInDays": 1
+      }
+    },
+    "ProbeExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "DeletionPolicy": "Delete",
+      "UpdateReplacePolicy": "Delete",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "lambda.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "ExactProbeRuntimeBoundary",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "WriteContentFreeLogs",
+                  "Effect": "Allow",
+                  "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+                  "Resource": { "Fn::Sub": "${ProbeLogGroup.Arn}:*" }
+                },
+                {
+                  "Sid": "ReadHashedSessionsOnly",
+                  "Effect": "Allow",
+                  "Action": "s3:GetObject",
+                  "Resource": { "Fn::Sub": "${ProbeBucket.Arn}/sessions/by-token/*" }
+                },
+                {
+                  "Sid": "CreateRecordsAndOutcomesWithoutOverwrite",
+                  "Effect": "Allow",
+                  "Action": "s3:PutObject",
+                  "Resource": [
+                    { "Fn::Sub": "${ProbeBucket.Arn}/records/*" },
+                    { "Fn::Sub": "${ProbeBucket.Arn}/outcomes/*" }
+                  ],
+                  "Condition": { "StringEquals": { "s3:if-none-match": "*" } }
+                }
+              ]
+            }
+          }
+        ],
+        "Tags": [
+          { "Key": "alice:purpose", "Value": "provider-acquisition-diagnostic" },
+          { "Key": "alice:temporary", "Value": "true" }
+        ]
+      }
+    },
+    "ProbeFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Condition": "RuntimeEnabled",
+      "DependsOn": ["ProbeLogGroup", "ProbeBucketPolicy"],
+      "DeletionPolicy": "Delete",
+      "UpdateReplacePolicy": "Delete",
+      "Properties": {
+        "FunctionName": { "Fn::Sub": "${ResourcePrefix}-runtime" },
+        "Description": "Synthetic-only Phase 1 provider-acquisition diagnostic; no Alice state access.",
+        "Architectures": ["arm64"],
+        "Runtime": "nodejs24.x",
+        "Handler": "index.handler",
+        "Role": { "Fn::GetAtt": ["ProbeExecutionRole", "Arn"] },
+        "Code": {
+          "S3Bucket": { "Ref": "ProbeBucket" },
+          "S3Key": { "Ref": "ArtifactKey" }
+        },
+        "MemorySize": 256,
+        "Timeout": 30,
+        "ReservedConcurrentExecutions": 2,
+        "EphemeralStorage": { "Size": 512 },
+        "TracingConfig": { "Mode": "PassThrough" },
+        "LoggingConfig": {
+          "ApplicationLogLevel": "ERROR",
+          "LogFormat": "JSON",
+          "SystemLogLevel": "WARN",
+          "LogGroup": { "Ref": "ProbeLogGroup" }
+        },
+        "Environment": {
+          "Variables": {
+            "ACQUISITION_PROBE_BUCKET": { "Ref": "ProbeBucket" },
+            "ACQUISITION_PROBE_ALLOWED_HOST": { "Ref": "AllowedHost" },
+            "ACQUISITION_PROBE_CALL_MODE": "single-call-v1"
+          }
+        },
+        "Tags": [
+          { "Key": "alice:purpose", "Value": "provider-acquisition-diagnostic" },
+          { "Key": "alice:temporary", "Value": "true" }
+        ]
+      }
+    },
+    "ProbeFunctionUrl": {
+      "Type": "AWS::Lambda::Url",
+      "Condition": "RuntimeEnabled",
+      "Properties": {
+        "TargetFunctionArn": { "Fn::GetAtt": ["ProbeFunction", "Arn"] },
+        "AuthType": "NONE",
+        "InvokeMode": "BUFFERED"
+      }
+    },
+    "ProbeFunctionUrlPublicPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Condition": "PublicAccessEnabled",
+      "Properties": {
+        "FunctionName": { "Ref": "ProbeFunction" },
+        "Action": "lambda:InvokeFunctionUrl",
+        "Principal": "*",
+        "FunctionUrlAuthType": "NONE"
+      }
+    },
+    "ProbeFunctionPublicInvokePermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Condition": "PublicAccessEnabled",
+      "Properties": {
+        "FunctionName": { "Ref": "ProbeFunction" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "*",
+        "InvokedViaFunctionUrl": true
+      }
+    }
+  },
+  "Outputs": {
+    "ProbeBucketName": {
+      "Description": "Private probe bucket. This is not an Alice production bucket.",
+      "Value": { "Ref": "ProbeBucket" }
+    },
+    "ProbeFunctionUrlOutput": {
+      "Condition": "RuntimeEnabled",
+      "Description": "Base URL only; secret session tokens are never stack outputs.",
+      "Value": { "Fn::GetAtt": ["ProbeFunctionUrl", "FunctionUrl"] }
+    }
+  }
+}

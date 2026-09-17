@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { sha256 } from "./storage.ts";
-import type { AcquisitionFixtureManifest, AcquisitionRecord, FixtureMarkerGroup } from "./types.ts";
+import type {
+  AcquisitionFixtureManifest,
+  AcquisitionOutcome,
+  AcquisitionOutcomeValue,
+  AcquisitionRecord,
+  FixtureMarkerGroup,
+} from "./types.ts";
 
 interface LocatedString {
   path: string;
@@ -13,6 +19,7 @@ export interface AcquisitionRunScore {
   provider: string;
   surface: string;
   acquisition_leg: string;
+  call_mode: "single-call-v1";
   trial: number;
   received_at: string;
   argument_sha256: string;
@@ -33,6 +40,15 @@ export interface AcquisitionRunScore {
     matched: boolean;
   }>;
   exact_artifact_bytes: boolean;
+  outcomes: {
+    evidence_captured: "yes";
+    provider_observed_success: AcquisitionOutcomeValue;
+    additional_call_attempted: AcquisitionOutcomeValue;
+    truncation_or_chunking_observed: AcquisitionOutcomeValue;
+    payload_ceiling_reached: AcquisitionOutcomeValue;
+  };
+  bounded_multi_call_triggered: boolean;
+  bounded_multi_call_trigger_reasons: string[];
 }
 
 export interface AcquisitionScoreReport {
@@ -50,6 +66,8 @@ export interface AcquisitionScoreReport {
     false_marker_distribution: number[];
     exact_required_file_distribution: number[];
   }>;
+  outcomes_without_evidence: AcquisitionOutcome[];
+  bounded_multi_call_trigger_session_ids: string[];
   manual_review_required: string[];
 }
 
@@ -135,6 +153,7 @@ function candidateBuffers(value: unknown): Buffer[] {
 function scoreRun(
   manifest: AcquisitionFixtureManifest,
   record: AcquisitionRecord,
+  outcomes: AcquisitionOutcome[],
 ): AcquisitionRunScore {
   const raw = record.received_arguments.exact_json;
   const strings = locateStrings(record.parsed_arguments);
@@ -162,11 +181,26 @@ function scoreRun(
   const hashes = new Set(
     candidateBuffers(record.parsed_arguments).map((candidate) => sha256(candidate)),
   );
+  const outcomeValue = (kind: AcquisitionOutcome["kind"]): AcquisitionOutcomeValue =>
+    outcomes.filter((outcome) => outcome.kind === kind).at(-1)?.value ?? "unknown";
+  const providerObservedSuccess = outcomeValue("provider_observed_success");
+  const additionalCallAttempted = outcomeValue("additional_call_attempted");
+  const truncationObserved = outcomeValue("truncation_or_chunking_observed");
+  const payloadCeilingReached = outcomeValue("payload_ceiling_reached");
+  const triggerReasons = [
+    ...(additionalCallAttempted === "yes" ? ["additional_call_attempted"] : []),
+    ...(truncationObserved === "yes" ? ["truncation_or_chunking_observed"] : []),
+    ...(payloadCeilingReached === "yes" ? ["payload_ceiling_reached"] : []),
+    ...(recoveredMarkers.length < manifest.expected_markers.length
+      ? ["single_call_incomplete_requires_operator_packaging_review"]
+      : []),
+  ];
   return {
     session_id: record.session_id,
     provider: record.run.provider,
     surface: record.run.surface,
     acquisition_leg: record.run.acquisition_leg,
+    call_mode: record.run.call_mode,
     trial: record.run.trial,
     received_at: record.received_at,
     argument_sha256: record.received_arguments.sha256,
@@ -193,17 +227,33 @@ function scoreRun(
       matched: hashes.has(file.sha256),
     })),
     exact_artifact_bytes: hashes.has(manifest.artifact.sha256),
+    outcomes: {
+      evidence_captured: "yes",
+      provider_observed_success: providerObservedSuccess,
+      additional_call_attempted: additionalCallAttempted,
+      truncation_or_chunking_observed: truncationObserved,
+      payload_ceiling_reached: payloadCeilingReached,
+    },
+    bounded_multi_call_triggered: triggerReasons.length > 0,
+    bounded_multi_call_trigger_reasons: triggerReasons,
   };
 }
 
 export function createScoreReport(
   manifest: AcquisitionFixtureManifest,
   records: AcquisitionRecord[],
+  outcomes: AcquisitionOutcome[] = [],
   now = new Date(),
 ): AcquisitionScoreReport {
   const runs = records
     .filter((record) => record.run.fixture_id === manifest.fixture_id)
-    .map((record) => scoreRun(manifest, record))
+    .map((record) =>
+      scoreRun(
+        manifest,
+        record,
+        outcomes.filter((outcome) => outcome.session_id === record.session_id),
+      ),
+    )
     .sort((left, right) =>
       `${left.provider}:${left.surface}:${left.acquisition_leg}:${left.trial}`.localeCompare(
         `${right.provider}:${right.surface}:${right.acquisition_leg}:${right.trial}`,
@@ -226,17 +276,40 @@ export function createScoreReport(
       (run) => run.exact_file_bytes.filter((file) => file.required && file.matched).length,
     ),
   }));
+  const scoredSessionIds = new Set(runs.map((run) => run.session_id));
+  const outcomesWithoutEvidence = outcomes.filter(
+    (outcome) => !scoredSessionIds.has(outcome.session_id),
+  );
+  const outcomeTriggeredSessionIds = outcomes
+    .filter(
+      (outcome) =>
+        outcome.value === "yes" &&
+        [
+          "additional_call_attempted",
+          "truncation_or_chunking_observed",
+          "payload_ceiling_reached",
+        ].includes(outcome.kind),
+    )
+    .map((outcome) => outcome.session_id);
   return {
     contract_version: "alice_acquisition_score_v1",
     fixture_id: manifest.fixture_id,
     generated_at: now.toISOString(),
     runs,
     groups,
+    outcomes_without_evidence: outcomesWithoutEvidence,
+    bounded_multi_call_trigger_session_ids: [
+      ...new Set([
+        ...runs.filter((run) => run.bounded_multi_call_triggered).map((run) => run.session_id),
+        ...outcomeTriggeredSessionIds,
+      ]),
+    ].sort(),
     manual_review_required: [
       "Confirm message roles, identifiers, timestamps, and project/conversation/file relationships from the recorded JSON paths.",
       "Distinguish provider-supplied metadata from model-authored labels or reconstructions.",
       "Record every user and host action, warning, truncation, transformation, and failure observed during the run.",
       "Treat an exact hash match as original bytes only when the matching value was actually supplied in the tool arguments.",
+      "For every incomplete single-call run, decide whether the gap could reflect packaging; if yes, bounded multi-call testing is required before an acquisition-path conclusion.",
     ],
   };
 }
@@ -263,8 +336,23 @@ export function scoreReportMarkdown(report: AcquisitionScoreReport): string {
       `- Required file bytes matched: ${requiredFiles.filter((file) => file.matched).length}/${requiredFiles.length}`,
       `- Marker coverage: ${run.marker_coverage_percent}%`,
       `- False markers returned: ${run.false_markers_returned.length}`,
+      `- Provider observed success: ${run.outcomes.provider_observed_success}`,
+      `- Additional call attempted: ${run.outcomes.additional_call_attempted}`,
+      `- Truncation or chunking observed: ${run.outcomes.truncation_or_chunking_observed}`,
+      `- Bounded multi-call trigger: ${run.bounded_multi_call_triggered ? "yes" : "no"}`,
       `- Recovered conversation-marker order preserved: ${run.conversation_order_preserved_for_recovered_markers ? "yes" : "no"}`,
       `- Recovered message-marker order preserved: ${run.message_order_preserved_for_recovered_markers ? "yes" : "no"}`,
+      "",
+    );
+  }
+  if (report.outcomes_without_evidence.length > 0) {
+    lines.push(
+      "## Outcomes without captured evidence",
+      "",
+      ...report.outcomes_without_evidence.map(
+        (outcome) =>
+          `- ${outcome.session_id}: ${outcome.kind}=${outcome.value} (${outcome.detail_code})`,
+      ),
       "",
     );
   }

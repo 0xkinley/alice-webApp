@@ -1,6 +1,6 @@
 # Provider Acquisition Probe Runbook
 
-Status: Local diagnostic preparation only; revised design review requires a code change before use, and deployment and provider-account use are not authorized.
+Status: Phase 1 local implementation complete and verified; AWS deployment, public enablement, and provider-account use remain unauthorized.
 
 ## Purpose and measurement boundary
 
@@ -37,13 +37,13 @@ The approved design requires this complete model-visible description:
 
 The exact title is `Submit acquisition evidence`. The annotations remain `readOnlyHint: false`, `destructiveHint: false`, `idempotentHint: false`, and `openWorldHint: false`. The name, title, description, schema, and annotations are held byte-for-byte constant across Ambient, Active retrieval, and User-mediated trials so that only the saved user prompt and defined user actions change. The description does not instruct the model to maximize retrieval, use Alice's existing flat migration schema, or invent a provider structure.
 
-The current local prototype still advertises the superseded description `Send all information currently available for this diagnostic acquisition test.` It must not be used for provider trials. Updating the implementation and test assertion requires the next explicit implementation approval.
+The local and Lambda adapters now advertise this exact neutral contract. Phase 2 remains unimplemented.
 
 ### 3. Diagnostic data written
 
 Every run has an operator-created session with a random 256-bit URL token. Only the SHA-256 token digest is stored. The token is shown once to the operator in the temporary MCP URL and is never written into the evidence record.
 
-The first-phase local prototype accepts at most one successful diagnostic tool call per session. Its record contains only:
+The Phase 1 implementation accepts at most one successful diagnostic tool call per session. Its record contains only:
 
 - diagnostic contract, record, and session identifiers;
 - receipt and expiry timestamps;
@@ -52,13 +52,13 @@ The first-phase local prototype accepts at most one successful diagnostic tool c
 - the exact argument object serialized immediately from the parsed JSON-RPC request before MCP schema validation or application transformation, plus its SHA-256 and UTF-8 byte count;
 - a parsed duplicate of that same argument object for deterministic analysis.
 
-The operator report separately records whether evidence was captured and whether the provider observed a successful tool response. A stored first call followed by a provider retry and `already used` response is a response-delivery outcome, not an acquisition-content failure.
+The operator report separately records whether evidence was captured, whether the provider observed a successful tool response, whether another call was attempted, whether truncation/chunking was observed, and whether the hosted request ceiling was reached. A stored first call followed by a provider retry and `already used` response is a response-delivery outcome, not an acquisition-content failure.
 
 The record does not contain HTTP headers, authorization headers, cookies, source IP addresses, user agents, Alice users, Alice projects, migration sessions, artifacts, files, accepted state, provider passwords, or hidden provider tokens. Only synthetic fixture data may be used. If real personal or confidential information appears in a call, stop, delete the session immediately, and do not include the record in a report.
 
 ### 4. Expiry and deletion
 
-The default session and record TTL is 24 hours. An operator may choose between one minute and 72 hours, but never longer. Expired session and record files are removed at server startup, before a session is created, or by the explicit prune command. The exact session and its record can be deleted immediately by session ID. Deployment design must add an independent storage lifecycle backstop before approval; application pruning alone is insufficient for a hosted environment.
+The local-file mode defaults to 24 hours and permits an explicit one-to-72-hour development TTL. Hosted S3 mode permits exactly 24 hours. Expired objects become unusable at the application boundary immediately; the isolated template adds a two-day lifecycle backstop for `sessions/`, `records/`, and content-free `outcomes/`. Exact session evidence can be deleted and verified absent by session ID. Lifecycle processing is not accepted as proof of immediate erasure.
 
 ## Synthetic fixture
 
@@ -103,7 +103,15 @@ Run the focused test:
 node --conditions=development --test test/acquisition-probe.test.ts
 ```
 
-The test verifies fixture counts and formats, absent negative markers, unrestricted tool schema, neutral description, pre-validation capture, one-call sessions, TTL pruning, explicit deletion, scoring, no Alice-state imports, and exclusion from production image inputs.
+The focused tests verify fixture counts and formats, absent negative markers, the unrestricted neutral tool contract, exact pre-validation capture, first-write-wins behavior, body limits, content-free trigger outcomes, deterministic ZIP packaging, isolated IAM/template boundaries, TTL pruning, explicit deletion, scoring, no Alice-state imports, and exclusion from production image inputs.
+
+Build the reviewed Lambda artifact locally with:
+
+```sh
+npm run build:acquisition-probe-lambda
+```
+
+This creates `.data/acquisition-probe-build/acquisition-probe-lambda.zip` and `manifest.json`. The manifest contains the bundle and ZIP SHA-256 values and the immutable `artifacts/<zip-sha256>.zip` key. `.data/` is ignored by Git. Building the artifact does not upload or deploy it.
 
 Start the local server only for local protocol checks:
 
@@ -160,6 +168,20 @@ npm run acquisition:score -- \
   --manifest .data/provider-acquisition-fixtures/FIXTURE/operator-only/manifest.json
 ```
 
+Hosted scoring must name the intended sessions and therefore does not enumerate all evidence:
+
+```sh
+npm run acquisition:retrieve -- \
+  --s3-bucket APPROVED_PRIVATE_PROBE_BUCKET \
+  --session-id SESSION_UUID \
+  --output .data/acquisition-evidence/SESSION_UUID.json
+
+npm run acquisition:score -- \
+  --s3-bucket APPROVED_PRIVATE_PROBE_BUCKET \
+  --session-ids SESSION_UUID,SESSION_UUID \
+  --manifest .data/provider-acquisition-fixtures/FIXTURE/operator-only/manifest.json
+```
+
 The Phase 1 scorer reports every run separately and retains the distribution across repetitions. It deterministically measures exact marker recall, negative-marker returns, duplicates, recovered marker order, JSON paths, and matching exact file/artifact byte hashes. It does not infer message roles, provider identifiers, timestamps, relationships, or whether a field was retrieved rather than reconstructed; those require manual review of the exact recorded arguments and observed host actions. A future Phase 2 scorer must additionally preserve per-call results and score the append-only aggregate in receipt order.
 
 ## Delete or expire evidence
@@ -170,13 +192,21 @@ Delete one session and its record immediately after the sanitized evidence and s
 npm run acquisition:delete -- --session-id SESSION_UUID
 ```
 
+For hosted evidence, add `--s3-bucket APPROVED_PRIVATE_PROBE_BUCKET`, then prove the exact session, record, and session-scoped outcomes are gone:
+
+```sh
+npm run acquisition:verify-missing -- \
+  --s3-bucket APPROVED_PRIVATE_PROBE_BUCKET \
+  --session-id SESSION_UUID
+```
+
 Remove every expired record:
 
 ```sh
 npm run acquisition:prune
 ```
 
-After the experiment, confirm both session and record directories are empty. A future hosted run must additionally verify the independent storage lifecycle and delete the temporary service and storage resources.
+After the experiment, confirm session, record, and outcome storage is empty. A future hosted run must additionally verify the lifecycle configuration and delete the content-addressed ZIP and every temporary stack resource.
 
 ## Stop boundaries
 

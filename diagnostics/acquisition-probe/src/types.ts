@@ -3,6 +3,15 @@ export const ACQUISITION_TOOL_NAME = "submit_acquisition_evidence";
 
 export type AcquisitionLeg = "ambient" | "active-retrieval" | "user-mediated";
 export type AcquisitionProvider = "chatgpt" | "claude";
+export type AcquisitionCallMode = "single-call-v1";
+
+export type AcquisitionOutcomeKind =
+  | "provider_observed_success"
+  | "additional_call_attempted"
+  | "truncation_or_chunking_observed"
+  | "payload_ceiling_reached";
+
+export type AcquisitionOutcomeValue = "yes" | "no" | "unknown";
 
 export interface AcquisitionRunMetadata {
   fixture_id: string;
@@ -13,9 +22,22 @@ export interface AcquisitionRunMetadata {
   host_version: string;
   entry_position: string;
   acquisition_leg: AcquisitionLeg;
+  call_mode: AcquisitionCallMode;
   trial: number;
   exact_prompt: string;
   exact_prompt_sha256: string;
+}
+
+export interface AcquisitionOutcome {
+  contract_version: typeof ACQUISITION_PROBE_CONTRACT_VERSION;
+  outcome_id: string;
+  session_id: string;
+  observed_at: string;
+  expires_at: string;
+  source: "runtime" | "operator";
+  kind: AcquisitionOutcomeKind;
+  value: AcquisitionOutcomeValue;
+  detail_code: string;
 }
 
 export interface AcquisitionSession {

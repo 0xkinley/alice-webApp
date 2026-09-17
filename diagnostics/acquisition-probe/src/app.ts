@@ -2,7 +2,7 @@ import { createMcpExpressApp } from "@modelcontextprotocol/express";
 import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { fromJsonSchema, McpServer } from "@modelcontextprotocol/server";
 import type { Express, Request } from "express";
-import { FileDiagnosticStore } from "./storage.ts";
+import { DiagnosticRecordAlreadyExistsError, type DiagnosticRuntimeStore } from "./storage.ts";
 import { ACQUISITION_TOOL_NAME, type AcquisitionSession } from "./types.ts";
 
 export const ACQUISITION_INPUT_JSON_SCHEMA = {
@@ -10,8 +10,7 @@ export const ACQUISITION_INPUT_JSON_SCHEMA = {
   additionalProperties: true,
 } as const;
 
-export const ACQUISITION_TOOL_DESCRIPTION =
-  "Send all information currently available for this diagnostic acquisition test.";
+export const ACQUISITION_TOOL_DESCRIPTION = "Submit diagnostic acquisition evidence for this test.";
 
 interface CapturedToolArguments {
   toolName: string;
@@ -51,7 +50,7 @@ export function createAcquisitionProtocolServer({
   session,
   capturedArguments,
 }: {
-  store: FileDiagnosticStore;
+  store: DiagnosticRuntimeStore;
   session: AcquisitionSession;
   capturedArguments?: CapturedToolArguments;
 }): McpServer {
@@ -78,13 +77,7 @@ export function createAcquisitionProtocolServer({
         };
       }
       try {
-        const record = await store.capture(
-          session,
-          capturedArguments.exactJson,
-          capturedArguments.parsed,
-        );
         if (JSON.stringify(input) !== capturedArguments.exactJson) {
-          await store.deleteSession(session.session_id);
           return {
             content: [
               { type: "text", text: "Diagnostic argument validation changed the payload." },
@@ -92,6 +85,11 @@ export function createAcquisitionProtocolServer({
             isError: true,
           };
         }
+        const record = await store.capture(
+          session,
+          capturedArguments.exactJson,
+          capturedArguments.parsed,
+        );
         return {
           content: [
             {
@@ -101,12 +99,24 @@ export function createAcquisitionProtocolServer({
           ],
         };
       } catch (error) {
+        if (error instanceof DiagnosticRecordAlreadyExistsError) {
+          try {
+            await store.recordOutcome(session, {
+              source: "runtime",
+              kind: "additional_call_attempted",
+              value: "yes",
+              detail_code: "rejected_after_first_capture",
+            });
+          } catch {
+            // A failed diagnostic annotation must not turn a bounded rejection into acceptance.
+          }
+        }
         return {
           content: [
             {
               type: "text",
               text:
-                error instanceof Error && error.message.includes("already received")
+                error instanceof DiagnosticRecordAlreadyExistsError
                   ? "This diagnostic session already received its one permitted call."
                   : "Diagnostic evidence could not be stored.",
             },
@@ -128,7 +138,7 @@ export function createAcquisitionProbeApp({
   store,
   allowedHosts = ["127.0.0.1", "localhost", "[::1]"],
 }: {
-  store: FileDiagnosticStore;
+  store: DiagnosticRuntimeStore;
   allowedHosts?: string[];
 }): Express {
   const app = createMcpExpressApp({

@@ -4,6 +4,9 @@ import path from "node:path";
 import {
   ACQUISITION_PROBE_CONTRACT_VERSION,
   ACQUISITION_TOOL_NAME,
+  type AcquisitionOutcome,
+  type AcquisitionOutcomeKind,
+  type AcquisitionOutcomeValue,
   type AcquisitionRecord,
   type AcquisitionRunMetadata,
   type AcquisitionSession,
@@ -18,12 +21,39 @@ export function sha256(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function assertSessionId(sessionId: string): void {
+export function assertSessionId(sessionId: string): void {
   if (!sessionIdPattern.test(sessionId)) throw new Error("Invalid diagnostic session identifier.");
 }
 
-function cloneRecord(value: Record<string, unknown>): Record<string, unknown> {
+export function cloneRecord(value: Record<string, unknown>): Record<string, unknown> {
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+export class DiagnosticRecordAlreadyExistsError extends Error {
+  constructor() {
+    super("Diagnostic session already received its one permitted call.");
+    this.name = "DiagnosticRecordAlreadyExistsError";
+  }
+}
+
+export interface DiagnosticRuntimeStore {
+  resolveSessionToken(token: string, now?: Date): Promise<AcquisitionSession | undefined>;
+  capture(
+    session: AcquisitionSession,
+    exactArgumentsJson: string,
+    parsedArguments: Record<string, unknown>,
+    now?: Date,
+  ): Promise<AcquisitionRecord>;
+  recordOutcome(
+    session: AcquisitionSession,
+    outcome: {
+      source: "runtime" | "operator";
+      kind: AcquisitionOutcomeKind;
+      value: AcquisitionOutcomeValue;
+      detail_code: string;
+    },
+    now?: Date,
+  ): Promise<AcquisitionOutcome>;
 }
 
 async function readJson<T>(filePath: string): Promise<T | undefined> {
@@ -39,17 +69,20 @@ export class FileDiagnosticStore {
   readonly dataDirectory: string;
   readonly sessionsDirectory: string;
   readonly recordsDirectory: string;
+  readonly outcomesDirectory: string;
 
   constructor(dataDirectory: string) {
     this.dataDirectory = path.resolve(dataDirectory);
     this.sessionsDirectory = path.join(this.dataDirectory, "sessions");
     this.recordsDirectory = path.join(this.dataDirectory, "records");
+    this.outcomesDirectory = path.join(this.dataDirectory, "outcomes");
   }
 
   async initialize(): Promise<void> {
     await Promise.all([
       mkdir(this.sessionsDirectory, { recursive: true, mode: 0o700 }),
       mkdir(this.recordsDirectory, { recursive: true, mode: 0o700 }),
+      mkdir(this.outcomesDirectory, { recursive: true, mode: 0o700 }),
     ]);
   }
 
@@ -61,6 +94,11 @@ export class FileDiagnosticStore {
   private recordPath(sessionId: string): string {
     assertSessionId(sessionId);
     return path.join(this.recordsDirectory, `${sessionId}.json`);
+  }
+
+  private sessionOutcomesDirectory(sessionId: string): string {
+    assertSessionId(sessionId);
+    return path.join(this.outcomesDirectory, sessionId);
   }
 
   async createSession(
@@ -147,7 +185,7 @@ export class FileDiagnosticStore {
     };
     const handle = await open(this.recordPath(session.session_id), "wx", 0o600).catch((error) => {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        throw new Error("Diagnostic session already received its one permitted call.");
+        throw new DiagnosticRecordAlreadyExistsError();
       }
       throw error;
     });
@@ -159,8 +197,48 @@ export class FileDiagnosticStore {
     return record;
   }
 
+  async recordOutcome(
+    session: AcquisitionSession,
+    outcome: {
+      source: "runtime" | "operator";
+      kind: AcquisitionOutcomeKind;
+      value: AcquisitionOutcomeValue;
+      detail_code: string;
+    },
+    now = new Date(),
+  ): Promise<AcquisitionOutcome> {
+    await this.initialize();
+    if (Date.parse(session.expires_at) <= now.getTime()) {
+      throw new Error("Diagnostic session expired.");
+    }
+    const record: AcquisitionOutcome = {
+      contract_version: ACQUISITION_PROBE_CONTRACT_VERSION,
+      outcome_id: randomUUID(),
+      session_id: session.session_id,
+      observed_at: now.toISOString(),
+      expires_at: session.expires_at,
+      ...outcome,
+    };
+    const directory = this.sessionOutcomesDirectory(session.session_id);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await writeFile(
+      path.join(directory, `${record.outcome_id}.json`),
+      `${JSON.stringify(record)}\n`,
+      {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      },
+    );
+    return record;
+  }
+
   async readRecord(sessionId: string): Promise<AcquisitionRecord | undefined> {
     return await readJson<AcquisitionRecord>(this.recordPath(sessionId));
+  }
+
+  async readSessionById(sessionId: string): Promise<AcquisitionSession | undefined> {
+    return await readJson<AcquisitionSession>(this.sessionPath(sessionId));
   }
 
   async deleteSession(
@@ -181,6 +259,7 @@ export class FileDiagnosticStore {
       remove(this.sessionPath(sessionId)),
       remove(this.recordPath(sessionId)),
     ]);
+    await rm(this.sessionOutcomesDirectory(sessionId), { recursive: true, force: true });
     return { session_deleted: sessionDeleted, record_deleted: recordDeleted };
   }
 
@@ -202,6 +281,20 @@ export class FileDiagnosticStore {
         }
       }
     }
+    for (const sessionDirectory of await readdir(this.outcomesDirectory)) {
+      const directory = path.join(this.outcomesDirectory, sessionDirectory);
+      for (const entry of await readdir(directory).catch(() => [])) {
+        if (!entry.endsWith(".json")) continue;
+        const filePath = path.join(directory, entry);
+        const value = await readJson<{ expires_at?: string }>(filePath);
+        if (value?.expires_at && Date.parse(value.expires_at) <= now.getTime()) {
+          await rm(filePath);
+        }
+      }
+      if ((await readdir(directory).catch(() => [])).length === 0) {
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
     return { sessions_deleted: sessionsDeleted, records_deleted: recordsDeleted };
   }
 
@@ -214,5 +307,32 @@ export class FileDiagnosticStore {
       if (record) records.push(record);
     }
     return records.sort((left, right) => left.received_at.localeCompare(right.received_at));
+  }
+
+  async readAllOutcomes(): Promise<AcquisitionOutcome[]> {
+    await this.initialize();
+    const outcomes: AcquisitionOutcome[] = [];
+    for (const sessionDirectory of await readdir(this.outcomesDirectory)) {
+      const directory = path.join(this.outcomesDirectory, sessionDirectory);
+      for (const entry of await readdir(directory).catch(() => [])) {
+        if (!entry.endsWith(".json")) continue;
+        const outcome = await readJson<AcquisitionOutcome>(path.join(directory, entry));
+        if (outcome) outcomes.push(outcome);
+      }
+    }
+    return outcomes.sort((left, right) => left.observed_at.localeCompare(right.observed_at));
+  }
+
+  async readOutcomesForSession(sessionId: string): Promise<AcquisitionOutcome[]> {
+    assertSessionId(sessionId);
+    return (await this.readAllOutcomes()).filter((outcome) => outcome.session_id === sessionId);
+  }
+
+  async verifySessionMissing(sessionId: string): Promise<boolean> {
+    return (
+      (await this.readSessionById(sessionId)) === undefined &&
+      (await this.readRecord(sessionId)) === undefined &&
+      (await this.readOutcomesForSession(sessionId)).length === 0
+    );
   }
 }

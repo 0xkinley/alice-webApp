@@ -1,6 +1,6 @@
 # Provider Acquisition Probe Deployment Review
 
-Status: Revised design review complete; implementation, deployment, public enablement, and provider-account use are not authorized by this document.
+Status: Phase 1 local implementation complete and verified; private deployment, public enablement, and provider-account use require the later approvals below.
 
 Date: 2026-09-17
 
@@ -10,7 +10,7 @@ If the empirical provider-acquisition test is approved for hosted execution, dep
 
 Do not add the probe to `alice-private-alpha`, reuse its runtime image, database, buckets, users, OAuth clients, URLs, roles, or secrets, or deploy the Milestone 06.5 migration feature. The probe remains synthetic-only and diagnostic-only. Its one tool writes a captured test argument to disposable evidence storage; it cannot change Alice trusted state or a provider project.
 
-This review recommends proceeding to implementation only after the product owner separately approves this design. A later implementation review must occur before any AWS mutation. A further explicit approval is required before public enablement or adding the URL to ChatGPT or Claude.
+The product owner approved Phase 1 local implementation on 2026-09-17. A separate implementation review must occur before any AWS mutation. Further explicit approvals are required before public enablement, adding the URL to ChatGPT or Claude, creating provider fixtures, or running provider trials.
 
 ## Fixed diagnostic contract
 
@@ -30,7 +30,7 @@ The hosted probe must use this revised contract:
 
 The exact tool name, title, neutral description, unrestricted schema, and annotations must remain identical for the Ambient, Active retrieval, and User-mediated legs. Only the saved user prompt and the defined user actions differ. The previous description, `Send all information currently available for this diagnostic acquisition test.`, is rejected because it independently instructs the model to maximize acquisition and would contaminate the Ambient control.
 
-The existing local prototype still contains that rejected description. This design review does not authorize changing or using the prototype; replacing the description and its assertion is part of a later approved implementation.
+The implemented local and Lambda adapters use the approved neutral description and fixed contract. Tests inspect the provider-visible `tools/list` result byte-for-byte for the name, title, description, schema, and annotations.
 
 The Lambda-hosted request ceiling must be lower than the local 8 MiB ceiling. AWS documents a 6 MB maximum for synchronous Lambda invocation, so implementation should reject requests above 5 MiB before parsing and verify the complete fixture remains well below that limit.
 
@@ -75,7 +75,7 @@ The currently proposed implementation approval covers Phase 1 only. Phase 2 rema
 
 The temporary stack should contain only:
 
-1. A dedicated private, nonversioned S3 bucket with separate `artifacts/`, `sessions/`, and `records/` prefixes. Enable S3-managed encryption, bucket-owner-enforced ownership, block all public access, and deny insecure transport. Do not enable Object Lock. Retention lifecycle applies only to `sessions/` and `records/`.
+1. A dedicated private, nonversioned S3 bucket with separate `artifacts/`, `sessions/`, `records/`, and content-free `outcomes/` prefixes. Enable S3-managed encryption, bucket-owner-enforced ownership, block all public access, and deny insecure transport. Do not enable Object Lock. Retention lifecycle applies only to `sessions/`, `records/`, and `outcomes/`.
 2. A bucket policy enforcing transport and conditional evidence writes.
 3. A dedicated CloudWatch log group with one-day retention.
 4. A dedicated Lambda execution role.
@@ -125,8 +125,9 @@ Possession of a full unused Phase 1 session URL allows its one evidence submissi
 
 The runtime role may:
 
-- read exact objects below `sessions/`;
+- read exact token-digest objects below `sessions/by-token/`;
 - create exact objects below `records/`;
+- create content-free observations below `outcomes/`;
 - write content-free logs to its one log group.
 
 It may not list the bucket, create or change sessions, read records, delete objects, access any production bucket, assume another role, invoke another function, access a database, or use Alice or provider credentials.
@@ -141,7 +142,7 @@ Session creation, record retrieval, scoring, sanitization, and deletion remain o
 
 Application behavior is authoritative for usability: reject a session at its exact 24-hour expiry even if its S3 objects still exist.
 
-Configure a two-day lifecycle expiration on both prefixes only as a backstop. S3 lifecycle is not an exact TTL: AWS rounds age-based expiration to midnight UTC on the next day and performs deletion asynchronously. Therefore:
+Configure a two-day lifecycle expiration on session, record, and outcome prefixes only as a backstop. S3 lifecycle is not an exact TTL: AWS rounds age-based expiration to midnight UTC on the next day and performs deletion asynchronously. Therefore:
 
 1. After each run, retrieve the exact record, score it, create a sanitized result, and delete the exact session and record objects.
 2. Confirm both exact keys return not found.

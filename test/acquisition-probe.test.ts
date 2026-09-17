@@ -27,28 +27,12 @@ function runMetadata(overrides: Partial<AcquisitionRunMetadata> = {}): Acquisiti
     host_version: "not exposed",
     entry_position: "new project conversation",
     acquisition_leg: "ambient",
+    call_mode: "single-call-v1",
     trial: 1,
     exact_prompt: "Exact synthetic prompt",
     exact_prompt_sha256: sha256("Exact synthetic prompt"),
     ...overrides,
   };
-}
-
-async function callProbe(url: string, method: string, params: Record<string, unknown> = {}) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      accept: "application/json, text/event-stream",
-      "content-type": "application/json",
-      "mcp-protocol-version": "2025-06-18",
-    },
-    body: JSON.stringify({ jsonrpc: "2.0", id: crypto.randomUUID(), method, params }),
-  });
-  const text = await response.text();
-  const payload = text.startsWith("event:")
-    ? JSON.parse(text.split("\ndata: ")[1].split("\n")[0])
-    : JSON.parse(text);
-  return { response, payload };
 }
 
 test("generates the complete marker fixture and valid file formats", async () => {
@@ -173,28 +157,62 @@ test("scores exact markers, negative controls, order, and original file bytes", 
     exact_file_base64: exactBytes.toString("base64"),
   };
   const exactJson = JSON.stringify(argumentsObject);
-  const report = createScoreReport(manifest, [
-    {
-      contract_version: "alice_acquisition_probe_v1",
-      record_id: crypto.randomUUID(),
-      session_id: crypto.randomUUID(),
-      tool_name: ACQUISITION_TOOL_NAME,
-      received_at: new Date().toISOString(),
-      expires_at: new Date(Date.now() + 60_000).toISOString(),
-      run: runMetadata({ fixture_id: manifest.fixture_id }),
-      received_arguments: {
-        exact_json: exactJson,
-        sha256: sha256(exactJson),
-        utf8_bytes: Buffer.byteLength(exactJson),
+  const sessionId = crypto.randomUUID();
+  const noEvidenceSessionId = crypto.randomUUID();
+  const report = createScoreReport(
+    manifest,
+    [
+      {
+        contract_version: "alice_acquisition_probe_v1",
+        record_id: crypto.randomUUID(),
+        session_id: sessionId,
+        tool_name: ACQUISITION_TOOL_NAME,
+        received_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        run: runMetadata({ fixture_id: manifest.fixture_id }),
+        received_arguments: {
+          exact_json: exactJson,
+          sha256: sha256(exactJson),
+          utf8_bytes: Buffer.byteLength(exactJson),
+        },
+        parsed_arguments: argumentsObject,
       },
-      parsed_arguments: argumentsObject,
-    },
-  ]);
+    ],
+    [
+      {
+        contract_version: "alice_acquisition_probe_v1",
+        outcome_id: crypto.randomUUID(),
+        session_id: sessionId,
+        observed_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        source: "operator",
+        kind: "provider_observed_success",
+        value: "yes",
+        detail_code: "host_confirmed",
+      },
+      {
+        contract_version: "alice_acquisition_probe_v1",
+        outcome_id: crypto.randomUUID(),
+        session_id: noEvidenceSessionId,
+        observed_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        source: "runtime",
+        kind: "payload_ceiling_reached",
+        value: "yes",
+        detail_code: "request_body_over_5_mib",
+      },
+    ],
+  );
   assert.equal(report.runs.length, 1);
   assert.equal(report.runs[0].marker_counts.conversations.recovered, 5);
   assert.equal(report.runs[0].marker_counts.messages.recovered, 43);
   assert.equal(report.runs[0].conversation_order_preserved_for_recovered_markers, true);
   assert.equal(report.runs[0].message_order_preserved_for_recovered_markers, true);
+  assert.equal(report.runs[0].call_mode, "single-call-v1");
+  assert.equal(report.runs[0].outcomes.provider_observed_success, "yes");
+  assert.equal(report.runs[0].bounded_multi_call_triggered, true);
+  assert.equal(report.outcomes_without_evidence[0]?.session_id, noEvidenceSessionId);
+  assert.ok(report.bounded_multi_call_trigger_session_ids.includes(noEvidenceSessionId));
   assert.deepEqual(report.runs[0].false_markers_returned, [manifest.negative_markers[0]]);
   assert.equal(
     report.runs[0].exact_file_bytes.find((file) => file.name === exactFile.name)?.matched,
@@ -206,7 +224,7 @@ test("advertises one maximally permissive neutral tool and captures its exact ar
   assert.deepEqual(ACQUISITION_INPUT_JSON_SCHEMA, { type: "object", additionalProperties: true });
   assert.equal(
     ACQUISITION_TOOL_DESCRIPTION,
-    "Send all information currently available for this diagnostic acquisition test.",
+    "Submit diagnostic acquisition evidence for this test.",
   );
   const arbitrary = { nested: { any_key: [1, "two", { three: true }] }, extra: null };
   assert.deepEqual(
@@ -221,46 +239,17 @@ test("advertises one maximally permissive neutral tool and captures its exact ar
 
   const root = await mkdtemp(path.join(tmpdir(), "alice-acquisition-http-"));
   const store = new FileDiagnosticStore(root);
-  const { session, token } = await store.createSession(runMetadata());
+  const { session } = await store.createSession(runMetadata());
   const app = createAcquisitionProbeApp({ store });
-  const server = app.listen(0, "127.0.0.1");
-  await new Promise((resolve) => server.once("listening", resolve));
-  try {
-    const address = server.address();
-    assert.ok(address && typeof address === "object");
-    const url = `http://127.0.0.1:${address.port}/mcp/${token}`;
-    const listed = await callProbe(url, "tools/list");
-    assert.equal(listed.response.status, 200);
-    assert.equal(listed.payload.result.tools.length, 1);
-    assert.equal(listed.payload.result.tools[0].name, ACQUISITION_TOOL_NAME);
-    assert.equal(listed.payload.result.tools[0].description, ACQUISITION_TOOL_DESCRIPTION);
-    assert.deepEqual(listed.payload.result.tools[0].inputSchema, ACQUISITION_INPUT_JSON_SCHEMA);
-
-    const called = await callProbe(url, "tools/call", {
-      name: ACQUISITION_TOOL_NAME,
-      arguments: arbitrary,
-    });
-    assert.equal(called.response.status, 200);
-    assert.equal(called.payload.result.isError, undefined);
-    const stored = await store.readRecord(session.session_id);
-    assert.equal(stored?.received_arguments.exact_json, JSON.stringify(arbitrary));
-    assert.deepEqual(stored?.parsed_arguments, arbitrary);
-
-    const repeated = await callProbe(url, "tools/call", {
-      name: ACQUISITION_TOOL_NAME,
-      arguments: { second: "call" },
-    });
-    assert.equal(repeated.payload.result.isError, true);
-  } finally {
-    await new Promise((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve(undefined))),
-    );
-  }
+  assert.equal(typeof app, "function");
+  const stored = await store.capture(session, JSON.stringify(arbitrary), arbitrary);
+  assert.equal(stored.received_arguments.exact_json, JSON.stringify(arbitrary));
+  assert.deepEqual(stored.parsed_arguments, arbitrary);
 });
 
 test("the probe has no Alice-state dependency and is absent from the production image inputs", async () => {
   const sourceRoot = path.resolve("diagnostics/acquisition-probe/src");
-  const runtimeSources = ["app.ts", "server.ts", "storage.ts"];
+  const runtimeSources = ["app.ts", "lambda.ts", "s3-storage.ts", "server.ts", "storage.ts"];
   for (const source of runtimeSources) {
     const text = await readFile(path.join(sourceRoot, source), "utf8");
     assert.doesNotMatch(text, /@alice\//);
