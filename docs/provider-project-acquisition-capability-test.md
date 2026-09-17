@@ -8,9 +8,9 @@ Alice will not add another project-migration implementation phase or expose the 
 
 The test answers one question with observed evidence:
 
-> What project information can this host reliably supply to Alice in an MCP tool call today?
+> What project information can ChatGPT or Claude, together with the tested host environment and model, make available to the model and marshal into an MCP tool call today?
 
-Model self-report is not evidence. Official documentation informs expectations, but only the exact arguments delivered to the controlled test tool establish observed capability. Results are dated and scoped to the tested provider, account type, region, client/surface, project state, and host version when visible.
+The probe does not observe a raw provider project API. MCP calls are model-controlled and their arguments conform to the advertised tool schema. Model self-report is not evidence. Official documentation informs expectations, but only the exact arguments delivered to the controlled test tool establish observed capability. Results are dated and scoped to the tested provider, account type, region, client/surface, project state, host version, model when visible, exact prompt, and diagnostic contract.
 
 The provider-backup-expiry reconciliation is independent of this gate and may proceed when its dated window becomes eligible.
 
@@ -28,7 +28,7 @@ The provider-backup-expiry reconciliation is independent of this gate and may pr
 
 - Use synthetic projects and non-sensitive fixture content only.
 - Use official host and MCP surfaces; do not scrape, collect cookies/passwords, extract hidden provider tokens, or use undocumented provider APIs.
-- The diagnostic path must not create accepted state or mutate the source provider project.
+- The diagnostic path must not create Alice project, migration, artifact, file, candidate, accepted, or trusted state and must not mutate the source provider project. It may write only isolated short-lived diagnostic session and evidence records.
 - Do not click the production `Migrate` action merely to measure host acquisition.
 - Store raw diagnostic payloads only in the approved test environment, redact bearer/authority tokens from evidence, and remove temporary data according to the test runbook.
 - This test measures acquisition and preservation. It does not ask a model to semantically reconcile decisions or judge project truth.
@@ -46,9 +46,11 @@ Record one row set for every tested combination:
 | Region | Actual account/surface region when known |
 | Surface | Web, desktop, mobile, or another exact client |
 | Host/app version | Exact visible version or `not exposed` |
+| Model/version | Exact visible model/version or `not exposed` |
 | Alice MCP version | Exact deployed diagnostic contract |
 | Entry position | New project conversation or existing conversation |
 | Trial | Independent trial number |
+| Exact prompt | Exact text and SHA-256 used for the repeated trial |
 
 Do not inherit a passing result from one surface, account, region, or provider to another.
 
@@ -84,6 +86,8 @@ ALICE_ARTIFACT_CURRENT_5194
 ```
 
 Markers must be generated for the real run and recorded in the manifest. They provide deterministic coverage; resemblance or a plausible model paraphrase does not count as exact recovery.
+
+Add plausible negative controls that do not occur in any provider-visible project source. A returned negative marker is a false-marker result and must be reported even when positive-marker recall is high.
 
 Include a reusable temporal conflict:
 
@@ -124,6 +128,8 @@ project/conversation relationship preserved
 ## Acquisition legs
 
 Run each important leg at least three independent times. Start a fresh eligible conversation or session when necessary so a prior trial does not contaminate ambient context.
+
+Use the identical saved prompt for all three repetitions of a leg. Do not improve or expand the prompt after seeing an incomplete first result; prompt revisions require a newly versioned test row set.
 
 ### A. Ambient host context
 
