@@ -1,6 +1,6 @@
 # Provider Project Acquisition Capability Test
 
-Status: Required product gate; not yet run
+Status: Required product gate; ChatGPT source fixture complete, but no acquisition trial has run
 
 ## Decision
 
@@ -209,6 +209,12 @@ truncation or chunking observed
 These outcomes are independent. If evidence is stored but the success response is lost and the provider retries, score the stored first call and record the provider-visible error separately. Do not treat response delivery as evidence completeness or automatically interpret a retry as intentional chunking.
 
 Registration, authentication, plan/action, schema, confirmation, or invocation incompatibility describes the diagnostic mechanism on that exact host configuration. It is not evidence that the host lacks project context and must not be classified as acquisition failure.
+
+### ChatGPT Phase 1 registration attempt — 2026-09-17
+
+The approved Phase 1 attempt stopped before any acquisition prompt or tool invocation. The synthetic ChatGPT project was complete, but the observed Pro web account exposed developer mode and installed-plugin details without exposing a supported `Create` control in either the Chat or Work plugin settings. The existing production `alice.` developer plugin was inspected only to confirm that it remained separate and was not edited, disconnected, reconfigured, or reused. Current official OpenAI guidance also states that Pro custom MCP connections are limited to read/fetch permissions, while this isolated diagnostic submission tool is intentionally classified as a write-like action.
+
+This result is `diagnostic mechanism incompatible` for that exact account, plan, date, and observed UI state. It does not populate the acquisition matrix, establish any ambient/retrieval/user-mediated result, or show that ChatGPT lacks project context. No saved Phase 1 prompt was sent, no temporary plugin was created, no tool discovery occurred, no evidence call or record existed, and Phase 2 was not triggered. A later retry requires a supported registration path on the actual target surface or a separately reviewed read-only diagnostic design that preserves the evidence-capture boundary.
 
 ## Bounded multi-call follow-up
 

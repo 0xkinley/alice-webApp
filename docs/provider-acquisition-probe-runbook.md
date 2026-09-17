@@ -1,6 +1,6 @@
 # Provider Acquisition Probe Runbook
 
-Status: Phase 1 local implementation complete and verified; Stages A and B created and verified privately on 2026-09-17; public enablement and provider-account use remain unauthorized.
+Status: Phase 1 implementation and private runtime verified; ChatGPT source fixture complete; first acquisition attempt stopped at provider registration and the probe is safely private.
 
 ## Purpose and measurement boundary
 
@@ -136,6 +136,8 @@ The Function URL exists with `AuthType=NONE`, but both public permission resourc
 Stage C first proved the raw public protocol and then, under a separate approval, proved one ChatGPT-host compatibility path. On the observed ChatGPT Pro web developer-mode surface, a personal plugin accepted the path-scoped HTTPS URL with `No Auth`, required the custom-server risk acknowledgement plus a separate `Connect` consent, and invoked the unrestricted diagnostic tool once from a fresh Work conversation. The first permission-gated conversation did not resume after linking; reopen the plugin with `Try in chat`, start a fresh eligible conversation, and resend the exact unchanged prompt after connection. The host reserialized the two-field object with a different key order, so use parsed equality plus the captured wire JSON/hash/byte count rather than expecting prompt-text byte order.
 
 The ChatGPT check was protocol-only. It did not create the provider fixture, inspect a project, test any acquisition leg, establish repeated-run reliability, or test Claude. After explicit cleanup confirmation, the temporary plugin and exact three diagnostic objects were removed. Diagnostic prefixes are empty, `AllowedHost` is `pending.invalid`, `EnablePublicAccess=false`, the resource policy is absent, external access returns HTTP 403, and only the corrected ZIP remains. Do not restore public permissions, configure another provider, create a provider fixture/project, or run a Phase 1 trial without a new explicit approval. The failed ESM artifact was deleted; its content-free one-day failure log is retained with the normal log-group expiry.
+
+The later approved fixture-v2 Phase 1 attempt on 2026-09-17 did not reach a trial. Nine single-call sessions were prepared privately and the reviewed public window was healthy, but the observed Pro web UI exposed no supported custom-plugin `Create` control in Chat or Work settings after the prior compatibility plugin had been removed. Do not alter or reuse the installed production `alice.` plugin to bypass that boundary. The attempt is recorded as `diagnostic mechanism incompatible`, not acquisition failure. All nine unused sessions and the local token manifest were deleted before safe-stop. The stack is again `UPDATE_COMPLETE` with six resources, no Lambda policy, `EnablePublicAccess=false`, `AllowedHost=pending.invalid`, external HTTP 403, zero diagnostic objects, and only the immutable ZIP.
 
 ## Create one run session
 

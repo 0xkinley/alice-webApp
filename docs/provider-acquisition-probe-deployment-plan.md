@@ -1,6 +1,6 @@
 # Provider Acquisition Probe Deployment Review
 
-Status: Phase 1 local implementation complete and verified; Stages A and B created and verified privately on 2026-09-17; public enablement and provider-account use require later explicit approval.
+Status: Phase 1 implementation and private runtime verified; ChatGPT source fixture complete; first acquisition attempt stopped at provider registration and the probe is safely private.
 
 Date: 2026-09-17
 
@@ -10,7 +10,7 @@ If the empirical provider-acquisition test is approved for hosted execution, dep
 
 Do not add the probe to `alice-private-alpha`, reuse its runtime image, database, buckets, users, OAuth clients, URLs, roles, or secrets, or deploy the Milestone 06.5 migration feature. The probe remains synthetic-only and diagnostic-only. Its one tool writes a captured test argument to disposable evidence storage; it cannot change Alice trusted state or a provider project.
 
-The product owner approved Phase 1 local implementation and then the isolated Stage A and Stage B AWS mutations on 2026-09-17. Further explicit approvals are required before public enablement, adding the URL to ChatGPT or Claude, creating provider fixtures, or running provider trials.
+The product owner approved Phase 1 local implementation, the isolated AWS stages, the ChatGPT fixture, and the first ChatGPT Phase 1 attempt on 2026-09-17. That attempt stopped before any acquisition prompt or evidence call because the tested UI exposed no supported way to create the required temporary plugin. A future retry or Claude work requires a new reviewed execution boundary.
 
 ## Fixed diagnostic contract
 
@@ -280,9 +280,21 @@ The supported surface exposed no blank artifact editor. One additional, non-desi
 
 This receipt establishes only the provider source setup. No acquisition prompt, diagnostic session, plugin registration, public AWS permission, MCP evidence call, or acquisition result occurred during fixture construction. The previous safe-stop state therefore remained unchanged.
 
+### ChatGPT Phase 1 registration-attempt receipt — 2026-09-17
+
+The product owner approved the first real ChatGPT acquisition attempt. Nine distinct 24-hour single-call sessions—three for each acquisition leg—were created in the isolated bucket before public exposure, producing exactly 18 encrypted session lookup objects. Their secret URLs remained only in a mode-`0600` CloudShell manifest.
+
+Reviewed change set `phase1-chatgpt-public-f763ac1` added exactly the two conditional public Lambda permissions, updated only the non-replacement function environment, and propagated the expected conditional Function URL dependency. The stack reached `UPDATE_COMPLETE`; `EnablePublicAccess=true`, `AllowedHost` exactly matched the Function URL hostname, the two policy statements were constrained to Function URL invocation, and unsigned `/health` returned HTTP 200 with `alice_state_access=false` and `call_mode=single-call-v1`.
+
+The provider step then stopped before registration. On the observed Pro web account, developer mode was enabled and the installed-plugin details were visible, but neither Chat nor Work plugin settings exposed a supported `Create` control. The existing production `alice.` plugin was not edited, disconnected, reconfigured, or reused. Current official OpenAI guidance says Pro users may connect custom MCPs with read/fetch permissions, while the probe's evidence-submission action is intentionally write-like. No saved acquisition prompt was sent, no temporary plugin was created, no tool scan or discovery occurred, no provider call was attempted, and no record or outcome object existed.
+
+The observed result is therefore `diagnostic mechanism incompatible` for this exact account, plan, date, and UI state—not an acquisition result and not evidence that ChatGPT lacks project context. Phase 2 was not triggered.
+
+Reviewed change set `phase1-chatgpt-safe-stop-f763ac1` removed the two public permissions and restored the private host guard. All nine unused sessions and the mode-`0600` token manifest were permanently deleted. Final verification shows `UPDATE_COMPLETE`, exactly six stack resources, no Lambda resource policy, `EnablePublicAccess=false`, `AllowedHost=pending.invalid`, external HTTP 403, zero session/record/outcome objects, and only the unchanged content-addressed runtime ZIP in the bucket. No `alice-private-alpha` resource or normal Alice state changed.
+
 ## Provider compatibility gate
 
-Official OpenAI guidance recommends connecting an HTTPS MCP server in ChatGPT developer mode and adding OAuth only when user-specific data or writes require it. The permitted official OpenAI sources reviewed for this document do not establish which exact ChatGPT plans can invoke this write-like diagnostic tool. Anthropic documents remote custom connectors across Free, Pro, Max, Team, and Enterprise, with OAuth client configuration optional when adding a connector, but that still does not prove the exact target Claude account and surface will accept this contract.
+Official OpenAI guidance recommends connecting an HTTPS MCP server in ChatGPT developer mode and adding OAuth only when user-specific data or writes require it. The current guidance states that Pro users may connect custom MCPs with read/fetch permissions, while full MCP write support is limited to Business and Enterprise/Edu. The probe's evidence-submission tool is intentionally write-like, so documentation alone does not authorize redesigning it as read-only or reusing the production Alice plugin. Anthropic documents remote custom connectors across Free, Pro, Max, Team, and Enterprise, with OAuth client configuration optional when adding a connector, but that still does not prove the exact target Claude account and surface will accept this contract.
 
 The first bounded live action for each provider is therefore a compatibility check, not a data-acquisition result:
 
@@ -385,4 +397,5 @@ At every boundary, `Host-generated does not mean alice.-verified` remains contro
 - [AWS Lambda pricing](https://aws.amazon.com/lambda/pricing/)
 - [Amazon S3 pricing](https://aws.amazon.com/s3/pricing/)
 - [OpenAI: Bring your app to ChatGPT](https://learn.chatgpt.com/zh-Hans/use-cases/chatgpt-apps)
+- [OpenAI: Developer mode and MCP apps in ChatGPT](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt)
 - [Anthropic: Get started with custom connectors using remote MCP](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
