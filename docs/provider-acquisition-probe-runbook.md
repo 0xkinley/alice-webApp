@@ -89,6 +89,8 @@ Create equivalent isolated projects in ChatGPT and Claude through supported ordi
 
 Fixture v1's proposed 43 mixed user/assistant turns was abandoned before any trial on 2026-09-17. The ChatGPT supported interface cannot create or import arbitrary assistant-authored turns, and two scripts began with an assistant turn. The product owner approved fixture v2 with 20 exact user-authored messages and separately excluded provider replies. The first v1-named ChatGPT project was created with only its marked name; its attempted instruction did not persist, and no chat, file, artifact, acquisition session, public-probe window, or evidence record was created from v1.
 
+The ChatGPT fixture-v2 setup completed on 2026-09-17 with the exact saved instruction, 20 designated user messages across five native conversations, 20 exact `ACK` replies recorded as setup contamination, all five approved source files, and one generated DOCX working artifact. Because ChatGPT required the canonical artifact body and marker in one additional setup message, do not claim artifact-only retrieval from this project. The independently downloaded DOCX is 37,041 bytes at SHA-256 `d90464284bb935ea1a5f524b8d5122729dba3d872e5e0c71d1268f9103d88f39`; its `word/document.xml` contains the complete canonical body. Treat the provider DOCX bytes and the canonical Markdown bytes as distinct representations during scoring.
+
 For the strongest boundary checks:
 
 - place the instruction marker only in the project instruction;

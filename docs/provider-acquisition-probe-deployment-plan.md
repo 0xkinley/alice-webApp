@@ -270,6 +270,16 @@ The approved `alice_acquisition_fixture_v2` therefore keeps five native conversa
 
 An empty ChatGPT project bearing only the v1 generated project name was created during the feasibility check. The attempted instruction did not persist, and no chat, file, artifact, acquisition session, AWS public permission, or evidence record was created. The probe remained in its prior private safe-stop state throughout the check.
 
+### ChatGPT fixture-v2 source receipt — 2026-09-17
+
+The isolated ChatGPT Pro web project `Northstar ALICE_TEST_PROJECT_8533` was created from fixture `alice-acquisition-20260917-5f23f2`. The exact marked project instruction was saved and independently reopened. Five native conversations contain exactly four designated marked user messages each. ChatGPT produced exactly 20 plain `ACK` replies; all 20 are recorded as provider-generated setup contamination and excluded from designated fixture evidence. ChatGPT generated its own conversation titles, so the local script titles are operator labels rather than claimed provider titles; the unique conversation markers remain inside each first designated message.
+
+The Sources surface visibly lists the four required uploads and optional DOCX: `northstar-notes.txt`, `northstar-brief.pdf`, `northstar-metrics.csv`, `northstar-marker.png`, and `northstar-optional.docx`. No operator-only manifest, prompt, conversation script, README, or negative control was uploaded.
+
+The supported surface exposed no blank artifact editor. One additional, non-designated setup message therefore supplied the exact canonical working-brief body and marker and asked the Work surface to create an editable artifact. This is explicit artifact-marker contamination and cannot prove artifact-only retrieval. ChatGPT created `Northstar current working brief.docx`; an independent download was 37,041 bytes at SHA-256 `d90464284bb935ea1a5f524b8d5122729dba3d872e5e0c71d1268f9103d88f39`. Inspection of `word/document.xml` confirmed the complete canonical body and `ALICE_ARTIFACT_CURRENT_6407` marker without added body text. The provider artifact is a generated DOCX rather than the canonical Markdown byte sequence, so canonical exact-byte scoring must remain false unless the actual provider DOCX bytes are delivered and manually matched to this receipt.
+
+This receipt establishes only the provider source setup. No acquisition prompt, diagnostic session, plugin registration, public AWS permission, MCP evidence call, or acquisition result occurred during fixture construction. The previous safe-stop state therefore remained unchanged.
+
 ## Provider compatibility gate
 
 Official OpenAI guidance recommends connecting an HTTPS MCP server in ChatGPT developer mode and adding OAuth only when user-specific data or writes require it. The permitted official OpenAI sources reviewed for this document do not establish which exact ChatGPT plans can invoke this write-like diagnostic tool. Anthropic documents remote custom connectors across Free, Pro, Max, Team, and Enterprise, with OAuth client configuration optional when adding a connector, but that still does not prove the exact target Claude account and surface will accept this contract.
