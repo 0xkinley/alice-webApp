@@ -232,6 +232,22 @@ The product owner approved the private-runtime stage. The artifact was uploaded 
 
 Stage B proves only that the isolated private runtime loads and returns its health contract. It does not authorize Stage C, create a usable provider URL, or produce acquisition evidence.
 
+### Stage C operator-protocol receipt — 2026-09-17
+
+The product owner approved a bounded public compatibility window. This receipt covers only the public permission mechanics and an operator-driven MCP protocol check; no ChatGPT or Claude host was configured, so provider-host compatibility remains untested.
+
+- Reviewed change set `stage-c-public-compatibility-0d0e49d` added only `ProbeFunctionPublicInvokePermission` and `ProbeFunctionUrlPublicPermission`, conditionally updated the Function URL dependency, and changed only the function environment without replacement. The stack reached `UPDATE_COMPLETE` at `2026-09-17T10:39:07.372000+00:00` with exactly eight resources.
+- The live resource policy contained exactly two public statements: `lambda:InvokeFunctionUrl` constrained to `FunctionUrlAuthType=NONE`, and `lambda:InvokeFunction` constrained to `lambda:InvokedViaFunctionUrl=true`. `AllowedHost` matched the exact Function URL hostname, and the deployed code checksum remained `v7wO4zOcH8AENHDO7Mb+YEFlbuNyTj+hk1x42ePvMjg=`.
+- An unsigned `/health` request returned HTTP 200 with `alice_state_access=false` and `call_mode=single-call-v1`.
+- One operator-only synthetic session exercised MCP `initialize` and `tools/list` over the public URL. Both returned HTTP 200, protocol version `2025-06-18`, server `alice-acquisition-probe` version `1.0.0`, and the exact one-tool contract: `submit_acquisition_evidence`, neutral title/description, unrestricted object schema, and the reviewed non-read-only/non-destructive/non-idempotent/closed-world annotations.
+- One tiny operator marker was submitted only to prove the invocation and storage path. The tool returned HTTP 200. Independent S3 inspection proved the parsed object, exact JSON, SHA-256, UTF-8 byte count, and session ID matched, and that the bearer token was absent from the record. Exactly two session objects and one record existed; no outcome object existed. This was not provider material, the generated fixture, or acquisition evidence about ChatGPT or Claude capability.
+- The CloudWatch query returned zero events for the compatibility window, so no request body, session token, or tool arguments were present in logs at that checkpoint.
+- After explicit deletion confirmation, the exact two session objects, one record, and temporary operator token file were permanently removed. All three objects returned missing and the `sessions/`, `records/`, and `outcomes/` prefixes were empty.
+- Reviewed safe-stop change set `stage-c-safe-stop-0d0e49d` removed exactly the two public permission resources, restored `AllowedHost=pending.invalid`, and made only the expected Function URL dependency and non-replacement function-environment changes. The stack returned to `UPDATE_COMPLETE` at `2026-09-17T10:48:25.577000+00:00`.
+- Final verification found exactly the six Stage B resources, no Lambda resource policy, `EnablePublicAccess=false`, `AllowedHost=pending.invalid` in both the parameter and function environment, external HTTP 403, the unchanged Lambda code checksum, no diagnostic objects, and only the corrected content-addressed ZIP in the bucket.
+
+This receipt proves that the isolated Lambda can expose and execute the reviewed MCP contract during a bounded public window and can return to its private safe-stop state without retained diagnostic evidence. It does not prove that ChatGPT or Claude can register, display, authorize, confirm, or invoke the tool; it does not authorize fixture creation or any Phase 1 acquisition trial.
+
 ## Provider compatibility gate
 
 Official OpenAI guidance recommends connecting an HTTPS MCP server in ChatGPT developer mode and adding OAuth only when user-specific data or writes require it. The permitted official OpenAI sources reviewed for this document do not establish which exact ChatGPT plans can invoke this write-like diagnostic tool. Anthropic documents remote custom connectors across Free, Pro, Max, Team, and Enterprise, with OAuth client configuration optional when adding a connector, but that still does not prove the exact target Claude account and surface will accept this contract.
