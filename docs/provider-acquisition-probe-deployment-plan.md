@@ -1,6 +1,6 @@
 # Provider Acquisition Probe Deployment Review
 
-Status: Phase 1 local implementation complete and verified; private deployment, public enablement, and provider-account use require the later approvals below.
+Status: Phase 1 local implementation complete and verified; Stage A private foundation created and verified on 2026-09-17; artifact upload, private runtime, public enablement, and provider-account use require the later approvals below.
 
 Date: 2026-09-17
 
@@ -196,6 +196,24 @@ safe-stop -> score -> sanitize -> delete -> destroy stack
 ```
 
 The public permissions are distinct resources because AWS requires both `lambda:InvokeFunctionUrl` and `lambda:InvokeFunction` for new Function URLs. The second permission must be constrained to invocation through the Function URL. Merely setting `AuthType: NONE` is not enough to make the URL callable.
+
+### Stage A execution receipt — 2026-09-17
+
+The reviewed commit `ad9a9ac` was validated through the Frankfurt CloudFormation API and deployed only as Stage A in account `004669176288` through change set `stage-a-private-foundation-ad9a9ac`.
+
+- Stack: `alice-acquisition-probe`
+- Stack ID: `arn:aws:cloudformation:eu-central-1:004669176288:stack/alice-acquisition-probe/08b51fa0-b27d-11f1-8187-0affed9b4c3d`
+- Creation time: `2026-09-17T09:49:11.261000+00:00`
+- Status: `CREATE_COMPLETE`
+- Parameters: `DeployRuntime=false`, `EnablePublicAccess=false`, `ArtifactKey=pending`, and `AllowedHost=pending.invalid`
+- Created resources only: private `ProbeBucket`, `ProbeBucketPolicy`, `ProbeLogGroup`, and `ProbeExecutionRole`
+- Bucket: `alice-acquisition-probe-004669176288-eu-central-1`; empty at verification; S3-managed `AES256`; bucket-owner enforced; all four public-access-block controls enabled; versioning absent; two-day rules scoped to `sessions/`, `records/`, and `outcomes/`
+- Bucket policy: deny insecure transport and require `If-None-Match: *` for `records/*` and `outcomes/*`
+- Role: logs create-stream/put-events only for the probe log group, `s3:GetObject` only for `sessions/by-token/*`, and conditional `s3:PutObject` only for `records/*` and `outcomes/*`; no list, delete, session creation, record read, artifact access, or production access
+- Log group: `/aws/lambda/alice-acquisition-probe-runtime`, one-day retention, zero stored bytes at verification
+- Confirmed absent: probe Lambda, Function URL, both public permissions, deployment ZIP, sessions, records, outcomes, provider configuration, and changes to `alice-private-alpha`
+
+Stage A does not make the probe callable and creates no URL. Uploading the content-addressed ZIP or creating Stage B requires the next explicit approval.
 
 ## Provider compatibility gate
 

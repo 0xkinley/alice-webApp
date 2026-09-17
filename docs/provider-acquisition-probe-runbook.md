@@ -1,6 +1,6 @@
 # Provider Acquisition Probe Runbook
 
-Status: Phase 1 local implementation complete and verified; AWS deployment, public enablement, and provider-account use remain unauthorized.
+Status: Phase 1 local implementation complete and verified; Stage A private foundation created and verified on 2026-09-17; artifact upload, private runtime, public enablement, and provider-account use remain unauthorized.
 
 ## Purpose and measurement boundary
 
