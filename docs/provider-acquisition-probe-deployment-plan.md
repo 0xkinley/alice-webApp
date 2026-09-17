@@ -262,6 +262,14 @@ The product owner separately approved one bounded ChatGPT developer-mode compati
 
 This receipt proves that the exact ChatGPT Pro web developer-mode surface can register, authorize, select, and invoke the diagnostic MCP tool with an unrestricted object schema and no OAuth. It does not show what project information ChatGPT can acquire, whether any acquisition leg is complete or reliable, whether multi-call transfer is needed, or whether Claude is compatible. The empirical capability-test task therefore remains open and no migration acquisition path may be selected from this result.
 
+### Supported-interface fixture revision — 2026-09-17
+
+The product owner approved creation of the synthetic provider fixture and the Phase 1 trials. During ChatGPT setup, the planned `alice_acquisition_fixture_v1` was found infeasible before any source material or trial was created: ordinary project controls cannot create or import arbitrary assistant-authored turns, and two of the five scripts began with an assistant turn. Treating the intended 43 mixed-role units as a real provider inventory would have produced false evidence.
+
+The approved `alice_acquisition_fixture_v2` therefore keeps five native conversations but uses exactly four marked, user-authored setup messages in each. Every exact message begins with `FIXTURE_SETUP`; the project instruction requests a plain `ACK`; provider-generated replies are recorded as setup contamination and excluded from designated fixture evidence. The six decisions, three open questions, supersession, four required uploads, optional DOCX, current artifact, negative controls, three fixed Phase 1 prompts, and scoring boundaries remain. Native provider-generated assistant-history reconstruction is no longer claimed by this fixture.
+
+An empty ChatGPT project bearing only the v1 generated project name was created during the feasibility check. The attempted instruction did not persist, and no chat, file, artifact, acquisition session, AWS public permission, or evidence record was created. The probe remained in its prior private safe-stop state throughout the check.
+
 ## Provider compatibility gate
 
 Official OpenAI guidance recommends connecting an HTTPS MCP server in ChatGPT developer mode and adding OAuth only when user-specific data or writes require it. The permitted official OpenAI sources reviewed for this document do not establish which exact ChatGPT plans can invoke this write-like diagnostic tool. Anthropic documents remote custom connectors across Free, Pro, Max, Team, and Enterprise, with OAuth client configuration optional when adding a connector, but that still does not prove the exact target Claude account and surface will accept this contract.

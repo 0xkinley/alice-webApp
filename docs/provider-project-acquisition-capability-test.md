@@ -67,8 +67,9 @@ Minimum fixture:
 ```text
 1 project
 1 project instruction
-5 conversations
-43 messages distributed across those conversations
+5 native conversations
+20 designated, marked user messages distributed as 4 per conversation
+20 expected provider ACK replies, recorded as setup contamination and excluded from fixture evidence
 4 uploaded files
 1 generated artifact
 6 significant decisions
@@ -77,7 +78,9 @@ Minimum fixture:
 1 identified current working artifact
 ```
 
-Place a unique, non-secret marker in every retrievable unit. Example shapes:
+The fixture contract is `alice_acquisition_fixture_v2`. It uses only source turns a user can create through ordinary supported controls. Every designated user message begins with `FIXTURE_SETUP`; the project instruction requests exactly `ACK` from the provider. A provider reply is never silently converted into fixture evidence, even when it is the expected ACK. Record deviations from ACK and the exact observed native message inventory before trials.
+
+Place a unique, non-secret marker in every designated retrievable unit. Example shapes:
 
 ```text
 ALICE_TEST_INSTRUCTION_7391
@@ -168,11 +171,12 @@ For every provider/surface/entry-position combination, complete this matrix from
 | Project instructions | | | | | 1 | | | |
 | Conversation inventory | | | | | 5 | | | |
 | Conversation contents | | | | | 5 | | | |
-| Messages | | | | | 43 | | | |
-| Message roles | | | | | 43 | | | |
-| Message ordering | | | | | 43 | | | |
-| Message identifiers | | | | | 43 | | | |
-| Message timestamps | | | | | 43 | | | |
+| Designated user messages | | | | | 20 | | | |
+| Designated message roles | | | | | 20 user-authored | | | |
+| Designated message ordering | | | | | 20 | | | |
+| Designated message identifiers | | | | | 20 when exposed | | | |
+| Designated message timestamps | | | | | 20 when exposed | | | |
+| Provider setup replies | | | | | observed separately; excluded from fixture evidence | | | |
 | Uploaded-file inventory | | | | | fixture count | | | |
 | Uploaded-file exact bytes | | | | | fixture count | | | |
 | Generated artifacts | | | | | 1 | | | |

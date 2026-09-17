@@ -199,12 +199,12 @@ function createMarkerFactory(nextNumber: MarkerNumberSource): (label: string) =>
 function conversationMarkdown(
   title: string,
   marker: string,
-  messages: Array<{ role: "User" | "Assistant"; marker: string; text: string }>,
+  messages: Array<{ marker: string; text: string }>,
 ): string {
-  return `# ${title}\n\nConversation marker: ${marker}\n\n${messages
+  return `# ${title}\n\nConversation marker: ${marker}\n\nEnter each numbered block below as one separate native user message, in order. Each exact message begins with FIXTURE_SETUP so the project instruction requests a plain ACK. Provider-generated replies are setup contamination and are not designated fixture evidence.\n\n${messages
     .map(
       (message, index) =>
-        `## ${index + 1}. ${message.role}\n\n${message.marker}\n\n${message.text}`,
+        `## ${index + 1}. User\n\nFIXTURE_SETUP\n\n${message.marker}\n\n${message.text}`,
     )
     .join("\n\n")}\n`;
 }
@@ -236,7 +236,7 @@ export async function generateAcquisitionFixture({
   const projectMarker = marker("TEST_PROJECT");
   const instructionMarker = marker("TEST_INSTRUCTION");
   const conversationMarkers = Array.from({ length: 5 }, (_, index) => marker(`CHAT_${index + 1}`));
-  const messageMarkers = Array.from({ length: 43 }, (_, index) =>
+  const messageMarkers = Array.from({ length: 20 }, (_, index) =>
     marker(`MESSAGE_${String(index + 1).padStart(2, "0")}`),
   );
   const decisionMarkers = [
@@ -267,54 +267,28 @@ export async function generateAcquisitionFixture({
   ];
 
   const messageTexts = [
-    `We are designing a continuity product called Northstar. The project marker is ${projectMarker}.`,
-    "The goal is to let a small team continue one project across AI tools without pretending model output is verified.",
-    `${decisionMarkers[0]} Decision: the initial audience is independent teams of two to five people.`,
-    "Constraint: every durable change needs a human confirmation boundary.",
-    `${questionMarkers[0]} Open question: should the first run prioritize designers or developers?`,
-    "Both groups need continuity, but the initial test can compare their setup burden.",
-    `${decisionMarkers[1]} Earlier decision: pricing will be $24/month.`,
-    "The $24 price is provisional and should remain in history if it later changes.",
-    "Next, define the storage and connection boundaries.",
-    "The architecture must preserve immutable source evidence separately from trusted state.",
-    "Use a raw source layer, a normalized layer, derived context, and a human-accepted state layer.",
-    `${decisionMarkers[2]} Decision: ordinary deleted project data may remain recoverable in provider backups for at most 21 days.`,
-    "The product copy must distinguish active deletion from backup expiry.",
-    `${questionMarkers[1]} Open question: which project metadata is available through each host's supported MCP surface?`,
-    "That must be measured from actual tool arguments rather than model self-report.",
-    `${decisionMarkers[3]} Decision: onboarding starts with a supported MCP connection and never requests a provider password.`,
-    "Connection scopes and revocation should remain visible to the user.",
-    "Review the uploaded fixture files and preserve their relationships to this research conversation.",
-    "The file set contains a text note, a PDF brief, a CSV metric table, and an image marker.",
-    `${decisionMarkers[4]} Decision: the private-alpha deployment region is eu-central-1.`,
-    "Region is project-operational metadata, not proof of user residency.",
-    `${questionMarkers[2]} Open question: can either host supply original uploaded bytes rather than extracted text or summaries?`,
-    "Measure filenames, identifiers, sizes, MIME types, hashes, timestamps, and exact bytes separately.",
-    "The image marker is visibly rendered and also stored as PNG text metadata.",
-    "Do not infer that a named file was transferred merely because its filename is available.",
-    "Proceed to the pricing revision while keeping the earlier decision intact.",
-    `${decisionMarkers[5]} Later decision: pricing changed to $10/month. This supersedes ${decisionMarkers[1]}.`,
-    "The current price is $10/month; the earlier $24/month statement remains historical source material.",
-    "Compare the two pricing statements without deleting either source statement.",
-    "Ordering and provenance are required to distinguish the current decision from the superseded decision.",
-    "A migration status alone cannot prove useful project continuity.",
-    "The receiving host must recover the current artifact and unresolved questions.",
-    "No semantic reconstruction should run until provider acquisition is measured.",
-    "The project is ready for a bounded current-state brief.",
-    "Create a working brief that names the goal, decisions, constraints, questions, and next step.",
-    "Drafting the brief now while preserving the source-versus-trusted-state distinction.",
-    "Revise the next step to run ChatGPT three times before beginning Claude trials.",
-    "The revised current artifact is available in the provider artifact surface.",
-    "Confirm that the latest artifact, not an earlier draft, is the continuation target.",
-    "The latest artifact is the current working brief; historical conversations remain evidence.",
-    "The next operator action is the ambient ChatGPT trial with the identical saved prompt.",
-    "Do not fill missing project material from general knowledge or plausible guesses.",
-    "Fixture setup is complete and ready for acquisition-capability measurement.",
+    `${conversationMarkers[0]} We are designing a continuity product called Northstar. The project marker is ${projectMarker}. The goal is to let a small team continue one project across AI tools without pretending model output is verified.`,
+    `${decisionMarkers[0]} Decision: the initial audience is independent teams of two to five people. Constraint: every durable change needs a human confirmation boundary.`,
+    `${questionMarkers[0]} Open question: should the first run prioritize designers or developers? Both groups need continuity, but the initial test can compare their setup burden.`,
+    `${decisionMarkers[1]} Earlier decision: pricing will be $24/month. The $24 price is provisional and must remain in history if it later changes.`,
+    `${conversationMarkers[1]} The architecture must preserve immutable source evidence separately from trusted state. Use a raw source layer, a normalized layer, derived context, and a human-accepted state layer.`,
+    `${decisionMarkers[2]} Decision: ordinary deleted project data may remain recoverable in provider backups for at most 21 days. Product copy must distinguish active deletion from backup expiry.`,
+    `${questionMarkers[1]} Open question: which project metadata is available through each host's supported MCP surface? Measure that from actual tool arguments rather than model self-report.`,
+    `${decisionMarkers[3]} Decision: onboarding starts with a supported MCP connection and never requests a provider password. Connection scopes and revocation remain visible to the user.`,
+    `${conversationMarkers[2]} Review the uploaded fixture files and preserve their relationships to this research conversation. The file set contains a text note, PDF brief, CSV metric table, and image marker.`,
+    "A filename is not proof that original file bytes were transferred. Preserve file relationships and test inventory separately from contents.",
+    `${decisionMarkers[4]} Decision: the private-alpha deployment region is eu-central-1. Region is project-operational metadata, not proof of user residency.`,
+    `${questionMarkers[2]} Open question: can either host supply original uploaded bytes rather than extracted text or summaries? Measure filenames, identifiers, sizes, MIME types, hashes, timestamps, and exact bytes separately.`,
+    `${conversationMarkers[3]} ${decisionMarkers[5]} Later decision: pricing changed to $10/month. This supersedes ${decisionMarkers[1]}.`,
+    "The current price is $10/month; the earlier $24/month statement remains historical source material. Compare the two statements without deleting either source.",
+    "Ordering and provenance distinguish the current decision from the superseded decision. A migration status alone cannot prove useful project continuity.",
+    "No semantic reconstruction should run until provider acquisition is measured. The receiving host must recover the current artifact and unresolved questions.",
+    `${conversationMarkers[4]} Create a current working brief that names the goal, decisions, constraints, questions, and next step while preserving the source-versus-trusted-state distinction.`,
+    "Revise the next step to run ChatGPT three times before beginning Claude trials. The revised current artifact is the continuation target.",
+    "The latest artifact is the current working brief; historical conversations remain evidence. Do not fill missing project material from general knowledge or plausible guesses.",
+    "The next operator action is the ambient ChatGPT trial with the identical saved prompt. Fixture setup is complete and ready for acquisition-capability measurement.",
   ];
-  const roles = Array.from({ length: 43 }, (_, index) =>
-    index % 2 === 0 ? "User" : "Assistant",
-  ) as Array<"User" | "Assistant">;
-  const sizes = [9, 8, 9, 8, 9];
+  const sizes = [4, 4, 4, 4, 4];
   const titles = [
     "01 Product discovery",
     "02 Trust architecture",
@@ -334,7 +308,6 @@ export async function generateAcquisitionFixture({
   for (let index = 0; index < sizes.length; index += 1) {
     const count = sizes[index] as number;
     const messages = Array.from({ length: count }, (_, localIndex) => ({
-      role: roles[messageOffset + localIndex] as "User" | "Assistant",
       marker: messageMarkers[messageOffset + localIndex] as string,
       text: messageTexts[messageOffset + localIndex] as string,
     }));
@@ -354,7 +327,7 @@ export async function generateAcquisitionFixture({
     messageOffset += count;
   }
 
-  const instruction = `${instructionMarker}\n\nTreat all project material as synthetic test data. Preserve source ordering and provenance. Never claim missing material is present, never invent a marker, and never treat host-generated content as Alice-verified.\n`;
+  const instruction = `${instructionMarker}\n\nTreat all project material as synthetic test data. Preserve source ordering and provenance. Never claim missing material is present, never invent a marker, and never treat host-generated content as Alice-verified. During fixture construction only, when a user message begins with FIXTURE_SETUP, reply with exactly ACK and nothing else.\n`;
   await writeFile(path.join(directory, "operator-only", "project-instructions.txt"), instruction);
 
   const artifactText = `# Northstar current working brief\n\n${artifactMarker}\n\nGoal: Continue one project across supported AI hosts through Alice without treating host output as verified truth.\n\nCurrent pricing: $10/month.\nHistorical pricing: $24/month, superseded.\nDeployment region: eu-central-1.\nOpen questions: initial audience specialty, supported host project metadata, and original file-byte availability.\nNext step: Run the identical ChatGPT ambient prompt in three independent fresh project conversations before testing active retrieval.\n`;
@@ -513,15 +486,22 @@ export async function generateAcquisitionFixture({
   };
   const expectedMarkers = Object.values(markerGroups).flat();
   const manifest: AcquisitionFixtureManifest = {
-    contract_version: "alice_acquisition_fixture_v1",
+    contract_version: "alice_acquisition_fixture_v2",
     fixture_id: fixtureId,
     generated_at: now.toISOString(),
     project_name: `Northstar ${projectMarker}`,
+    setup: {
+      interface_model: "supported-native-user-messages-v1",
+      designated_user_messages_per_conversation: 4,
+      expected_provider_reply: "ACK",
+      provider_generated_replies_are_fixture_evidence: false,
+    },
     counts: {
       projects: 1,
       project_instructions: 1,
       conversations: 5,
-      messages: 43,
+      designated_user_messages: 20,
+      expected_provider_setup_replies: 20,
       uploaded_files_required: 4,
       uploaded_files_optional: 1,
       generated_artifacts: 1,
@@ -554,7 +534,7 @@ export async function generateAcquisitionFixture({
   );
   await writeFile(
     path.join(directory, "README.txt"),
-    `Alice provider-acquisition fixture ${fixtureId}\n\nSynthetic data only.\n\nUpload only the files inside provider-upload/.\nDo not upload operator-only/, conversations/, prompts/, or this README.\nUse operator-only/project-instructions.txt as the provider project instruction.\nRecreate and verify the five provider conversations from the corresponding scripts; record any host-required setup messages as contamination.\nCreate the current artifact through a supported artifact editor from operator-only/artifacts/current-working-brief.md without pasting its exact marker into chat; if that is impossible, record the contamination.\nRetain operator-only/manifest.json locally for scoring; it contains the negative controls.\nUse the exact prompt file for the selected leg without editing it, and start a fresh eligible conversation for every trial.\n`,
+    `Alice provider-acquisition fixture ${fixtureId}\n\nSynthetic data only.\n\nUpload only the files inside provider-upload/.\nDo not upload operator-only/, conversations/, prompts/, or this README.\nUse operator-only/project-instructions.txt as the provider project instruction.\nCreate five native provider conversations. Enter the four exact FIXTURE_SETUP user messages from each corresponding script as separate messages and preserve their order. The expected provider reply is exactly ACK; every provider-generated reply is setup contamination, never designated fixture evidence. Record any deviation from ACK.\nCreate the current artifact through a supported artifact editor from operator-only/artifacts/current-working-brief.md without pasting its exact marker into chat; if that is impossible, record the contamination.\nRetain operator-only/manifest.json locally for scoring; it contains the negative controls.\nUse the exact prompt file for the selected leg without editing it, and start a fresh eligible conversation for every trial.\n`,
   );
   return { directory, manifest };
 }

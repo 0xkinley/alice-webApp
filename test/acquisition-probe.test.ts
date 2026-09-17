@@ -47,14 +47,19 @@ test("generates the complete marker fixture and valid file formats", async () =>
   assert.equal(manifest.conversations.length, 5);
   assert.equal(
     manifest.conversations.flatMap((conversation) => conversation.message_markers).length,
-    43,
+    20,
   );
+  assert.equal(manifest.contract_version, "alice_acquisition_fixture_v2");
+  assert.equal(manifest.counts.designated_user_messages, 20);
+  assert.equal(manifest.counts.expected_provider_setup_replies, 20);
+  assert.equal(manifest.setup.expected_provider_reply, "ACK");
+  assert.equal(manifest.setup.provider_generated_replies_are_fixture_evidence, false);
   assert.equal(manifest.decisions.length, 6);
   assert.equal(manifest.decisions.filter((decision) => decision.status === "superseded").length, 1);
   assert.equal(manifest.open_questions.length, 3);
   assert.equal(manifest.files.filter((file) => file.required).length, 4);
   assert.equal(manifest.files.filter((file) => !file.required).length, 1);
-  assert.equal(manifest.expected_markers.length, 64);
+  assert.equal(manifest.expected_markers.length, 41);
   assert.equal(manifest.negative_markers.length, 5);
   assert.equal(new Set(manifest.expected_markers).size, manifest.expected_markers.length);
   assert.equal(new Set(manifest.negative_markers).size, manifest.negative_markers.length);
@@ -205,7 +210,7 @@ test("scores exact markers, negative controls, order, and original file bytes", 
   );
   assert.equal(report.runs.length, 1);
   assert.equal(report.runs[0].marker_counts.conversations.recovered, 5);
-  assert.equal(report.runs[0].marker_counts.messages.recovered, 43);
+  assert.equal(report.runs[0].marker_counts.messages.recovered, 20);
   assert.equal(report.runs[0].conversation_order_preserved_for_recovered_markers, true);
   assert.equal(report.runs[0].message_order_preserved_for_recovered_markers, true);
   assert.equal(report.runs[0].call_mode, "single-call-v1");

@@ -72,7 +72,8 @@ The generated fixture contains:
 
 - one uniquely marked project name;
 - one project instruction;
-- five ordered conversation scripts with 43 designated marked message units;
+- five ordered native-conversation scripts with four exact marked user messages each;
+- one supported-interface setup convention: every designated message begins with `FIXTURE_SETUP`, the project instruction requests exactly `ACK`, and all provider-generated replies remain separately recorded setup contamination rather than fixture evidence;
 - six decisions, including an earlier `$24/month` decision and later `$10/month` superseding decision;
 - three open questions;
 - four required uploads: TXT, PDF, CSV, and visibly marked PNG;
@@ -84,12 +85,15 @@ The generated fixture contains:
 
 Upload only `provider-upload/`. Never upload `operator-only/`, `conversations/`, `prompts/`, the fixture README, or the manifest. Those files contain expected evidence or negative controls and would contaminate the experiment.
 
-Create equivalent isolated projects in ChatGPT and Claude through supported ordinary project controls. Before trials, verify the real source state against the local manifest. Provider-required setup messages that are not one of the 43 designated units must be recorded as setup contamination; they cannot be silently counted as recovered fixture messages. If an exact 43-unit replay is not feasible through the supported interface, revise both provider fixtures symmetrically and version the manifest before any trial rather than claiming a false inventory.
+Create equivalent isolated projects in ChatGPT and Claude through supported ordinary project controls. Before trials, verify the real source state against the local manifest. Enter each script block as a separate native user message in order. The expected host reply is exactly `ACK`; every provider-generated reply, including a correct ACK, is setup contamination and cannot be counted as a recovered fixture message. Record every deviation and the exact native inventory before trials.
+
+Fixture v1's proposed 43 mixed user/assistant turns was abandoned before any trial on 2026-09-17. The ChatGPT supported interface cannot create or import arbitrary assistant-authored turns, and two scripts began with an assistant turn. The product owner approved fixture v2 with 20 exact user-authored messages and separately excluded provider replies. The first v1-named ChatGPT project was created with only its marked name; its attempted instruction did not persist, and no chat, file, artifact, acquisition session, public-probe window, or evidence record was created from v1.
 
 For the strongest boundary checks:
 
 - place the instruction marker only in the project instruction;
 - place each cross-conversation marker only in its designated conversation;
+- verify all 20 designated user messages and separately record all provider-generated setup replies before opening the probe window;
 - upload the four required files without pasting their markers into chat;
 - place the artifact marker through a supported artifact editor when available, without pasting the exact marker into a conversation;
 - if a host requires the exact artifact marker in a setup prompt, record that contamination and do not claim the run proves artifact-only retrieval;

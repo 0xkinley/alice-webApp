@@ -90,15 +90,22 @@ export interface FixtureFileManifest {
 }
 
 export interface AcquisitionFixtureManifest {
-  contract_version: "alice_acquisition_fixture_v1";
+  contract_version: "alice_acquisition_fixture_v2";
   fixture_id: string;
   generated_at: string;
   project_name: string;
+  setup: {
+    interface_model: "supported-native-user-messages-v1";
+    designated_user_messages_per_conversation: 4;
+    expected_provider_reply: "ACK";
+    provider_generated_replies_are_fixture_evidence: false;
+  };
   counts: {
     projects: 1;
     project_instructions: 1;
     conversations: 5;
-    messages: 43;
+    designated_user_messages: 20;
+    expected_provider_setup_replies: 20;
     uploaded_files_required: 4;
     uploaded_files_optional: 1;
     generated_artifacts: 1;
