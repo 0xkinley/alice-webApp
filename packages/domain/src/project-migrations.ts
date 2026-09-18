@@ -1,5 +1,9 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { migrationContractVersion, previewProjectMigrationSchema } from "@alice/schemas";
+import {
+  migrationContractVersion,
+  migrationSuppliedMaterialListSchema,
+  previewProjectMigrationSchema,
+} from "@alice/schemas";
 import { appendAuditEvent } from "./audit.ts";
 import {
   projectScopeForConnection,
@@ -15,6 +19,129 @@ export type ProjectMigrationStatus =
   "CREATED" | "INGESTING" | "VERIFYING" | "COMPLETE" | "PARTIAL" | "FAILED";
 
 export class ProjectMigrationUserError extends Error {}
+
+export async function getProjectImportedMaterial(
+  database,
+  input: { userId: string; projectId: string },
+) {
+  const project = await projectScopeForUser(database, input);
+  if (!project) return undefined;
+  const sessions = await database
+    .prepare(
+      `SELECT id, source_provider, provider_project_name, status,
+              observed_count, imported_count, exact_bytes_count, content_only_count,
+              reference_count, missing_count, external_count, unsupported_count,
+              alice_confirmed_count, created_at, updated_at, completed_at
+       FROM migration_sessions
+       WHERE workspace_id = ? AND project_id = ?
+       ORDER BY created_at DESC, id DESC`,
+    )
+    .all(project.projectWorkspaceId, project.projectId);
+  const records = await database
+    .prepare(
+      `SELECT id, migration_session_id, source_type, authority, capture_state,
+              source_provider, provider_project_name, source_format, parser_version,
+              exact_content, content_sha256, content_utf8_bytes, created_at
+       FROM migration_source_records
+       WHERE workspace_id = ? AND project_id = ?
+       ORDER BY created_at, id`,
+    )
+    .all(project.projectWorkspaceId, project.projectId);
+  const recordsBySession = new Map<string, any[]>();
+  for (const record of records) {
+    const sessionRecords = recordsBySession.get(record.migration_session_id) || [];
+    sessionRecords.push(record);
+    recordsBySession.set(record.migration_session_id, sessionRecords);
+  }
+  return {
+    project: {
+      id: project.projectId,
+      role: project.projectRole,
+    },
+    sessions: sessions.map((session) => {
+      const sessionRecords = recordsBySession.get(session.id) || [];
+      let position = 0;
+      let sourceReadable = sessionRecords.length > 0;
+      const items: Array<{
+        position: number;
+        kind: string;
+        content: string;
+        speaker: string | null;
+        occurred_at: string | null;
+        capture_state: string;
+      }> = [];
+      for (const record of sessionRecords) {
+        if (
+          record.source_type !== "HOST_SNAPSHOT" ||
+          record.authority !== "UNVERIFIED_HOST_DERIVED" ||
+          record.capture_state !== "CONTENT_ONLY" ||
+          record.source_provider !== session.source_provider ||
+          record.source_format !== "alice_supplied_material_json" ||
+          record.parser_version !== "identity_v1" ||
+          Buffer.byteLength(record.exact_content, "utf8") !== Number(record.content_utf8_bytes) ||
+          sha256(record.exact_content) !== record.content_sha256
+        ) {
+          sourceReadable = false;
+          continue;
+        }
+        let parsedJson: unknown;
+        try {
+          parsedJson = JSON.parse(record.exact_content);
+        } catch {
+          sourceReadable = false;
+          continue;
+        }
+        const parsed = migrationSuppliedMaterialListSchema.safeParse(parsedJson);
+        if (!parsed.success) {
+          sourceReadable = false;
+          continue;
+        }
+        for (const item of parsed.data) {
+          position += 1;
+          items.push({
+            position,
+            kind: item.kind,
+            content: item.content,
+            speaker: item.speaker || null,
+            occurred_at: item.occurred_at || null,
+            capture_state: item.capture_state,
+          });
+        }
+      }
+      return {
+        source: {
+          provider: session.source_provider,
+          project_name: session.provider_project_name || null,
+          authority: "UNVERIFIED_HOST_DERIVED" as const,
+        },
+        scope: {
+          source_scope: "unknown" as const,
+          scope_basis: "unavailable" as const,
+          scope_completeness: "unknown" as const,
+          completeness_basis: "unavailable" as const,
+          legacy: true as const,
+        },
+        status: session.status,
+        fidelity: {
+          observed: Number(session.observed_count),
+          imported: Number(session.imported_count),
+          exact_bytes: Number(session.exact_bytes_count),
+          content_only: Number(session.content_only_count),
+          references: Number(session.reference_count),
+          missing: Number(session.missing_count),
+          external: Number(session.external_count),
+          unsupported: Number(session.unsupported_count),
+          alice_confirmed: Number(session.alice_confirmed_count),
+        },
+        source_readable: sourceReadable,
+        items,
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+        completed_at: session.completed_at || null,
+      };
+    }),
+  };
+}
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");

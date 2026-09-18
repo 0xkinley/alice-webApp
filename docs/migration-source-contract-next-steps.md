@@ -1,6 +1,6 @@
 # Migration Source Contract and Next Steps
 
-Status: Product contract agreed in discussion; implementation not started
+Status: Product contract agreed; first read-only Imported material increment completed locally
 
 Date: 2026-09-18
 
@@ -21,6 +21,22 @@ information without Alice silently upgrading source material into trusted state.
 
 This note records the agreed contract and the remaining Milestone 06.5 work. It does
 not authorize implementation or deployment by itself.
+
+## Implementation progress
+
+The first read-only vertical slice is complete locally. It adds an authenticated
+`Imported material` project tab backed directly by the existing immutable
+`HOST_SNAPSHOT`. The read path reauthorizes project membership, verifies the stored
+record type, authority, capture mode, provider, format, SHA-256, and bounded JSON
+schema, escapes every displayed source value, and labels legacy scope and
+completeness unknown. Projects without a migration receive a non-writing empty state.
+
+This increment deliberately creates no normalized source objects, artifacts, files,
+proposals, accepted state, or Change-log entry. Those remain in the workstreams
+below. Local verification covers exact snapshot/hash preservation, zero read-side
+state mutation, prompt-injection rendering as inert text, outsider non-disclosure,
+SQLite and PostgreSQL parity, narrow-screen navigation, and production builds. It
+has not been deployed.
 
 ## Product invariants
 

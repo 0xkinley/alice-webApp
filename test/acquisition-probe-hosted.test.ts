@@ -160,12 +160,16 @@ test("S3 runtime uses digest lookup and atomic first-write-wins without list acc
     false,
   );
 
-  await store.recordOutcome(session, {
-    source: "operator",
-    kind: "provider_observed_success",
-    value: "yes",
-    detail_code: "host_confirmed",
-  });
+  await store.recordOutcome(
+    session,
+    {
+      source: "operator",
+      kind: "provider_observed_success",
+      value: "yes",
+      detail_code: "host_confirmed",
+    },
+    new Date("2026-09-17T08:03:00.000Z"),
+  );
   assert.equal((await store.readOutcomesForSession(session.session_id)).length, 1);
   const outcomeLists = client.commands.filter((command) => command.name === "ListObjectsV2Command");
   assert.ok(

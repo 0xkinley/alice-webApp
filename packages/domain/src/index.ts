@@ -136,6 +136,7 @@ export { createProject, getProject } from "./projects.ts";
 export {
   commitProjectMigrationPreview,
   createProjectMigrationPreview,
+  getProjectImportedMaterial,
   getProjectMigrationStatus,
   MIGRATION_PREVIEW_LIFETIME_MS,
   PROJECT_MIGRATION_VERSION,

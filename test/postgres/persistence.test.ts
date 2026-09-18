@@ -36,6 +36,7 @@ import {
   getProjectContext,
   getPrivateAlphaSignals,
   getProjectLifecycle,
+  getProjectImportedMaterial,
   getProjectMigrationStatus,
   getProjectAccessOverview,
   getProjectFileRemovalPreview,
@@ -432,6 +433,22 @@ test("PostgreSQL constrains authenticated project migration state and immutable 
       migrationSessionId: committed.migration_session_id,
       publicUrl: "https://app.alice.example",
     }),
+    undefined,
+  );
+  const imported = await getProjectImportedMaterial(database, {
+    userId: owner.id,
+    projectId: row.project_id,
+  });
+  assert.equal(imported?.sessions.length, 1);
+  assert.equal(imported?.sessions[0].items.length, 2);
+  assert.equal(
+    imported?.sessions[0].items[0].content,
+    migrationPayload.supplied_material[0].content,
+  );
+  assert.equal(imported?.sessions[0].items[1].capture_state, "reference");
+  assert.equal(imported?.sessions[0].scope.source_scope, "unknown");
+  assert.equal(
+    await getProjectImportedMaterial(database, { userId: other.id, projectId: row.project_id }),
     undefined,
   );
   await assert.rejects(

@@ -55,15 +55,16 @@ function quickUploadScript({
 
 function projectTabs(
   projectId: string,
-  activeTab: "artifacts" | "changes" | "files" | undefined,
+  activeTab: "artifacts" | "changes" | "files" | "imported" | undefined,
   filesEnabled: boolean,
   pendingCount: number,
 ): string {
   const encodedProjectId = encodeURIComponent(projectId);
   const changeCurrent = activeTab === "changes" ? ' aria-current="page"' : "";
+  const importedCurrent = activeTab === "imported" ? ' aria-current="page"' : "";
   const artifactsCurrent = activeTab === "artifacts" ? ' aria-current="page"' : "";
   const filesCurrent = activeTab === "files" ? ' aria-current="page"' : "";
-  return `<nav class="project-tabs" aria-label="Project content"><a href="/projects/${encodedProjectId}/changes"${changeCurrent}>Change log${pendingCount ? `<span class="count-badge">${pendingCount}</span>` : ""}</a><a href="/projects/${encodedProjectId}/artifacts"${artifactsCurrent}>Artifacts</a>${filesEnabled ? `<a href="/projects/${encodedProjectId}/files"${filesCurrent}>Files</a>` : ""}</nav>`;
+  return `<nav class="project-tabs" aria-label="Project content"><a href="/projects/${encodedProjectId}/changes"${changeCurrent}>Change log${pendingCount ? `<span class="count-badge">${pendingCount}</span>` : ""}</a><a href="/projects/${encodedProjectId}/imported"${importedCurrent}>Imported material</a><a href="/projects/${encodedProjectId}/artifacts"${artifactsCurrent}>Artifacts</a>${filesEnabled ? `<a href="/projects/${encodedProjectId}/files"${filesCurrent}>Files</a>` : ""}</nav>`;
 }
 
 export function renderProjectShell({
@@ -72,7 +73,7 @@ export function renderProjectShell({
   pendingCount = 0,
   shell,
 }: {
-  activeTab?: "artifacts" | "changes" | "files";
+  activeTab?: "artifacts" | "changes" | "files" | "imported";
   fileStore?: PrivateFileStore | undefined;
   pendingCount?: number;
   shell: Awaited<ReturnType<typeof getProjectShell>>;

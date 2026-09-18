@@ -129,7 +129,7 @@ export const migrationCaptureStates = [
   "external",
 ] as const;
 
-const migrationSuppliedMaterialSchema = z
+export const migrationSuppliedMaterialSchema = z
   .object({
     kind: z.enum(["summary", "instruction", "message", "artifact_description", "other"]),
     content: z.string().trim().min(1).max(12_000),
@@ -141,12 +141,17 @@ const migrationSuppliedMaterialSchema = z
   })
   .strict();
 
+export const migrationSuppliedMaterialListSchema = z
+  .array(migrationSuppliedMaterialSchema)
+  .min(1)
+  .max(40);
+
 export const previewProjectMigrationSchema = z
   .object({
     alice_project_name: z.string().trim().min(1).max(120),
     provider_project_id: z.string().trim().min(1).max(240).optional(),
     provider_project_name: z.string().trim().min(1).max(240).optional(),
-    supplied_material: z.array(migrationSuppliedMaterialSchema).min(1).max(40),
+    supplied_material: migrationSuppliedMaterialListSchema,
     idempotency_key: z
       .string()
       .trim()
