@@ -477,7 +477,10 @@ export async function exportProjectData(database, input: { userId: string; proje
   const migrationSessions = await database
     .prepare(
       `SELECT id, source_provider, provider_project_id, provider_project_name,
-              migration_version, status, status_version, observed_count, imported_count,
+              migration_version, reported_source_scope, reported_scope_basis,
+              source_scope, scope_basis, reported_scope_completeness,
+              reported_completeness_basis, scope_completeness, completeness_basis,
+              destination_action, status, status_version, observed_count, imported_count,
               exact_bytes_count, content_only_count, reference_count, missing_count,
               external_count, unsupported_count, alice_confirmed_count, error_summary,
               created_at, updated_at, completed_at
@@ -488,28 +491,57 @@ export async function exportProjectData(database, input: { userId: string; proje
     .all(view.project.workspace_id, view.project.id);
   const migrations: any[] = [];
   for (const session of migrationSessions) {
-    const [events, sourceRecords] = await Promise.all([
-      database
-        .prepare(
-          `SELECT event_sequence, event_type, previous_status, next_status,
+    const [events, candidateSources, sourceObjects, sourceRelationships, sourceRecords] =
+      await Promise.all([
+        database
+          .prepare(
+            `SELECT event_sequence, event_type, previous_status, next_status,
                   status_version, actor_type, actor_id, error_code, created_at
            FROM migration_events
            WHERE workspace_id = ? AND project_id = ? AND migration_session_id = ?
            ORDER BY event_sequence, id`,
-        )
-        .all(view.project.workspace_id, view.project.id, session.id),
-      database
-        .prepare(
-          `SELECT source_type, authority, capture_state, source_provider,
+          )
+          .all(view.project.workspace_id, view.project.id, session.id),
+        database
+          .prepare(
+            `SELECT candidate_id, evidence_id, source_object_id, cited_at
+           FROM migration_candidate_sources
+           WHERE workspace_id = ? AND project_id = ? AND migration_session_id = ?
+           ORDER BY candidate_id, source_object_id`,
+          )
+          .all(view.project.workspace_id, view.project.id, session.id),
+        database
+          .prepare(
+            `SELECT id, source_record_id, source_position, object_type, title, content,
+                  content_sha256, content_utf8_bytes, speaker, occurred_at,
+                  conversation_id, provider_item_id, representation, completeness,
+                  authority, capture_state, created_at
+           FROM migration_source_objects
+           WHERE workspace_id = ? AND project_id = ? AND migration_session_id = ?
+           ORDER BY source_position, id`,
+          )
+          .all(view.project.workspace_id, view.project.id, session.id),
+        database
+          .prepare(
+            `SELECT from_source_object_id, to_source_object_id, relationship_type,
+                  evidence_basis, created_at
+           FROM migration_source_relationships
+           WHERE workspace_id = ? AND project_id = ? AND migration_session_id = ?
+           ORDER BY created_at, id`,
+          )
+          .all(view.project.workspace_id, view.project.id, session.id),
+        database
+          .prepare(
+            `SELECT source_type, authority, capture_state, source_provider,
                   provider_project_id, provider_project_name, source_format,
                   parser_version, exact_content, content_sha256, content_utf8_bytes,
                   created_at
            FROM migration_source_records
            WHERE workspace_id = ? AND project_id = ? AND migration_session_id = ?
            ORDER BY created_at, id`,
-        )
-        .all(view.project.workspace_id, view.project.id, session.id),
-    ]);
+          )
+          .all(view.project.workspace_id, view.project.id, session.id),
+      ]);
     migrations.push({
       ...session,
       events,
@@ -517,6 +549,9 @@ export async function exportProjectData(database, input: { userId: string; proje
         ...source,
         exact_content: source.exact_content === null ? null : parseJson(source.exact_content),
       })),
+      source_objects: sourceObjects,
+      source_relationships: sourceRelationships,
+      candidate_sources: candidateSources,
     });
   }
   return {

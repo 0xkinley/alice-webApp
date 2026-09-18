@@ -220,8 +220,23 @@ async function buildCapturePreview(database, tenant, evidenceId, options = {}) {
   if (!captured) return undefined;
   const candidates: any[] = [];
   for (const candidate of captured.candidates) {
+    const migrationSources = await database
+      .prepare(
+        `SELECT source.id, source.source_position, source.object_type, source.title,
+                source.representation, source.completeness
+         FROM migration_candidate_sources citation
+         JOIN migration_source_objects source
+           ON source.workspace_id = citation.workspace_id
+          AND source.project_id = citation.project_id
+          AND source.id = citation.source_object_id
+         WHERE citation.workspace_id = ? AND citation.project_id = ?
+           AND citation.candidate_id = ?
+         ORDER BY source.source_position, source.id`,
+      )
+      .all(tenant.workspaceId, candidate.project_id, candidate.id);
     candidates.push({
       ...candidate,
+      migration_sources: migrationSources,
       current: await currentAcceptedState(
         database,
         tenant.workspaceId,

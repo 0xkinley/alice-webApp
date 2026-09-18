@@ -254,6 +254,8 @@ test("the project has a separate clickable Artifacts tab and result list", async
   assert.match(html, /aria-current="page"[^>]*>Artifacts<\/a>/);
   assert.match(html, />Change log<\/a>/);
   assert.match(html, />Files<\/a>/);
+  assert.match(html, new RegExp(`/review\\?project_id=${identity.project_id}`));
+  assert.match(html, />Review<\/a>/);
   assert.match(html, /Search artifacts/);
   assert.match(html, /Category/);
   assert.match(html, /Tag/);

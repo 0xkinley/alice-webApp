@@ -1,6 +1,6 @@
 # Migration Source Contract and Next Steps
 
-Status: Product contract agreed; first read-only Imported material increment completed locally
+Status: Source contract implemented locally; hosted rollout and cross-host proof pending
 
 Date: 2026-09-18
 
@@ -9,10 +9,9 @@ Milestone: 06.5 — Controlled Project Import Foundation
 ## Why this note exists
 
 The hosted migration path can create an Alice project and retain the exact material
-supplied by ChatGPT as one immutable, unverified `HOST_SNAPSHOT`. That source is not
-lost, but the ordinary project UI does not currently expose it. Change log,
-Artifacts, and Files remain empty because the foundation deliberately does not turn
-host material into trusted changes, artifact versions, or exact files.
+supplied by ChatGPT as one immutable, unverified `HOST_SNAPSHOT`. The currently
+hosted release exposes that snapshot through Imported material, but predates the
+normalized source contract and safe projections described below.
 
 That safety boundary is correct, but the product experience is incomplete. A user
 who authorizes migration must be able to inspect what Alice received, distinguish
@@ -24,19 +23,34 @@ not authorize implementation or deployment by itself.
 
 ## Implementation progress
 
-The first read-only vertical slice is complete locally. It adds an authenticated
-`Imported material` project tab backed directly by the existing immutable
-`HOST_SNAPSHOT`. The read path reauthorizes project membership, verifies the stored
-record type, authority, capture mode, provider, format, SHA-256, and bounded JSON
-schema, escapes every displayed source value, and labels legacy scope and
-completeness unknown. Projects without a migration receive a non-writing empty state.
+The bounded source contract is implemented locally in migration contract `1.1` and
+database migration `030`. New imports preserve the original content-hashed
+`HOST_SNAPSHOT` and append individually addressable immutable source objects plus
+only provider-supplied relationships. Reported scope/completeness remains separate
+from the conservative backend-effective scope. Legacy sessions are normalized by
+the migration with `unknown`/`unavailable` evidence rather than silently upgraded.
 
-This increment deliberately creates no normalized source objects, artifacts, files,
-proposals, accepted state, or Change-log entry. Those remain in the workstreams
-below. Local verification covers exact snapshot/hash preservation, zero read-side
-state mutation, prompt-injection rendering as inert text, outsider non-disclosure,
-SQLite and PostgreSQL parity, narrow-screen navigation, and production builds. It
-has not been deployed.
+The authenticated migration preview now supports creating a project from supplied
+material, adding the material to an independently authorized existing project, or
+creating an empty project. Conversation scope is effective only for the bounded
+`visible_conversation_only` evidence combination; unsupported provider-project
+claims remain effective `unknown` until a trusted provider evidence channel exists.
+
+Imported material groups conversations, instructions, artifacts/file references,
+and other material while exposing representation, completeness, scope, and capture
+limitations. Complete supplied artifact content is projected into the existing
+artifact machinery as `Imported · Unverified`; references do not create artifacts
+or files, and the current text contract cannot claim original bytes. Proposed facts
+must cite immutable source-object positions and enter the existing Review queue as
+pending candidates. They do not create accepted state. The Change log receives one
+content-free import summary rather than one entry per message.
+
+Authorized export includes source objects, relationships, and proposal citations;
+privileged erasure deletes their exact dependency graph. Constrained-role
+PostgreSQL tests cover immutable source/citation records, concurrent idempotency,
+export, and erasure. A PostgreSQL 17 logical dump/restore has verified all 30
+migrations across 58 protected tables. Hosted rollout, ChatGPT/Claude acquisition
+matrix completion, and the cross-host continuation benchmark remain pending.
 
 ## Product invariants
 
@@ -473,15 +487,23 @@ retained before any semantic proposal or trusted-state automation is introduced.
 - No provider-export parser until a real supported export path and exact format are
   validated by the acquisition test.
 
-## Decisions still requiring implementation-time review
+## Implementation decisions and remaining questions
 
-- Exact normalized table names and whether source relationships use one generic edge
-  table or bounded relation tables.
-- Whether complete-content artifact projection is automatic for strongly typed host
-  payloads or always requires one human classification action.
-- Which proposal-generation mechanism is supportable after the acquisition matrix,
-  and how its exact model/prompt/version provenance is recorded.
-- Whether Imported material needs pagination/search in the first increment or only a
-  bounded session/object view.
-- How legacy hosted sessions expose their migration-status link in ordinary project
-  navigation without inventing missing scope evidence.
+- Normalized objects use `migration_source_objects`; a single bounded
+  `migration_source_relationships` edge table records only relationships explicitly
+  supplied in the acquisition payload.
+- Strongly typed, complete `artifact` content projects automatically to an existing
+  artifact version with `IMPORTED_UNVERIFIED` authority and a source-object link.
+  Artifact descriptions and file references never project content.
+- Proposal generation remains external to Alice's trusted-state engine. Contract
+  `1.1` can receive bounded proposals with mandatory source positions, preserve the
+  exact proposal envelope as evidence, and place candidates in Review. Selecting a
+  provider/model/prompt generation strategy still depends on acquisition evidence.
+- Imported material is bounded by the current 40-item acquisition contract, so the
+  first normalized view groups the complete session without pagination or search.
+- Legacy sessions remain visible through normalized backfill and retain effective
+  `unknown` scope/completeness. Optional provider labels do not upgrade that claim.
+- The unresolved product proofs are the empirical ChatGPT/Claude acquisition matrix,
+  any triggered bounded multi-call phase, and useful cross-host continuation after
+  human review. Those proofs—not database status alone—govern any whole-project
+  migration claim.

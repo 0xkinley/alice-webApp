@@ -5,8 +5,13 @@ import {
   commitProjectMigrationPreview,
   createProjectMigrationPreview,
   exportProjectData,
+  getCapturePreview,
   getProjectImportedMaterial,
   getProjectMigrationStatus,
+  getReviewQueue,
+  listProjectMigrationActivity,
+  searchAliceArtifacts,
+  searchProjectArtifacts,
   transitionProjectMigration,
 } from "@alice/domain";
 import { createApp as createMcpApp } from "../apps/mcp/src/app.ts";
@@ -165,11 +170,15 @@ test("preview is no-action authority state and authenticated Migrate creates one
   const imported = await getProjectImportedMaterial(database, { userId: owner.id, projectId });
   assert.equal(imported?.sessions.length, 1);
   assert.deepEqual(imported?.sessions[0].scope, {
+    reported_source_scope: "unknown",
+    reported_scope_basis: "unavailable",
     source_scope: "unknown",
     scope_basis: "unavailable",
+    reported_scope_completeness: "unknown",
+    reported_completeness_basis: "unavailable",
     scope_completeness: "unknown",
     completeness_basis: "unavailable",
-    legacy: true,
+    legacy: false,
   });
   assert.equal(imported?.sessions[0].items.length, 2);
   assert.equal(imported?.sessions[0].items[0].kind, "instruction");
@@ -362,6 +371,284 @@ test("migration status is project-authorized and backend transitions are append-
   assert.throws(() => database.prepare("UPDATE migration_sessions SET status = 'COMPLETE'").run());
 });
 
+test("source-aware migration normalizes material, projects only complete artifacts, and honors destinations", async (t) => {
+  t.after(() => database.close());
+  const connection = await addConnection(owner, "source-aware", "chatgpt");
+  await assert.rejects(
+    createProjectMigrationPreview(database, {
+      userId: owner.id,
+      ...connection,
+      payload: {
+        alice_project_name: "Invalid project claim",
+        source_context: {
+          reported_scope: "provider_project",
+          scope_basis: "visible_conversation_only",
+          reported_completeness: "unknown",
+          completeness_basis: "unavailable",
+        },
+        supplied_material: [{ kind: "summary", content: "Visible chat only." }],
+        idempotency_key: "invalid-source-scope-001",
+      },
+    }),
+  );
+  await assert.rejects(
+    createProjectMigrationPreview(database, {
+      userId: owner.id,
+      ...connection,
+      payload: {
+        alice_project_name: "Invalid completeness claim",
+        source_context: {
+          reported_scope: "unknown",
+          scope_basis: "unavailable",
+          reported_completeness: "provider_claimed_complete",
+          completeness_basis: "user_statement",
+        },
+        supplied_material: [{ kind: "summary", content: "User says it is complete." }],
+        idempotency_key: "invalid-completeness-001",
+      },
+    }),
+  );
+  const projectCountBefore = database.prepare("SELECT COUNT(*) AS count FROM projects").get().count;
+  const preview = await createProjectMigrationPreview(database, {
+    userId: owner.id,
+    ...connection,
+    payload: {
+      alice_project_name: "Conversation import",
+      source_context: {
+        reported_scope: "conversation",
+        scope_basis: "visible_conversation_only",
+        reported_completeness: "bounded_complete",
+        completeness_basis: "explicit_tool_result",
+      },
+      supplied_material: [
+        {
+          kind: "message",
+          content: "The current conversation message.",
+          speaker: "user",
+          conversation_id: "conversation-visible-1",
+          capture_state: "content_only",
+        },
+        {
+          kind: "artifact",
+          title: "Working brief",
+          content: "Complete working brief content.",
+          capture_state: "content_only",
+        },
+        {
+          kind: "artifact_description",
+          title: "Earlier deck",
+          content: "A deck was mentioned, but its content was not supplied.",
+          capture_state: "reference",
+        },
+        {
+          kind: "file_reference",
+          title: "budget.csv",
+          content: "Filename only; original bytes unavailable.",
+          capture_state: "reference",
+        },
+      ],
+      source_relationships: [{ from_position: 1, to_position: 2, relationship_type: "produced" }],
+      proposed_claims: [
+        {
+          state_key: "project.current_brief",
+          value: { title: "Working brief" },
+          summary: "Review the imported working brief as current project information.",
+          source_positions: [1, 2],
+        },
+      ],
+      idempotency_key: "source-aware-migration-001",
+    },
+  });
+  assert.ok(preview);
+  assert.equal(preview.preview.scope.source_scope, "conversation");
+  assert.equal(preview.preview.scope.scope_completeness, "bounded_complete");
+  const committed = await commitProjectMigrationPreview(database, {
+    userId: owner.id,
+    ...connection,
+    publicUrl: "https://app.alice.example",
+    previewId: preview.preview.preview_id,
+    previewVersion: preview.preview.preview_version,
+    authorityToken: preview.authority_token,
+    destinationAction: "create_project_from_source",
+  });
+  assert.ok(committed);
+  assert.equal(committed.scope.source_scope, "conversation");
+  assert.equal(committed.destination_action, "create_project_from_source");
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM migration_source_objects").get().count,
+    4,
+  );
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM migration_source_relationships").get().count,
+    1,
+  );
+  const projected = database.prepare("SELECT * FROM artifact_versions").get();
+  assert.equal(projected.source_authority, "IMPORTED_UNVERIFIED");
+  assert.equal(projected.title, "Working brief");
+  assert.equal(projected.content_text, "Complete working brief content.");
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM artifact_versions").get().count, 1);
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM file_context_references").get().count,
+    0,
+  );
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM candidate_claims").get().count, 1);
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM migration_candidate_sources").get().count,
+    2,
+  );
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM accepted_project_state").get().count,
+    0,
+  );
+  const projectId = database
+    .prepare("SELECT project_id FROM migration_sessions WHERE id = ?")
+    .get(committed.migration_session_id).project_id;
+  const review = await getReviewQueue(database, {
+    userId: owner.id,
+    projectId,
+    status: "pending",
+  });
+  assert.equal(review?.candidates.length, 1);
+  assert.deepEqual(
+    review?.candidates[0].migration_sources.map(({ source_position }) => source_position),
+    [1, 2],
+  );
+  const capture = await getCapturePreview(database, {
+    userId: owner.id,
+    evidenceId: review!.candidates[0].evidence_id,
+  });
+  assert.deepEqual(
+    capture?.candidates[0].migration_sources.map(({ source_position }) => source_position),
+    [1, 2],
+  );
+  const activity = await listProjectMigrationActivity(database, {
+    userId: owner.id,
+    projectId,
+  });
+  assert.equal(activity?.length, 1);
+  const exported = await exportProjectData(database, { userId: owner.id, projectId });
+  assert.equal(exported?.migrations[0].source_objects.length, 4);
+  assert.equal(exported?.migrations[0].source_relationships.length, 1);
+  assert.equal(exported?.migrations[0].candidate_sources.length, 2);
+  const webArtifacts = await searchProjectArtifacts(database, {
+    userId: owner.id,
+    projectId,
+    categories: [],
+    tags: [],
+    sources: [],
+    artifact_types: [],
+    timeline: "all_time",
+    lifecycle: "active",
+    limit: 20,
+    include_unverified_imports: true,
+  });
+  assert.equal(webArtifacts?.results.length, 1);
+  assert.equal(webArtifacts?.results[0].authority, "IMPORTED_UNVERIFIED");
+  const hostArtifacts = await searchAliceArtifacts(database, {
+    userId: owner.id,
+    connectionId: connection.connectionId,
+    project_id: projectId,
+    categories: [],
+    tags: [],
+    sources: [],
+    artifact_types: [],
+    timeline: "all_time",
+    lifecycle: "active",
+    limit: 20,
+  });
+  assert.equal(hostArtifacts.results.length, 0);
+
+  const addPreview = await createProjectMigrationPreview(database, {
+    userId: owner.id,
+    ...connection,
+    payload: {
+      alice_project_name: "Ignored for existing destination",
+      supplied_material: [
+        { kind: "message", content: "Add this chat.", capture_state: "content_only" },
+      ],
+      idempotency_key: "source-aware-migration-add-existing",
+    },
+  });
+  assert.ok(addPreview);
+  const added = await commitProjectMigrationPreview(database, {
+    userId: owner.id,
+    ...connection,
+    publicUrl: "https://app.alice.example",
+    previewId: addPreview.preview.preview_id,
+    previewVersion: addPreview.preview.preview_version,
+    authorityToken: addPreview.authority_token,
+    destinationAction: "add_source_to_existing_project",
+    targetProject: owner.project_id,
+  });
+  assert.equal(added?.project.name, "Private project");
+  assert.equal(added?.destination_action, "add_source_to_existing_project");
+  const firstSourceObject = database
+    .prepare(
+      "SELECT id FROM migration_source_objects WHERE migration_session_id = ? ORDER BY source_position LIMIT 1",
+    )
+    .get(committed.migration_session_id).id;
+  const secondSourceObject = database
+    .prepare(
+      "SELECT id FROM migration_source_objects WHERE migration_session_id = ? ORDER BY source_position LIMIT 1",
+    )
+    .get(added!.migration_session_id).id;
+  assert.throws(() =>
+    database
+      .prepare(
+        `INSERT INTO migration_source_relationships
+          (id, workspace_id, project_id, migration_session_id,
+           from_source_object_id, to_source_object_id, relationship_type,
+           evidence_basis, created_at)
+         SELECT 'migration_relationship_cross_session', workspace_id, project_id, ?, ?, ?,
+                'contains', 'PROVIDER_SUPPLIED', ?
+         FROM migration_sessions WHERE id = ?`,
+      )
+      .run(
+        added!.migration_session_id,
+        firstSourceObject,
+        secondSourceObject,
+        new Date().toISOString(),
+        added!.migration_session_id,
+      ),
+  );
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM projects").get().count,
+    projectCountBefore + 1,
+  );
+
+  const emptyPreview = await createProjectMigrationPreview(database, {
+    userId: owner.id,
+    ...connection,
+    payload: {
+      alice_project_name: "Empty destination",
+      supplied_material: [
+        { kind: "message", content: "Do not retain this.", capture_state: "content_only" },
+      ],
+      idempotency_key: "source-aware-migration-empty",
+    },
+  });
+  assert.ok(emptyPreview);
+  const empty = await commitProjectMigrationPreview(database, {
+    userId: owner.id,
+    ...connection,
+    publicUrl: "https://app.alice.example",
+    previewId: emptyPreview.preview.preview_id,
+    previewVersion: emptyPreview.preview.preview_version,
+    authorityToken: emptyPreview.authority_token,
+    destinationAction: "create_empty_project",
+  });
+  assert.equal(empty?.fidelity.observed, 0);
+  assert.equal(empty?.destination_action, "create_empty_project");
+  assert.equal(
+    database
+      .prepare(
+        "SELECT COUNT(*) AS count FROM migration_source_records WHERE migration_session_id = ?",
+      )
+      .get(empty!.migration_session_id).count,
+    0,
+  );
+});
+
 test("ChatGPT-like MCP flow exposes preview, app-only Migrate, status, and equivalent safety text", async (t) => {
   const created = await createMcpApp({ database, publicUrl: "http://127.0.0.1" });
   const server = created.app.listen(0, "127.0.0.1");
@@ -403,9 +690,10 @@ test("ChatGPT-like MCP flow exposes preview, app-only Migrate, status, and equiv
   });
   const html = resource.payload.result.contents[0].text;
   assert.match(html, /Create an Alice copy/);
-  assert.match(html, /Nothing has been migrated yet/);
-  assert.match(html, /original.*project.*not renamed/);
+  assert.match(html, /Nothing has been created/);
+  assert.match(html, /original.*source.*not renamed/);
   assert.match(html, /alice_commit_project_migration/);
+  assert.match(html, /alice_workspace_snapshot/);
   assert.match(html, /get_project_migration_status/);
   assert.match(html, /unknown formats are not silently parsed/);
   assert.doesNotMatch(html, />Cancel</);
@@ -584,7 +872,7 @@ test("ChatGPT-like MCP flow exposes preview, app-only Migrate, status, and equiv
   assert.match(importedHtml, /<a[^>]+aria-current="page">Imported material<\/a>/);
   assert.match(importedHtml, /Immutable source/);
   assert.match(importedHtml, /Unverified host-derived material/);
-  assert.match(importedHtml, /Legacy acquisition boundary/);
+  assert.match(importedHtml, /Acquisition boundary/);
   assert.match(importedHtml, /Source scope<\/dt><dd>Unknown/);
   assert.match(importedHtml, /Completeness<\/dt><dd>Unknown/);
   assert.match(importedHtml, /Only this summary was supplied to Alice/);

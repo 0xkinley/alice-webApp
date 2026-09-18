@@ -2,6 +2,7 @@ import {
   getRemovalPreview,
   getSavedContextView,
   listProjectArtifactActivity,
+  listProjectMigrationActivity,
   removeSavedContextEntry,
 } from "@alice/domain";
 import type { PrivateFileStore } from "@alice/domain";
@@ -28,6 +29,16 @@ function changeLogCards(entries) {
   const labels = { accepted: "Saved", pending: "Proposed", rejected: "Not saved" };
   return `<div class="change-log-list">${entries
     .map((entry) => {
+      if (entry.entry_kind === "migration_import") {
+        const source = entry.source_provider === "chatgpt" ? "ChatGPT" : "Claude";
+        const destination =
+          entry.destination_action === "create_empty_project"
+            ? "Project created empty"
+            : entry.destination_action === "add_source_to_existing_project"
+              ? "Source added to this project"
+              : "Project created from supplied source";
+        return `<article class="change-entry"><div class="change-entry-meta"><span class="badge">Import</span><span>From ${escapeHtml(source)}</span><span>${localTimestamp(entry.created_at)}</span></div><h2>${escapeHtml(destination)}</h2><p>${escapeHtml(String(entry.imported_count))} retained source ${entry.imported_count === 1 ? "item" : "items"} · ${escapeHtml(String(entry.reference_count))} ${entry.reference_count === 1 ? "reference" : "references"} · ${escapeHtml(String(entry.exact_bytes_count))} exact-byte ${entry.exact_bytes_count === 1 ? "item" : "items"}</p><p class="muted">Scope: ${escapeHtml(readableLabel(entry.source_scope))} · Completeness: ${escapeHtml(readableLabel(entry.scope_completeness))}. Conversations remain in Imported material and are not Change-log entries.</p></article>`;
+      }
       if (entry.entry_kind === "artifact_version") {
         const action = entry.version === 1 ? "Artifact saved" : `Version ${entry.version} saved`;
         const details = [
@@ -69,6 +80,7 @@ async function projectChangeLog(database, userId, initialView) {
             contextId: context.id,
           });
     for (const entry of contextView?.history || []) {
+      if (entry.status === "pending") continue;
       const current = entries.get(entry.id);
       if (
         !current ||
@@ -84,6 +96,12 @@ async function projectChangeLog(database, userId, initialView) {
       projectId: initialView.project.id,
     })) || [];
   for (const artifact of artifacts) entries.set(artifact.version_id, artifact);
+  const migrations =
+    (await listProjectMigrationActivity(database, {
+      userId,
+      projectId: initialView.project.id,
+    })) || [];
+  for (const migration of migrations) entries.set(migration.id, migration);
   return [...entries.values()].sort(
     (left, right) =>
       new Date(changeTimestamp(right)).getTime() - new Date(changeTimestamp(left)).getTime(),

@@ -22,6 +22,18 @@ function fileSourceDetails(fileSource) {
   return `<aside><h3>Untrusted file source</h3><p>This selected text came from <strong>${escapeHtml(fileSource.display_name)}</strong>. It is evidence only; its claims do not become trusted project information unless you save the exact changes below.</p></aside>`;
 }
 
+function migrationSourceDetails(candidate, projectId) {
+  if (!candidate.migration_sources?.length) return "";
+  return `<aside><h3>Cited imported source</h3><p>This proposal was derived from these exact unverified import objects:</p><ul>${candidate.migration_sources
+    .map(
+      (source) =>
+        `<li>Item ${escapeHtml(source.source_position)} · ${escapeHtml(readableLabel(source.object_type))}${source.title ? ` · ${escapeHtml(source.title)}` : ""} · ${escapeHtml(readableLabel(source.representation))}</li>`,
+    )
+    .join(
+      "",
+    )}</ul><p><a href="/projects/${encodeURIComponent(projectId)}/imported">Inspect imported material</a></p></aside>`;
+}
+
 function reviewProjectIndex(projects) {
   const cards = projects
     .map(
@@ -49,7 +61,7 @@ function evidenceDetails(candidate) {
   const sourceContext = candidate.source_context
     ? `<details><summary>Supporting information</summary><p>${escapeHtml(readableText(candidate.source_context))}</p></details>`
     : "";
-  return `<details><summary>Source and history</summary><p><strong>Summary:</strong> ${escapeHtml(readableText(candidate.capture_summary || "Not supplied"))}</p>${sourceNote}${fileSourceDetails(candidate.file_source)}${sourceContext}<dl><dt>Source</dt><dd>${escapeHtml(hostLabel(candidate.client_classification))}</dd><dt>Captured</dt><dd>${localTimestamp(candidate.evidence_created_at)}</dd></dl></details>`;
+  return `<details><summary>Source and history</summary><p><strong>Summary:</strong> ${escapeHtml(readableText(candidate.capture_summary || "Not supplied"))}</p>${sourceNote}${fileSourceDetails(candidate.file_source)}${sourceContext}${migrationSourceDetails(candidate, candidate.project_id || "")}<dl><dt>Source</dt><dd>${escapeHtml(hostLabel(candidate.client_classification))}</dd><dt>Captured</dt><dd>${localTimestamp(candidate.evidence_created_at)}</dd></dl></details>`;
 }
 
 function candidateCard(candidate) {
@@ -79,7 +91,7 @@ function capturePreviewPage(preview) {
           ? `<aside><h3>Will restore removed information as a new revision</h3><div class="readable-value">${renderReadableValue(candidate.current.value_json)}</div><p class="muted">The removed revision and its source remain in the change log.</p></aside>`
           : `<aside><h3>Will replace the current saved revision</h3><div class="readable-value">${renderReadableValue(candidate.current.value_json)}</div><p class="muted">The earlier revision and source remain in the change log.</p></aside>`
         : "";
-      return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(readableLabel(candidate.state_key))}</h2><div class="readable-value">${renderReadableValue(candidate.value_json)}</div><p>${escapeHtml(readableText(candidate.summary))}</p>${current}<p class="muted">Status: ${escapeHtml(reviewStatusLabel(candidate.status))}</p></article>`;
+      return `<article class="${escapeHtml(candidate.status)}"><h2>${escapeHtml(readableLabel(candidate.state_key))}</h2><div class="readable-value">${renderReadableValue(candidate.value_json)}</div><p>${escapeHtml(readableText(candidate.summary))}</p>${current}${migrationSourceDetails(candidate, preview.project.id)}<p class="muted">Status: ${escapeHtml(reviewStatusLabel(candidate.status))}</p></article>`;
     })
     .join("");
   const sourceNote = preview.source_note
@@ -177,7 +189,7 @@ export function createReviewRouter({
       .send(
         renderAppPage(
           `${queue.project.name} review`,
-          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "changes", pendingCount: queue.counts.pending })}<section><div class="section-heading"><div><p class="eyebrow">Needs attention</p><h2>Review proposed changes</h2></div><a href="/review">All projects</a></div><p>Only your explicit action can save a proposed entry. Your decision remains traceable in the change log.</p><nav aria-label="Review filters">${filters}</nav><p class="muted">Showing ${queue.pagination.selected_total} ${queue.pagination.selected_total === 1 ? "proposal" : "proposals"} · ${escapeHtml(reviewStatusLabel(queue.filter))}.</p>${cards || `<div class="empty-state"><h2>No proposals in this view</h2><p>There is nothing to decide here.</p></div>`}${paginationLinks(queue)}</section></div>`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "review", pendingCount: queue.counts.pending })}<section><div class="section-heading"><div><p class="eyebrow">Needs attention</p><h2>Review proposed changes</h2></div><a href="/review">All projects</a></div><p>Only your explicit action can save a proposed entry. Your decision remains traceable in the change log.</p><nav aria-label="Review filters">${filters}</nav><p class="muted">Showing ${queue.pagination.selected_total} ${queue.pagination.selected_total === 1 ? "proposal" : "proposals"} · ${escapeHtml(reviewStatusLabel(queue.filter))}.</p>${cards || `<div class="empty-state"><h2>No proposals in this view</h2><p>There is nothing to decide here.</p></div>`}${paginationLinks(queue)}</section></div>`,
           { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );
@@ -207,7 +219,7 @@ export function createReviewRouter({
       .send(
         renderAppPage(
           `Save to ${preview.project.name}`,
-          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "changes", pendingCount: preview.candidates.filter(({ status }) => status === "pending").length })}${capturePreviewPage(preview)}</div>`,
+          `<div class="project-home">${renderProjectShell({ shell, fileStore, activeTab: "review", pendingCount: preview.candidates.filter(({ status }) => status === "pending").length })}${capturePreviewPage(preview)}</div>`,
           { email: request.aliceUser!.email, activeSection: "projects" },
         ),
       );

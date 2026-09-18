@@ -44,7 +44,10 @@ const DELETE_TRIGGER_TABLES = [
   "host_file_save_transfer_completions",
   "host_file_save_transfer_intents",
   "migration_events",
+  "migration_candidate_sources",
   "migration_sessions",
+  "migration_source_objects",
+  "migration_source_relationships",
   "migration_source_records",
   "project_deletion_requests",
   "project_default_contexts",
@@ -312,12 +315,7 @@ async function deleteProjectRows(database, input, plan) {
   };
   const scoped = [plan.project.workspace_id, input.projectId];
   await remove(
-    "DELETE FROM migration_source_records WHERE workspace_id = ? AND project_id = ?",
-    ...scoped,
-  );
-  await remove("DELETE FROM migration_events WHERE workspace_id = ? AND project_id = ?", ...scoped);
-  await remove(
-    "DELETE FROM migration_sessions WHERE workspace_id = ? AND project_id = ?",
+    "DELETE FROM migration_candidate_sources WHERE workspace_id = ? AND project_id = ?",
     ...scoped,
   );
   await remove(
@@ -352,6 +350,23 @@ async function deleteProjectRows(database, input, plan) {
     ...scoped,
   );
   await remove("DELETE FROM artifacts WHERE workspace_id = ? AND project_id = ?", ...scoped);
+  await remove(
+    "DELETE FROM migration_source_relationships WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove(
+    "DELETE FROM migration_source_objects WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove(
+    "DELETE FROM migration_source_records WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
+  await remove("DELETE FROM migration_events WHERE workspace_id = ? AND project_id = ?", ...scoped);
+  await remove(
+    "DELETE FROM migration_sessions WHERE workspace_id = ? AND project_id = ?",
+    ...scoped,
+  );
   await remove(
     "DELETE FROM evidence_file_sources WHERE workspace_id = ? AND project_id = ?",
     ...scoped,

@@ -35,21 +35,53 @@ function captureCopy(state: string): string {
   return "Content only · Original bytes unavailable";
 }
 
+function sourceScopeCopy(scope: string): string {
+  if (scope === "conversation") return "One supplied conversation";
+  if (scope === "provider_project") return "Provider project material";
+  return "Unknown supplied scope";
+}
+
+function itemGroup(kind: string): string {
+  if (kind === "message") return "Conversations";
+  if (kind === "instruction") return "Instructions";
+  if (kind === "artifact" || kind === "artifact_reference" || kind === "file_reference") {
+    return "Artifacts and file references";
+  }
+  return "Other supplied material";
+}
+
+function importedItems(items): string {
+  const groups = new Map<string, any[]>();
+  for (const item of items) {
+    const group = itemGroup(item.kind);
+    groups.set(group, [...(groups.get(group) || []), item]);
+  }
+  return [...groups.entries()]
+    .map(
+      ([group, grouped]) =>
+        `<section class="imported-group"><h3>${escapeHtml(group)}</h3><ol class="imported-material-list">${grouped
+          .map(
+            (item) =>
+              `<li><article class="imported-item"><div class="imported-item-meta"><span class="badge">${escapeHtml(readableLabel(item.kind))}</span><span>${escapeHtml(readableLabel(item.representation))}</span><span>${escapeHtml(readableLabel(item.completeness))}</span><span>${escapeHtml(captureCopy(item.capture_state))}</span>${item.speaker ? `<span>Speaker · ${escapeHtml(item.speaker)}</span>` : ""}${item.occurred_at ? `<span>Source time · ${escapeHtml(item.occurred_at)}</span>` : ""}</div>${item.title ? `<h4>${escapeHtml(item.title)}</h4>` : ""}<div class="artifact-body">${escapeHtml(item.content)}</div><p class="muted">Unverified source material · Item ${escapeHtml(item.position)}</p></article></li>`,
+          )
+          .join("")}</ol></section>`,
+    )
+    .join("");
+}
+
 function importedSession(session): string {
   const fidelity = session.fidelity;
   const sourceName = providerName(session.source.provider);
-  const itemList = session.items
-    .map(
-      (item) =>
-        `<li><article class="imported-item"><div class="imported-item-meta"><span class="badge">${escapeHtml(readableLabel(item.kind))}</span><span>${escapeHtml(captureCopy(item.capture_state))}</span>${item.speaker ? `<span>Speaker · ${escapeHtml(item.speaker)}</span>` : ""}${item.occurred_at ? `<span>Source time · ${escapeHtml(item.occurred_at)}</span>` : ""}</div><div class="artifact-body">${escapeHtml(item.content)}</div><p class="muted">Unverified host-derived material · Item ${escapeHtml(item.position)}</p></article></li>`,
-    )
-    .join("");
+  const itemList = importedItems(session.items);
   const sourceWarning = session.source_readable
     ? ""
     : '<p class="notice danger" role="alert">At least one retained source record could not be displayed safely. The immutable record remains preserved for authorized export and investigation.</p>';
   const status =
     session.status === "COMPLETE" ? "Ready for supplied scope" : readableLabel(session.status);
-  return `<section class="import-session"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(sourceName)} import</p><h2>${escapeHtml(session.source.project_name || "Provider project name not supplied")}</h2></div><span class="badge">${escapeHtml(status)}</span></div><dl><dt>Imported</dt><dd>${localTimestamp(session.created_at)}</dd><dt>Authority</dt><dd>Unverified host-derived material</dd><dt>Source scope</dt><dd>Unknown</dd><dt>Completeness</dt><dd>Unknown</dd></dl><aside class="notice warning"><strong>Legacy acquisition boundary</strong><p>This import predates Alice's bounded source-scope fields. Alice cannot establish whether the supplied material represented a provider project, one conversation, or another bounded selection. Counts describe only what Alice received.</p></aside><div class="signal-grid">${fidelityItem("Observed", fidelity.observed)}${fidelityItem("Retained", fidelity.imported)}${fidelityItem("Exact bytes", fidelity.exact_bytes)}${fidelityItem("Content only", fidelity.content_only)}${fidelityItem("References", fidelity.references)}${fidelityItem("Missing", fidelity.missing)}${fidelityItem("External", fidelity.external)}${fidelityItem("Alice-confirmed", fidelity.alice_confirmed)}</div>${sourceWarning}${itemList ? `<ol class="imported-material-list">${itemList}</ol>` : '<div class="empty-state"><h3>No readable imported items</h3><p>The migration record is retained, but no source item can be safely displayed from this session.</p></div>'}</section>`;
+  const boundary = session.scope.legacy
+    ? `<aside class="notice warning"><strong>Legacy acquisition boundary</strong><p>This import predates Alice's bounded source-scope fields. Alice cannot establish whether the supplied material represented a provider project, one conversation, or another bounded selection. Counts describe only what Alice received.</p></aside>`
+    : `<aside class="notice warning"><strong>Acquisition boundary</strong><p>${session.scope.source_scope === "conversation" ? "Alice received one supplied conversation; no surrounding provider project context was established." : "The host did not provide evidence strong enough for Alice to claim a complete provider project."} Completeness is ${escapeHtml(readableLabel(session.scope.scope_completeness))}; counts describe only what Alice received.</p></aside>`;
+  return `<section class="import-session"><div class="section-heading"><div><p class="eyebrow">${escapeHtml(sourceName)} import</p><h2>${escapeHtml(session.source.project_name || "Provider project name not supplied")}</h2></div><span class="badge">${escapeHtml(status)}</span></div><dl><dt>Imported</dt><dd>${localTimestamp(session.created_at)}</dd><dt>Authority</dt><dd>Unverified host-derived material</dd><dt>Source scope</dt><dd>${escapeHtml(sourceScopeCopy(session.scope.source_scope))}</dd><dt>Scope basis</dt><dd>${escapeHtml(readableLabel(session.scope.scope_basis))}</dd><dt>Completeness</dt><dd>${escapeHtml(readableLabel(session.scope.scope_completeness))}</dd><dt>Destination action</dt><dd>${escapeHtml(readableLabel(session.destination_action))}</dd></dl>${boundary}<div class="signal-grid">${fidelityItem("Observed", fidelity.observed)}${fidelityItem("Retained", fidelity.imported)}${fidelityItem("Exact bytes", fidelity.exact_bytes)}${fidelityItem("Content only", fidelity.content_only)}${fidelityItem("References", fidelity.references)}${fidelityItem("Missing", fidelity.missing)}${fidelityItem("External", fidelity.external)}${fidelityItem("Alice-confirmed", fidelity.alice_confirmed)}</div>${sourceWarning}${itemList || '<div class="empty-state"><h3>No imported source retained</h3><p>This project was created empty, or no source item can be displayed safely.</p></div>'}</section>`;
 }
 
 export function createProjectMigrationsRouter({

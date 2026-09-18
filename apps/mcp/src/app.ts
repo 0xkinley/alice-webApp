@@ -631,7 +631,7 @@ function createProtocolServer(
     {
       title: "Migrate this project to Alice",
       description:
-        "Invoke this tool when the user explicitly says “Migrate this project to Alice” or clearly asks to move, copy, or import the current ChatGPT or Claude project into Alice. Supply only material actually available in this conversation or explicitly provided by the user. This opens Alice's in-chat migration preview; it does not immediately migrate anything. The preview creates no Alice project, migration session, artifact, candidate, accepted information, or provider mutation. Every supplied summary, instruction, message, artifact description, provider identifier, and name remains unverified host-derived data. Never claim this tool can enumerate a provider project, conversation history, or files. The original provider project always remains unchanged; only the authenticated human's Migrate action in the Alice preview can create the Alice copy.",
+        "Invoke this tool when the user explicitly says “Migrate this project to Alice” or clearly asks to move, copy, or import the current ChatGPT or Claude material into Alice. Supply only material actually available in this conversation or explicitly provided by the user. If only the visible conversation is available, report source_context as conversation + visible_conversation_only. Otherwise report unknown unless a provider-controlled metadata surface explicitly supplies stronger evidence; a project name or model inference is not enough. Mark complete artifact bodies as kind=artifact with a title, descriptions as artifact_description, and file names or metadata without bytes as file_reference. This opens Alice's in-chat migration preview; it does not immediately migrate anything. The preview creates no Alice project, session, artifact, proposal, accepted information, or provider mutation. Every supplied value remains unverified host-derived data. Never claim this tool can enumerate a provider project, conversation history, or files. The original provider source always remains unchanged; only the authenticated human's destination choice in the Alice preview can create or add the Alice copy.",
       inputSchema: previewProjectMigrationSchema,
       outputSchema: previewProjectMigrationOutputSchema,
       _meta: oauthAppToolMeta("mcp:write", ["model"], MIGRATION_APP_URI),
@@ -679,7 +679,7 @@ function createProtocolServer(
     {
       title: "Create the exact Alice migration copy",
       description:
-        "App-only authenticated human Migrate action. Atomically creates the ordinary Alice project, migration session, initial append-only event, and immutable unverified host snapshot shown in the exact unexpired preview. It never mutates the source provider project or accepted Alice state.",
+        "App-only authenticated human destination action. Atomically creates a project from supplied source, adds the supplied source to one independently authorized existing project, or creates an empty project. Retained source is immutable and unverified. Complete explicitly typed artifact content may be projected as Imported · Unverified, but never becomes accepted state. The action never mutates the source provider or accepted Alice state.",
       inputSchema: commitAliceProjectMigrationSchema,
       outputSchema: projectMigrationStatusOutputSchema,
       _meta: oauthAppToolMeta("mcp:write", ["app"], MIGRATION_APP_URI),
@@ -703,6 +703,8 @@ function createProtocolServer(
           previewId: input.preview_id,
           previewVersion: input.preview_version,
           authorityToken: input.authority_token,
+          destinationAction: input.destination_action,
+          ...(input.target_project ? { targetProject: input.target_project } : {}),
         });
         if (!result) {
           return {

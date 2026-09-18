@@ -1,6 +1,6 @@
 # Project Migration Foundation
 
-Status: Controlled bootstrap/import source foundation implemented and locally verified; further migration implementation and hosted rollout paused pending the empirical provider-acquisition test; dated backup-expiry proof completed for Milestone 06.5
+Status: Controlled bootstrap/import source foundation deployed; normalized source contract implemented locally; expanded hosted rollout and cross-host proof pending; dated backup-expiry proof completed for Milestone 06.5
 
 ## Decision
 
@@ -8,19 +8,54 @@ Alice currently implements a non-destructive controlled project bootstrap/import
 
 The broader Project Migration Engine proposal is roadmap input, not evidence that current provider surfaces can enumerate every conversation, file, instruction, or artifact. Conversely, the absence of current evidence is not proof that the hosts cannot expose useful project structure; the capability test must establish that boundary empirically.
 
-Further migration implementation and hosted rollout are paused until the dated, surface-specific capability protocol in `provider-project-acquisition-capability-test.md` is complete. Alice will choose a direct, hybrid, or provider-export acquisition path from observed tool-call evidence, not model self-report or an assumption that exports are necessary.
+The source contract may evolve without claiming provider-wide acquisition, but Alice will choose a direct, hybrid, or provider-export acquisition path only from the dated, surface-specific protocol in `provider-project-acquisition-capability-test.md`. A backend `COMPLETE` status means complete processing of supplied material, never proof of complete provider-project access.
 
 ## Product boundary correction — 2026-09-14
 
-The implemented payload contains an Alice project name, optional provider project identifiers/names, and at most 40 flat supplied text items. An item has a kind (`summary`, `instruction`, `message`, `artifact_description`, or `other`), content, optional speaker/time, and a capture state. It contains no structured conversation collection, message relationship, file bytes, artifact object, project-instruction object, or provider inventory.
+The deployed payload at this checkpoint contained an Alice project name, optional provider project identifiers/names, and at most 40 flat supplied text items. An item had a kind (`summary`, `instruction`, `message`, `artifact_description`, or `other`), content, optional speaker/time, and a capture state. It contained no structured conversation collection, message relationship, file bytes, artifact object, project-instruction object, or provider inventory.
 
-On commit, Alice stores the complete supplied-material array as one immutable, content-hashed `HOST_SNAPSHOT`. It does not normalize that snapshot into independently addressable conversations, messages, files, artifacts, or instructions. Opening the resulting Alice project therefore shows the ordinary project shell and supplied-scope migration status; Change log, Files, and accepted project information remain empty until their existing explicit Alice flows are used.
+On commit, that deployed version stored the complete supplied-material array as one immutable, content-hashed `HOST_SNAPSHOT` without normalized source objects. The 2026-09-18 local contract expansion below supersedes that limitation while preserving the original raw record and trust boundary.
 
 The preview's 30-minute duration is the lifetime of the human approval opportunity. It is not a request for, or preview of, the last 30 minutes of provider activity.
 
 `VERIFYING` currently denotes bounded processing/capture-state checks, not semantic correctness or truth verification. Fidelity counters count only items in the supplied payload: they cannot compare received material with the provider's complete inventory. Exact same intent/payload retries deduplicate; changed content under the same key fails closed. The foundation does not merge an earlier conversation snapshot with later messages.
 
 Consequently, neither an orchestration status of `COMPLETE` nor a fully retained supplied payload is evidence that a provider project was migrated completely. Product copy must use controlled bootstrap/import language until the acquisition, normalization, and continuation gates below pass.
+
+## Normalized source expansion — 2026-09-18
+
+Migration contract `1.1` and additive database migration `030` are implemented and
+verified locally. They retain the exact immutable `HOST_SNAPSHOT` while appending
+individually addressable source objects for messages, instructions, complete
+artifact content, descriptions, file references, summaries, and other supplied
+material. Ordering is the supplied array position; optional titles, speakers,
+timestamps, conversation/provider identifiers, and bounded relationships remain
+missing unless supplied.
+
+Reported host scope and completeness are stored separately from conservative
+backend-effective fields. Conversation scope becomes effective only for the bounded
+`conversation + visible_conversation_only` combination. A host claim of provider
+project scope does not become effective provider-project evidence without a trusted
+provider metadata channel. Legacy sessions backfill as `unknown`/`unavailable`.
+
+The human migration card independently authorizes one of three destination actions:
+create a project from the supplied source, add source to an existing writable Alice
+project, or create an empty project. The model-visible preview still creates no
+project or durable source state.
+
+Complete typed artifact content may project into the existing artifact model with
+`IMPORTED_UNVERIFIED` authority and a source-object link. Those versions are visible
+to the human as `Imported · Unverified` but excluded from normal AI artifact
+retrieval until a separate human-authorized trust action. Descriptions and file
+references do not create content or bytes. The text migration contract still cannot
+receive original bytes; Files remains governed by the existing authorized,
+scan-gated byte path.
+
+Bounded proposed claims require citations to immutable source positions. Commit
+stores the exact proposal envelope as evidence and creates only pending candidates
+in the existing Review queue. Accepted state remains empty until an authenticated
+human review. Imported conversations stay in Imported material, while Change log
+shows one concise content-free import event per session.
 
 ## Required information layers
 

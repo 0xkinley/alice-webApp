@@ -138,6 +138,7 @@ export {
   createProjectMigrationPreview,
   getProjectImportedMaterial,
   getProjectMigrationStatus,
+  listProjectMigrationActivity,
   MIGRATION_PREVIEW_LIFETIME_MS,
   PROJECT_MIGRATION_VERSION,
   ProjectMigrationUserError,

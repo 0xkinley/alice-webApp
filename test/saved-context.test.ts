@@ -187,14 +187,12 @@ test("legacy saved-information links open the project change log", async () => {
 });
 
 test("Needs attention links to the exact preview and History explains prior outcomes", async () => {
-  const attention = await fetch(
-    `${baseUrl}/projects/${owner.project_id}/saved-context?context_id=${general.id}&view=attention`,
-    { headers: { cookie } },
-  );
+  const attention = await fetch(`${baseUrl}/review?project_id=${owner.project_id}&status=pending`, {
+    headers: { cookie },
+  });
   const attentionHtml = await attention.text();
   assert.match(attentionHtml, /Visible pending value/);
   assert.match(attentionHtml, new RegExp(`/review/captures/${pendingEvidenceId}`));
-  assert.match(attentionHtml, /Visible saved value|Visible not-saved value/);
 
   const removed = await fetch(
     `${baseUrl}/projects/${owner.project_id}/saved-context?context_id=${general.id}&view=removed`,
@@ -202,16 +200,15 @@ test("Needs attention links to the exact preview and History explains prior outc
   );
   assert.match(await removed.text(), /Latest changes/);
 
-  const history = await fetch(
-    `${baseUrl}/projects/${owner.project_id}/saved-context?context_id=${general.id}&view=history`,
-    { headers: { cookie } },
-  );
+  const history = await fetch(`${baseUrl}/review?project_id=${owner.project_id}&status=all`, {
+    headers: { cookie },
+  });
   const historyHtml = await history.text();
   assert.match(historyHtml, /Visible saved value/);
   assert.match(historyHtml, /Visible pending value/);
   assert.match(historyHtml, /Visible not-saved value/);
   assert.match(historyHtml, /Saved/);
-  assert.match(historyHtml, /Proposed/);
+  assert.match(historyHtml, /Needs attention/);
   assert.match(historyHtml, /Not saved/);
 });
 
@@ -267,6 +264,7 @@ test("change log renders readable updates with AI sources and browser-local time
   assert.match(html, /Approved<\/dt><dd><p>Yes<\/p>/);
   assert.match(html, /Next steps/);
   assert.match(html, /Review launch/);
+  assert.doesNotMatch(html, /Visible pending value|>Proposed</);
   assert.match(html, /<time datetime="\d{4}-\d{2}-\d{2}T[^"]+" data-local-time>/);
   assert.match(html, /Intl\.DateTimeFormat\(undefined/);
   assert.doesNotMatch(html, /<pre>|\*\*|&lt;b&gt;|\]\(https:\/\/example\.invalid\)/);

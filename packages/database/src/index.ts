@@ -301,6 +301,9 @@ export async function configureApplicationRole(
     await database.exec(
       `REVOKE UPDATE, DELETE ON TABLE ${schema}.migration_events, ${schema}.migration_source_records FROM ${role}`,
     );
+    await database.exec(
+      `REVOKE UPDATE, DELETE ON TABLE ${schema}.migration_source_objects, ${schema}.migration_source_relationships, ${schema}.migration_candidate_sources FROM ${role}`,
+    );
     await database.exec(`REVOKE ALL ON TABLE ${schema}.project_erasure_jobs FROM ${role}`);
     await database.exec(
       `REVOKE INSERT, UPDATE, DELETE ON TABLE ${schema}.alice_schema_migrations FROM ${role}`,

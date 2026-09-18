@@ -19,7 +19,7 @@ export const consumptionContractVersion = "2.4";
 export const fileTextReadContractVersion = "1.0";
 export const pdfFileReadContractVersion = "1.0";
 export const pdfExtractionVersion = "pdfjs_embedded_text_v1";
-export const migrationContractVersion = "1.0";
+export const migrationContractVersion = "1.1";
 
 export const consumptionValidationLimits = Object.freeze({
   taskCharacters: 2_000,
@@ -129,12 +129,105 @@ export const migrationCaptureStates = [
   "external",
 ] as const;
 
+export const migrationSourceScopes = ["provider_project", "conversation", "unknown"] as const;
+export const migrationScopeBases = [
+  "provider_metadata",
+  "explicit_tool_context",
+  "user_statement",
+  "visible_conversation_only",
+  "unavailable",
+] as const;
+export const migrationScopeCompleteness = [
+  "provider_claimed_complete",
+  "bounded_complete",
+  "partial",
+  "unknown",
+] as const;
+export const migrationCompletenessBases = [
+  "provider_metadata",
+  "explicit_tool_result",
+  "observed_truncation",
+  "user_statement",
+  "unavailable",
+] as const;
+export const migrationDestinationActions = [
+  "create_project_from_source",
+  "add_source_to_existing_project",
+  "create_empty_project",
+] as const;
+export const migrationRelationshipTypes = [
+  "contains",
+  "replies_to",
+  "attached_to",
+  "produced",
+  "version_of",
+  "reported_supersedes",
+] as const;
+
+export const migrationSourceContextSchema = z
+  .object({
+    reported_scope: z.enum(migrationSourceScopes).default("unknown"),
+    scope_basis: z.enum(migrationScopeBases).default("unavailable"),
+    reported_completeness: z.enum(migrationScopeCompleteness).default("unknown"),
+    completeness_basis: z.enum(migrationCompletenessBases).default("unavailable"),
+  })
+  .strict()
+  .superRefine((contextValue, context) => {
+    const scopeBasisAllowed =
+      contextValue.reported_scope === "unknown"
+        ? contextValue.scope_basis === "unavailable"
+        : contextValue.reported_scope === "provider_project"
+          ? new Set(["provider_metadata", "explicit_tool_context", "user_statement"]).has(
+              contextValue.scope_basis,
+            )
+          : contextValue.scope_basis !== "unavailable";
+    if (!scopeBasisAllowed) {
+      context.addIssue({
+        code: "custom",
+        path: ["scope_basis"],
+        message: "Source scope and evidence basis are inconsistent.",
+      });
+    }
+    const completenessBasisAllowed =
+      contextValue.reported_completeness === "unknown"
+        ? contextValue.completeness_basis === "unavailable"
+        : contextValue.reported_completeness === "provider_claimed_complete"
+          ? contextValue.completeness_basis === "provider_metadata"
+          : contextValue.reported_completeness === "bounded_complete"
+            ? contextValue.completeness_basis === "explicit_tool_result"
+            : contextValue.completeness_basis !== "unavailable";
+    if (!completenessBasisAllowed) {
+      context.addIssue({
+        code: "custom",
+        path: ["completeness_basis"],
+        message: "Source completeness and evidence basis are inconsistent.",
+      });
+    }
+  })
+  .default({
+    reported_scope: "unknown",
+    scope_basis: "unavailable",
+    reported_completeness: "unknown",
+    completeness_basis: "unavailable",
+  });
+
 export const migrationSuppliedMaterialSchema = z
   .object({
-    kind: z.enum(["summary", "instruction", "message", "artifact_description", "other"]),
+    kind: z.enum([
+      "summary",
+      "instruction",
+      "message",
+      "artifact",
+      "artifact_description",
+      "file_reference",
+      "other",
+    ]),
     content: z.string().trim().min(1).max(12_000),
+    title: z.string().trim().min(1).max(200).optional(),
     speaker: z.string().trim().min(1).max(120).optional(),
     occurred_at: z.string().trim().min(1).max(64).optional(),
+    conversation_id: z.string().trim().min(1).max(240).optional(),
+    provider_item_id: z.string().trim().min(1).max(240).optional(),
     capture_state: z
       .enum(["content_only", "reference", "missing", "external"])
       .default("content_only"),
@@ -146,12 +239,54 @@ export const migrationSuppliedMaterialListSchema = z
   .min(1)
   .max(40);
 
+export const migrationSourceRelationshipSchema = z
+  .object({
+    from_position: z.number().int().min(1).max(40),
+    to_position: z.number().int().min(1).max(40),
+    relationship_type: z.enum(migrationRelationshipTypes),
+  })
+  .strict()
+  .refine((relationship) => relationship.from_position !== relationship.to_position, {
+    message: "A source item cannot relate to itself.",
+  });
+
+export const migrationProposedClaimSchema = z
+  .object({
+    state_key: z
+      .string()
+      .trim()
+      .min(1)
+      .max(captureValidationLimits.stateKeyCharacters)
+      .regex(stateKeyPattern),
+    value: z.json().superRefine((value, context) => {
+      const inspected = inspectJsonValue(value);
+      if (inspected.bytes > captureValidationLimits.valueBytes) {
+        context.addIssue({ code: "custom", message: "Migration proposal value is too large." });
+      }
+      if (inspected.depth > captureValidationLimits.valueDepth) {
+        context.addIssue({ code: "custom", message: "Migration proposal value is too deep." });
+      }
+      if (inspected.nodes > captureValidationLimits.valueNodes) {
+        context.addIssue({ code: "custom", message: "Migration proposal value is too complex." });
+      }
+    }),
+    summary: z.string().trim().min(1).max(captureValidationLimits.candidateSummaryCharacters),
+    source_positions: z.array(z.number().int().min(1).max(40)).min(1).max(10),
+  })
+  .strict();
+
 export const previewProjectMigrationSchema = z
   .object({
     alice_project_name: z.string().trim().min(1).max(120),
     provider_project_id: z.string().trim().min(1).max(240).optional(),
     provider_project_name: z.string().trim().min(1).max(240).optional(),
+    source_context: migrationSourceContextSchema,
     supplied_material: migrationSuppliedMaterialListSchema,
+    source_relationships: z.array(migrationSourceRelationshipSchema).max(80).default([]),
+    proposed_claims: z
+      .array(migrationProposedClaimSchema)
+      .max(captureValidationLimits.candidateClaims)
+      .default([]),
     idempotency_key: z
       .string()
       .trim()
@@ -160,6 +295,46 @@ export const previewProjectMigrationSchema = z
       .regex(boundedIdentifierPattern),
   })
   .strict()
+  .superRefine((payload, context) => {
+    const relationshipKeys = new Set<string>();
+    for (const [index, relationship] of payload.source_relationships.entries()) {
+      if (
+        relationship.from_position > payload.supplied_material.length ||
+        relationship.to_position > payload.supplied_material.length
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["source_relationships", index],
+          message: "Every source relationship must reference supplied material items.",
+        });
+      }
+      const key = `${relationship.from_position}:${relationship.to_position}:${relationship.relationship_type}`;
+      if (relationshipKeys.has(key)) {
+        context.addIssue({
+          code: "custom",
+          path: ["source_relationships", index],
+          message: "Source relationships must be unique.",
+        });
+      }
+      relationshipKeys.add(key);
+    }
+    for (const [index, claim] of payload.proposed_claims.entries()) {
+      if (new Set(claim.source_positions).size !== claim.source_positions.length) {
+        context.addIssue({
+          code: "custom",
+          path: ["proposed_claims", index, "source_positions"],
+          message: "Proposal source positions must be unique.",
+        });
+      }
+      if (claim.source_positions.some((position) => position > payload.supplied_material.length)) {
+        context.addIssue({
+          code: "custom",
+          path: ["proposed_claims", index, "source_positions"],
+          message: "Every proposal citation must reference a supplied material item.",
+        });
+      }
+    }
+  })
   .refine(
     (payload) => Buffer.byteLength(JSON.stringify(payload), "utf8") <= 131_072,
     "Migration preview payload exceeds 131072 UTF-8 bytes.",
@@ -188,8 +363,22 @@ export const commitAliceProjectMigrationSchema = z
       .toLowerCase()
       .regex(/^[0-9a-f]{64}$/),
     authority_token: migrationAuthorityTokenSchema,
+    destination_action: z.enum(migrationDestinationActions).default("create_project_from_source"),
+    target_project: mcpProjectReferenceSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const adding = value.destination_action === "add_source_to_existing_project";
+    if (adding !== Boolean(value.target_project)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["target_project"],
+        message: adding
+          ? "Choose one exact existing Alice project."
+          : "An existing project target is allowed only for add_source_to_existing_project.",
+      });
+    }
+  });
 
 export const getProjectMigrationStatusSchema = z
   .object({
@@ -1044,6 +1233,19 @@ const migrationFidelitySchema = z
   })
   .strict();
 
+const migrationEffectiveScopeSchema = z
+  .object({
+    reported_source_scope: z.enum(migrationSourceScopes),
+    reported_scope_basis: z.enum(migrationScopeBases),
+    source_scope: z.enum(migrationSourceScopes),
+    scope_basis: z.enum(migrationScopeBases),
+    reported_scope_completeness: z.enum(migrationScopeCompleteness),
+    reported_completeness_basis: z.enum(migrationCompletenessBases),
+    scope_completeness: z.enum(migrationScopeCompleteness),
+    completeness_basis: z.enum(migrationCompletenessBases),
+  })
+  .strict();
+
 export const previewProjectMigrationOutputSchema = z
   .object({
     contract_version: z.literal(migrationContractVersion),
@@ -1052,8 +1254,10 @@ export const previewProjectMigrationOutputSchema = z
     status: z.literal("preview_only"),
     source_provider: z.enum(["chatgpt", "claude"]),
     provider_project_name: z.string().nullable(),
+    scope: migrationEffectiveScopeSchema,
     alice_project_name: z.string(),
     supplied_item_count: z.number().int().positive(),
+    proposed_claim_count: z.number().int().nonnegative(),
     source_authority: z.literal("UNVERIFIED_HOST_DERIVED"),
     original_unchanged: z.literal(true),
     project_created: z.literal(false),
@@ -1074,6 +1278,8 @@ export const projectMigrationStatusOutputSchema = z
         authority: z.literal("UNVERIFIED_HOST_DERIVED"),
       })
       .strict(),
+    scope: migrationEffectiveScopeSchema,
+    destination_action: z.enum(migrationDestinationActions),
     status: z.enum(["CREATED", "INGESTING", "VERIFYING", "COMPLETE", "PARTIAL", "FAILED"]),
     status_version: z.number().int().positive(),
     fidelity: migrationFidelitySchema,

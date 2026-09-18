@@ -338,12 +338,13 @@ test("versioned migration is repeatable on the same PostgreSQL schema", async ()
     { version: 27, filename: "027_artifact_lifecycle.sql" },
     { version: 28, filename: "028_artifact_decision_conflicts.sql" },
     { version: 29, filename: "029_project_migrations.sql" },
+    { version: 30, filename: "030_migration_source_contract.sql" },
   ]);
 
   const reopened = await openDatabase({ connectionString, schema, maxConnections: 2 });
   assert.equal(
     (await reopened.prepare("SELECT COUNT(*) AS count FROM alice_schema_migrations").get()).count,
-    29,
+    30,
   );
   await reopened.close();
 });
@@ -353,6 +354,12 @@ test("PostgreSQL constrains authenticated project migration state and immutable 
     alice_project_name: `PostgreSQL migration ${randomUUID()}`,
     provider_project_id: "postgres-provider-project",
     provider_project_name: "PostgreSQL source project",
+    source_context: {
+      reported_scope: "conversation",
+      scope_basis: "visible_conversation_only",
+      reported_completeness: "partial",
+      completeness_basis: "observed_truncation",
+    },
     supplied_material: [
       {
         kind: "message",
@@ -364,6 +371,15 @@ test("PostgreSQL constrains authenticated project migration state and immutable 
         kind: "artifact_description",
         content: "A source file was referenced but not supplied.",
         capture_state: "reference",
+      },
+    ],
+    source_relationships: [{ from_position: 1, to_position: 2, relationship_type: "produced" }],
+    proposed_claims: [
+      {
+        state_key: "project.migration_test",
+        value: { review: true },
+        summary: "Review this imported statement before it becomes trusted state.",
+        source_positions: [1],
       },
     ],
     idempotency_key: `postgres-migration-${randomUUID()}`,
@@ -409,6 +425,7 @@ test("PostgreSQL constrains authenticated project migration state and immutable 
   assert.equal(commits[1]?.migration_session_id, committed.migration_session_id);
   assert.equal(committed.status, "PARTIAL");
   assert.equal(committed.fidelity.alice_confirmed, 0);
+  assert.equal(committed.scope.source_scope, "conversation");
   const row = await database
     .prepare("SELECT project_id FROM migration_sessions WHERE id = ?")
     .get(committed.migration_session_id);
@@ -446,7 +463,27 @@ test("PostgreSQL constrains authenticated project migration state and immutable 
     migrationPayload.supplied_material[0].content,
   );
   assert.equal(imported?.sessions[0].items[1].capture_state, "reference");
-  assert.equal(imported?.sessions[0].scope.source_scope, "unknown");
+  assert.equal(imported?.sessions[0].scope.source_scope, "conversation");
+  assert.equal(
+    (
+      await database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM migration_source_relationships WHERE migration_session_id = ?",
+        )
+        .get(committed.migration_session_id)
+    ).count,
+    1,
+  );
+  assert.equal(
+    (
+      await database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM migration_candidate_sources WHERE migration_session_id = ?",
+        )
+        .get(committed.migration_session_id)
+    ).count,
+    1,
+  );
   assert.equal(
     await getProjectImportedMaterial(database, { userId: other.id, projectId: row.project_id }),
     undefined,
@@ -463,6 +500,10 @@ test("PostgreSQL constrains authenticated project migration state and immutable 
     database
       .prepare("DELETE FROM migration_events WHERE migration_session_id = ?")
       .run(committed.migration_session_id),
+    /immutable|permission denied/i,
+  );
+  await assert.rejects(
+    database.prepare("UPDATE migration_source_objects SET content = 'changed'").run(),
     /immutable|permission denied/i,
   );
   const retry = await transitionProjectMigration(database, {
@@ -888,13 +929,14 @@ test("migration 022 backfills a new empty default without rewriting legacy conte
       "utf8",
     );
     await upgrade.exec(migrationSql);
+    const contexts = await upgrade
+      .prepare(
+        `SELECT name, context_kind FROM work_contexts
+           WHERE project_id = 'legacy_project'`,
+      )
+      .all();
     assert.deepEqual(
-      await upgrade
-        .prepare(
-          `SELECT name, context_kind FROM work_contexts
-           WHERE project_id = 'legacy_project' ORDER BY name`,
-        )
-        .all(),
+      contexts.sort((left, right) => left.name.localeCompare(right.name)),
       [
         { name: "General", context_kind: "work" },
         { name: "Project-wide", context_kind: "project_wide" },
@@ -902,7 +944,7 @@ test("migration 022 backfills a new empty default without rewriting legacy conte
           name: "__alice_project_default_698a2f47b9a00cfff2391f04af0305ce",
           context_kind: "work",
         },
-      ],
+      ].sort((left, right) => left.name.localeCompare(right.name)),
     );
     const mapping = await upgrade
       .prepare(
@@ -2586,6 +2628,7 @@ test("privileged erasure removes exact project rows and unshared object versions
       migrationCreatedAt,
     );
   const migrationSource = JSON.stringify([{ kind: "summary", content: "Erase this Alice copy." }]);
+  const migrationSourceRecordId = `migration_source_erasure_${randomUUID()}`;
   await database
     .prepare(
       `INSERT INTO migration_source_records
@@ -2598,7 +2641,7 @@ test("privileged erasure removes exact project rows and unshared object versions
                'identity_v1', ?, ?, ?, ?, ?)`,
     )
     .run(
-      `migration_source_erasure_${randomUUID()}`,
+      migrationSourceRecordId,
       erasedProject.workspace_id,
       erasedProject.id,
       migrationSessionId,
@@ -2606,6 +2649,26 @@ test("privileged erasure removes exact project rows and unshared object versions
       createHash("sha256").update(migrationSource).digest("hex"),
       Buffer.byteLength(migrationSource),
       `migration-erasure-${randomUUID()}`,
+      migrationCreatedAt,
+    );
+  await database
+    .prepare(
+      `INSERT INTO migration_source_objects
+        (id, workspace_id, project_id, migration_session_id, source_record_id,
+         source_position, object_type, title, content, content_sha256,
+         content_utf8_bytes, speaker, occurred_at, conversation_id, provider_item_id,
+         representation, completeness, authority, capture_state, created_at)
+       VALUES (?, ?, ?, ?, ?, 1, 'summary', NULL, 'Erase this Alice copy.', ?, 22,
+               NULL, NULL, NULL, NULL, 'structured_content', 'complete',
+               'SOURCE_UNVERIFIED', 'CONTENT_ONLY', ?)`,
+    )
+    .run(
+      `migration_object_erasure_${randomUUID()}`,
+      erasedProject.workspace_id,
+      erasedProject.id,
+      migrationSessionId,
+      migrationSourceRecordId,
+      createHash("sha256").update("Erase this Alice copy.").digest("hex"),
       migrationCreatedAt,
     );
   const erasedContext = await getProjectDefaultContext(database, erasedProject.id);
@@ -2840,7 +2903,14 @@ test("privileged erasure removes exact project rows and unshared object versions
     ).count,
     0,
   );
-  for (const table of ["migration_sessions", "migration_events", "migration_source_records"]) {
+  for (const table of [
+    "migration_sessions",
+    "migration_events",
+    "migration_candidate_sources",
+    "migration_source_records",
+    "migration_source_objects",
+    "migration_source_relationships",
+  ]) {
     assert.equal(
       (
         await migrationDatabase

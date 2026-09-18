@@ -862,6 +862,10 @@ function createSchema(database: DatabaseSync) {
       source_connection_id TEXT NOT NULL,
       source_client_id TEXT NOT NULL,
       source_provider TEXT NOT NULL CHECK (source_provider IN ('chatgpt', 'claude')),
+      source_authority TEXT NOT NULL DEFAULT 'HUMAN_CONFIRMED' CHECK (
+        source_authority IN ('HUMAN_CONFIRMED', 'IMPORTED_UNVERIFIED')
+      ),
+      migration_source_object_id TEXT,
       saved_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
       idempotency_key TEXT NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
       payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256) = 64),
@@ -872,6 +876,13 @@ function createSchema(database: DatabaseSync) {
       FOREIGN KEY (
         source_connection_workspace_id, saved_by_user_id, source_connection_id, source_client_id
       ) REFERENCES integration_connections(workspace_id, user_id, id, client_id),
+      FOREIGN KEY (workspace_id, project_id, migration_source_object_id)
+        REFERENCES migration_source_objects(workspace_id, project_id, id),
+      CHECK (
+        (source_authority = 'HUMAN_CONFIRMED' AND migration_source_object_id IS NULL)
+        OR
+        (source_authority = 'IMPORTED_UNVERIFIED' AND migration_source_object_id IS NOT NULL)
+      ),
       CHECK (
         (content_storage_kind = 'inline_text'
           AND content_text IS NOT NULL
@@ -894,6 +905,9 @@ function createSchema(database: DatabaseSync) {
       ON artifact_versions (workspace_id, project_id, artifact_id, version DESC);
     CREATE INDEX artifact_versions_search
       ON artifact_versions (workspace_id, project_id, saved_at DESC, id DESC);
+    CREATE UNIQUE INDEX artifact_versions_migration_projection
+      ON artifact_versions (migration_source_object_id)
+      WHERE migration_source_object_id IS NOT NULL;
 
     CREATE TABLE artifact_save_previews (
       id TEXT PRIMARY KEY,
@@ -1068,6 +1082,51 @@ function createSchema(database: DatabaseSync) {
       provider_project_name TEXT CHECK (
         provider_project_name IS NULL OR length(provider_project_name) BETWEEN 1 AND 240
       ),
+      reported_source_scope TEXT NOT NULL DEFAULT 'unknown' CHECK (
+        reported_source_scope IN ('provider_project', 'conversation', 'unknown')
+      ),
+      reported_scope_basis TEXT NOT NULL DEFAULT 'unavailable' CHECK (
+        reported_scope_basis IN (
+          'provider_metadata', 'explicit_tool_context', 'user_statement',
+          'visible_conversation_only', 'unavailable'
+        )
+      ),
+      source_scope TEXT NOT NULL DEFAULT 'unknown' CHECK (
+        source_scope IN ('provider_project', 'conversation', 'unknown')
+      ),
+      scope_basis TEXT NOT NULL DEFAULT 'unavailable' CHECK (
+        scope_basis IN (
+          'provider_metadata', 'explicit_tool_context', 'user_statement',
+          'visible_conversation_only', 'unavailable'
+        )
+      ),
+      reported_scope_completeness TEXT NOT NULL DEFAULT 'unknown' CHECK (
+        reported_scope_completeness IN (
+          'provider_claimed_complete', 'bounded_complete', 'partial', 'unknown'
+        )
+      ),
+      reported_completeness_basis TEXT NOT NULL DEFAULT 'unavailable' CHECK (
+        reported_completeness_basis IN (
+          'provider_metadata', 'explicit_tool_result', 'observed_truncation',
+          'user_statement', 'unavailable'
+        )
+      ),
+      scope_completeness TEXT NOT NULL DEFAULT 'unknown' CHECK (
+        scope_completeness IN (
+          'provider_claimed_complete', 'bounded_complete', 'partial', 'unknown'
+        )
+      ),
+      completeness_basis TEXT NOT NULL DEFAULT 'unavailable' CHECK (
+        completeness_basis IN (
+          'provider_metadata', 'explicit_tool_result', 'observed_truncation',
+          'user_statement', 'unavailable'
+        )
+      ),
+      destination_action TEXT NOT NULL DEFAULT 'create_project_from_source' CHECK (
+        destination_action IN (
+          'create_project_from_source', 'add_source_to_existing_project', 'create_empty_project'
+        )
+      ),
       migration_version TEXT NOT NULL CHECK (length(migration_version) BETWEEN 1 AND 64),
       status TEXT NOT NULL CHECK (
         status IN ('CREATED', 'INGESTING', 'VERIFYING', 'COMPLETE', 'PARTIAL', 'FAILED')
@@ -1185,6 +1244,114 @@ function createSchema(database: DatabaseSync) {
 
     CREATE INDEX migration_source_records_session
       ON migration_source_records (workspace_id, project_id, migration_session_id, created_at, id);
+
+    CREATE TABLE migration_source_objects (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      migration_session_id TEXT NOT NULL,
+      source_record_id TEXT NOT NULL,
+      source_position INTEGER NOT NULL CHECK (source_position > 0),
+      object_type TEXT NOT NULL CHECK (object_type IN (
+        'summary', 'instruction', 'message', 'artifact', 'artifact_reference',
+        'file_reference', 'other'
+      )),
+      title TEXT CHECK (title IS NULL OR length(title) BETWEEN 1 AND 200),
+      content TEXT NOT NULL CHECK (length(content) BETWEEN 1 AND 12000),
+      content_sha256 TEXT CHECK (content_sha256 IS NULL OR length(content_sha256) = 64),
+      content_utf8_bytes INTEGER NOT NULL CHECK (content_utf8_bytes BETWEEN 1 AND 48000),
+      speaker TEXT CHECK (speaker IS NULL OR length(speaker) BETWEEN 1 AND 120),
+      occurred_at TEXT CHECK (occurred_at IS NULL OR length(occurred_at) BETWEEN 1 AND 64),
+      conversation_id TEXT CHECK (
+        conversation_id IS NULL OR length(conversation_id) BETWEEN 1 AND 240
+      ),
+      provider_item_id TEXT CHECK (
+        provider_item_id IS NULL OR length(provider_item_id) BETWEEN 1 AND 240
+      ),
+      representation TEXT NOT NULL CHECK (representation IN (
+        'structured_content', 'extracted_text', 'metadata', 'reference'
+      )),
+      completeness TEXT NOT NULL CHECK (completeness IN (
+        'complete', 'partial', 'unknown', 'unavailable'
+      )),
+      authority TEXT NOT NULL CHECK (authority = 'SOURCE_UNVERIFIED'),
+      capture_state TEXT NOT NULL CHECK (capture_state IN (
+        'CONTENT_ONLY', 'REFERENCE', 'MISSING', 'EXTERNAL'
+      )),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, migration_session_id)
+        REFERENCES migration_sessions(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, source_record_id)
+        REFERENCES migration_source_records(workspace_id, project_id, id),
+      UNIQUE (migration_session_id, source_record_id, source_position),
+      UNIQUE (workspace_id, project_id, migration_session_id, id),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX migration_source_objects_session
+      ON migration_source_objects (
+        workspace_id, project_id, migration_session_id, source_position, id
+      );
+
+    CREATE TABLE migration_source_relationships (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      migration_session_id TEXT NOT NULL,
+      from_source_object_id TEXT NOT NULL,
+      to_source_object_id TEXT NOT NULL,
+      relationship_type TEXT NOT NULL CHECK (relationship_type IN (
+        'contains', 'replies_to', 'attached_to', 'produced', 'version_of',
+        'reported_supersedes'
+      )),
+      evidence_basis TEXT NOT NULL CHECK (evidence_basis = 'PROVIDER_SUPPLIED'),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, migration_session_id)
+        REFERENCES migration_sessions(workspace_id, project_id, id),
+      FOREIGN KEY (
+        workspace_id, project_id, migration_session_id, from_source_object_id
+      ) REFERENCES migration_source_objects(
+        workspace_id, project_id, migration_session_id, id
+      ),
+      FOREIGN KEY (
+        workspace_id, project_id, migration_session_id, to_source_object_id
+      ) REFERENCES migration_source_objects(
+        workspace_id, project_id, migration_session_id, id
+      ),
+      CHECK (from_source_object_id <> to_source_object_id),
+      UNIQUE (
+        migration_session_id, from_source_object_id, to_source_object_id, relationship_type
+      ),
+      UNIQUE (workspace_id, project_id, id)
+    ) STRICT;
+
+    CREATE INDEX migration_source_relationships_session
+      ON migration_source_relationships (
+        workspace_id, project_id, migration_session_id, from_source_object_id, id
+      );
+
+    CREATE TABLE migration_candidate_sources (
+      candidate_id TEXT NOT NULL,
+      evidence_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      migration_session_id TEXT NOT NULL,
+      source_object_id TEXT NOT NULL,
+      cited_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id, project_id, candidate_id, evidence_id)
+        REFERENCES candidate_claims(workspace_id, project_id, id, evidence_id),
+      FOREIGN KEY (workspace_id, project_id, migration_session_id)
+        REFERENCES migration_sessions(workspace_id, project_id, id),
+      FOREIGN KEY (workspace_id, project_id, migration_session_id, source_object_id)
+        REFERENCES migration_source_objects(workspace_id, project_id, migration_session_id, id),
+      PRIMARY KEY (candidate_id, source_object_id),
+      UNIQUE (workspace_id, project_id, candidate_id, source_object_id)
+    ) STRICT;
+
+    CREATE INDEX migration_candidate_sources_session
+      ON migration_candidate_sources (
+        workspace_id, project_id, migration_session_id, candidate_id, source_object_id
+      );
 
     CREATE TABLE host_file_save_offer_authorities (
       id TEXT PRIMARY KEY,
@@ -1901,6 +2068,15 @@ function createSchema(database: DatabaseSync) {
       OR NEW.source_provider IS NOT OLD.source_provider
       OR NEW.provider_project_id IS NOT OLD.provider_project_id
       OR NEW.provider_project_name IS NOT OLD.provider_project_name
+      OR NEW.reported_source_scope IS NOT OLD.reported_source_scope
+      OR NEW.reported_scope_basis IS NOT OLD.reported_scope_basis
+      OR NEW.source_scope IS NOT OLD.source_scope
+      OR NEW.scope_basis IS NOT OLD.scope_basis
+      OR NEW.reported_scope_completeness IS NOT OLD.reported_scope_completeness
+      OR NEW.reported_completeness_basis IS NOT OLD.reported_completeness_basis
+      OR NEW.scope_completeness IS NOT OLD.scope_completeness
+      OR NEW.completeness_basis IS NOT OLD.completeness_basis
+      OR NEW.destination_action IS NOT OLD.destination_action
       OR NEW.migration_version IS NOT OLD.migration_version
       OR NEW.preview_id IS NOT OLD.preview_id
       OR NEW.intent_idempotency_key IS NOT OLD.intent_idempotency_key
@@ -1956,6 +2132,42 @@ function createSchema(database: DatabaseSync) {
     BEFORE DELETE ON migration_source_records
     BEGIN
       SELECT RAISE(ABORT, 'migration source records are immutable');
+    END;
+
+    CREATE TRIGGER migration_source_objects_no_update
+    BEFORE UPDATE ON migration_source_objects
+    BEGIN
+      SELECT RAISE(ABORT, 'migration source objects are immutable');
+    END;
+
+    CREATE TRIGGER migration_source_objects_no_delete
+    BEFORE DELETE ON migration_source_objects
+    BEGIN
+      SELECT RAISE(ABORT, 'migration source objects are immutable');
+    END;
+
+    CREATE TRIGGER migration_source_relationships_no_update
+    BEFORE UPDATE ON migration_source_relationships
+    BEGIN
+      SELECT RAISE(ABORT, 'migration source relationships are immutable');
+    END;
+
+    CREATE TRIGGER migration_source_relationships_no_delete
+    BEFORE DELETE ON migration_source_relationships
+    BEGIN
+      SELECT RAISE(ABORT, 'migration source relationships are immutable');
+    END;
+
+    CREATE TRIGGER migration_candidate_sources_no_update
+    BEFORE UPDATE ON migration_candidate_sources
+    BEGIN
+      SELECT RAISE(ABORT, 'migration candidate sources are immutable');
+    END;
+
+    CREATE TRIGGER migration_candidate_sources_no_delete
+    BEFORE DELETE ON migration_candidate_sources
+    BEGIN
+      SELECT RAISE(ABORT, 'migration candidate sources are immutable');
     END;
 
     CREATE TRIGGER host_file_save_offer_authorities_no_update

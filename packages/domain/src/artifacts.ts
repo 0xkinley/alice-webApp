@@ -91,7 +91,8 @@ function artifactRevisionQuery(extraWhere = "") {
                  revision.constraints_json,
                  revision.rejected_directions_json, revision.open_questions_json,
                  revision.next_steps_json, revision.relevant_context_json,
-                 revision.source_provider, revision.saved_at,
+                 revision.source_provider, revision.source_authority,
+                 revision.migration_source_object_id, revision.saved_at,
                  ${artifactLifecycleColumns()}
           FROM artifacts artifact
           JOIN artifact_versions revision
@@ -115,7 +116,9 @@ function currentArtifactRevisionQuery(extraWhere = "") {
 function currentArtifactSearchQuery() {
   return `SELECT artifact.id AS artifact_id, revision.version, revision.title,
                  revision.artifact_type, revision.category, revision.tags_json,
-                 revision.goal, revision.summary, revision.source_provider, revision.saved_at,
+                 revision.goal, revision.summary, revision.source_provider,
+                 revision.source_authority, revision.migration_source_object_id,
+                 revision.saved_at,
                  ${artifactLifecycleColumns()}
           FROM artifacts artifact
           JOIN artifact_versions revision
@@ -163,6 +166,8 @@ function artifactResult(row, project, history: any[] = []) {
       content_utf8_bytes: Number(row.content_utf8_bytes),
       handoff: handoffFromRow(row),
       source: row.source_provider,
+      authority: row.source_authority || "HUMAN_CONFIRMED",
+      migration_source_object_id: row.migration_source_object_id || null,
       saved_at: row.saved_at,
       lifecycle: {
         state: row.lifecycle_state || "active",
@@ -205,6 +210,7 @@ export async function listProjectArtifactActivity(
               revision.source_provider, revision.saved_at
        FROM artifact_versions revision
        WHERE revision.workspace_id = ? AND revision.project_id = ?
+         AND revision.source_authority = 'HUMAN_CONFIRMED'
        ORDER BY revision.saved_at DESC, revision.id DESC`,
     )
     .all(access.projectWorkspaceId, access.projectId);
@@ -724,6 +730,7 @@ function filteredArtifactRows(
     limit: number;
     offset?: number;
     lifecycle?: "active" | "superseded" | "archived" | "all";
+    include_unverified_imports?: boolean;
     now?: Date;
   },
 ) {
@@ -733,6 +740,9 @@ function filteredArtifactRows(
   const ranked = rows
     .filter((row) => {
       const tags = parsedArray(row.tags_json);
+      if (!input.include_unverified_imports && row.source_authority === "IMPORTED_UNVERIFIED") {
+        return false;
+      }
       if (input.categories.length > 0 && !input.categories.includes(row.category)) return false;
       if (input.tags.length > 0 && !input.tags.every((tag) => tags.includes(tag))) return false;
       if (input.sources.length > 0 && !input.sources.includes(row.source_provider)) return false;
@@ -812,6 +822,7 @@ function filteredArtifactRows(
       summary: row.summary,
       goal: row.goal,
       source: row.source_provider,
+      authority: row.source_authority || "HUMAN_CONFIRMED",
       saved_at: row.saved_at,
       lifecycle: {
         state: row.lifecycle_state,
@@ -977,6 +988,7 @@ export async function searchProjectArtifacts(
     limit: number;
     offset?: number;
     lifecycle?: "active" | "superseded" | "archived" | "all";
+    include_unverified_imports?: boolean;
     now?: Date;
   },
 ) {
@@ -1177,6 +1189,7 @@ export async function getAliceArtifact(
   });
   if (!access) return undefined;
   const result = await getArtifactForScope(database, access, input);
+  if (result?.artifact.authority === "IMPORTED_UNVERIFIED") return undefined;
   if (
     !result ||
     result.artifact.selected_version !== result.artifact.current_version ||

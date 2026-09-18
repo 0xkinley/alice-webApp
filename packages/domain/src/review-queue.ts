@@ -87,7 +87,7 @@ export async function getReviewQueue(
   const allCandidates = (
     await database
       .prepare(
-        `SELECT candidate.id, candidate.state_key, candidate.value_json, candidate.summary,
+        `SELECT candidate.id, candidate.project_id, candidate.state_key, candidate.value_json, candidate.summary,
               candidate.status, candidate.created_at,
               evidence.id AS evidence_id, evidence.exact_payload_json,
               evidence.actor_type, evidence.connection_id, evidence.client_id,
@@ -177,6 +177,22 @@ export async function getReviewQueue(
     ...captureDetails(candidate.exact_payload_json),
     exact_payload_json: undefined,
   }));
+  for (const candidate of allCandidates) {
+    candidate.migration_sources = await database
+      .prepare(
+        `SELECT source.id, source.source_position, source.object_type, source.title,
+                source.representation, source.completeness
+         FROM migration_candidate_sources citation
+         JOIN migration_source_objects source
+           ON source.workspace_id = citation.workspace_id
+          AND source.project_id = citation.project_id
+          AND source.id = citation.source_object_id
+         WHERE citation.workspace_id = ? AND citation.project_id = ?
+           AND citation.candidate_id = ?
+         ORDER BY source.source_position, source.id`,
+      )
+      .all(scope.projectWorkspaceId, project.id, candidate.id);
+  }
   const permitted: any[] = [];
   for (const candidate of allCandidates) {
     if (
