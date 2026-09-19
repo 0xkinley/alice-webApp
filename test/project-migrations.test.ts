@@ -873,8 +873,9 @@ test("ChatGPT-like MCP flow exposes preview, app-only Migrate, status, and equiv
   assert.match(importedHtml, /Immutable source/);
   assert.match(importedHtml, /Unverified host-derived material/);
   assert.match(importedHtml, /Acquisition boundary/);
-  assert.match(importedHtml, /Source scope<\/dt><dd>Unknown/);
-  assert.match(importedHtml, /Completeness<\/dt><dd>Unknown/);
+  assert.match(importedHtml, /Source scope<\/dt><dd>Not established from supplied evidence/);
+  assert.match(importedHtml, /Scope basis<\/dt><dd>No supported scope evidence supplied/);
+  assert.match(importedHtml, /Completeness<\/dt><dd>Not established for the original source/);
   assert.match(importedHtml, /Only this summary was supplied to Alice/);
   assert.match(importedHtml, /&lt;script&gt;window\.aliceCompromised = true&lt;\/script&gt;/);
   assert.doesNotMatch(importedHtml, /<script>window\.aliceCompromised/);
@@ -924,4 +925,70 @@ test("ChatGPT-like MCP flow exposes preview, app-only Migrate, status, and equiv
   });
   assert.equal(emptyImportedPage.status, 200);
   assert.match(await emptyImportedPage.text(), /No imported material/);
+});
+
+test("an artifact description with complete supplied text is not labelled a complete artifact", async (t) => {
+  t.after(() => database.close());
+  const connection = await addConnection(owner, "artifact-description-copy", "chatgpt");
+  const preview = await createProjectMigrationPreview(database, {
+    userId: owner.id,
+    ...connection,
+    payload: {
+      alice_project_name: "Referenced brief",
+      supplied_material: [
+        {
+          kind: "artifact_description",
+          content: "# Supplied brief text <script>doNotRun()</script>",
+          capture_state: "content_only",
+        },
+      ],
+      idempotency_key: "artifact-description-copy-001",
+    },
+  });
+  assert.ok(preview);
+  const committed = await commitProjectMigrationPreview(database, {
+    userId: owner.id,
+    ...connection,
+    publicUrl: "http://127.0.0.1",
+    previewId: preview.preview.preview_id,
+    previewVersion: preview.preview.preview_version,
+    authorityToken: preview.authority_token,
+    destinationAction: "create_project_from_source",
+  });
+  assert.ok(committed);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM artifact_versions").get().count, 0);
+
+  const web = await createWebApp({ database, publicUrl: "http://127.0.0.1" });
+  const server = web.app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(
+    () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
+  );
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const login = await fetch(`${baseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      email: owner.email,
+      password: "migration owner private password",
+      next: "/",
+    }),
+    redirect: "manual",
+  });
+  const cookie = login.headers.get("set-cookie")!.split(";")[0];
+  const projectId = new URL(committed.project.url).pathname.split("/")[2];
+  const imported = await fetch(`${baseUrl}/projects/${projectId}/imported`, {
+    headers: { cookie },
+  });
+  assert.equal(imported.status, 200);
+  const html = await imported.text();
+  assert.match(html, /Artifact description/);
+  assert.match(html, /Supplied description retained/);
+  assert.match(html, /Original artifact not established/);
+  assert.match(html, /it was not added to Artifacts/);
+  assert.match(html, /&lt;script&gt;doNotRun\(\)&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>doNotRun\(\)<\/script>/);
 });
